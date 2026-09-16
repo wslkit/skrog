@@ -5,11 +5,11 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"path/filepath"
 
 	"github.com/wslkit/skrog/internal/autostart"
 	"github.com/wslkit/skrog/internal/doctor"
 	"github.com/wslkit/skrog/internal/provision"
+	"github.com/wslkit/skrog/internal/selfexe"
 )
 
 func runDoctor(args []string) int {
@@ -47,10 +47,7 @@ flags:
 
 	opts := optsWithResolvedStateDir(provision.Options{StateDir: *stateDir})
 
-	skrogBin := ""
-	if exe, err := os.Executable(); err == nil {
-		skrogBin = filepath.Dir(exe)
-	}
+	skrogBin := selfexe.Dir()
 	autostartOn, _, _ := autostart.Status()
 
 	ctx := context.Background()

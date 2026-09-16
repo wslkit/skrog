@@ -6,9 +6,9 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"path/filepath"
 
 	"github.com/wslkit/skrog/internal/provision"
+	"github.com/wslkit/skrog/internal/selfexe"
 	"github.com/wslkit/skrog/internal/version"
 	"github.com/wslkit/skrog/internal/wsl"
 )
@@ -34,17 +34,15 @@ flags:
 	}
 
 	opts := provision.Options{StateDir: *stateDir}
-	exe, err := os.Executable()
-	if err != nil {
-		exe = ""
-	}
 
 	c := &version.Collector{
 		App: buildVersion,
 		Env: version.Env{
 			// Skrog's bundled CLI sits beside the binary, which is how its
-			// own docker.exe is recognized on PATH.
-			SkrogBin: filepath.Dir(exe),
+			// own docker.exe is recognized on PATH. Resolved through any
+			// symlink, or a winget portable install would look in the Links
+			// directory and report the bundled CLI as absent (#360).
+			SkrogBin: selfexe.Dir(),
 		},
 		WSL:         wsl.NewLocal(),
 		Provisioner: &provision.Provisioner{},

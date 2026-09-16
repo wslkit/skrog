@@ -29,7 +29,15 @@ const ValueName = "Skrog"
 var runKeyPath = `Software\Microsoft\Windows\CurrentVersion\Run`
 
 // Enable registers skrogw.exe (next to the given skrog.exe) to run at logon.
+//
+// The path is resolved through any symlink first. A winget `portable` install
+// puts an alias SYMLINK on PATH and keeps the real files elsewhere, so the
+// launcher sits next to the TARGET, never next to the link the user invoked
+// (#360).
 func Enable(skrogExe string) error {
+	if resolved, err := filepath.EvalSymlinks(skrogExe); err == nil {
+		skrogExe = resolved
+	}
 	launcher := filepath.Join(filepath.Dir(skrogExe), "skrogw.exe")
 	if _, err := os.Stat(launcher); err != nil {
 		return fmt.Errorf("autostart needs the skrogw.exe launcher next to skrog.exe "+

@@ -21,6 +21,7 @@ import (
 	"github.com/wslkit/skrog/internal/policy"
 	"github.com/wslkit/skrog/internal/profile"
 	"github.com/wslkit/skrog/internal/provision"
+	"github.com/wslkit/skrog/internal/selfexe"
 	"github.com/wslkit/skrog/internal/supervise"
 )
 
@@ -828,7 +829,7 @@ func fileExists(path string) bool {
 // `skrog start` (#166). Falling back to spawning supervise directly keeps a
 // single-binary checkout working, just without the watchdog.
 func spawnSupervisor(stateDir string) error {
-	self, err := os.Executable()
+	self, err := selfexe.Path()
 	if err != nil {
 		return err
 	}

@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"fyne.io/systray"
+	"github.com/wslkit/skrog/internal/selfexe"
 	"github.com/wslkit/skrog/internal/tray"
 )
 
@@ -28,7 +29,7 @@ func main() {
 // skrogExe resolves the sibling skrog.exe next to this binary, falling back
 // to PATH. The tray ships beside the CLI in the release zip.
 func skrogExe() string {
-	if self, err := os.Executable(); err == nil {
+	if self, err := selfexe.Path(); err == nil {
 		cand := filepath.Join(filepath.Dir(self), "skrog.exe")
 		if _, err := os.Stat(cand); err == nil {
 			return cand

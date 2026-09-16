@@ -326,6 +326,12 @@ func applyApp(version, stateDir string) int {
 		fmt.Fprintf(os.Stderr, "skrog: locating the running binary: %v\n", err)
 		return exitError
 	}
+	// Deliberately NOT resolved through symlinks (#360). Everywhere else that
+	// derives a sibling uses internal/selfexe, but replacing a binary is the
+	// one case where following a link would be wrong: a winget "portable"
+	// install is owned by winget, and overwriting its package directory behind
+	// its back would leave it reporting a version it no longer has. Detecting
+	// that case and deferring to `winget upgrade` is its own task.
 	dir := filepath.Dir(exe)
 
 	// Clear leftovers from a previous upgrade before making new ones, so the

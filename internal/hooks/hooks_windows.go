@@ -8,6 +8,8 @@ import (
 	"unsafe"
 
 	"golang.org/x/sys/windows"
+
+	"github.com/wslkit/skrog/internal/selfexe"
 )
 
 // loadedModules enumerates this process's modules through the Tool Help
@@ -43,10 +45,9 @@ func loadedModules() []Module {
 	}
 }
 
+// executableDir is the directory holding this binary. Resolved through any
+// symlink: a winget portable install is invoked through an alias link whose
+// directory holds nothing else (#360).
 func executableDir() string {
-	exe, err := os.Executable()
-	if err != nil {
-		return ""
-	}
-	return filepath.Dir(exe)
+	return selfexe.Dir()
 }
