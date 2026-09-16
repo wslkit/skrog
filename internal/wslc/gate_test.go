@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/wslkit/skrog/internal/imageref"
 	"github.com/wslkit/skrog/internal/pipeproxy"
 )
 
@@ -27,22 +28,74 @@ func allowlist(entries ...string) *PolicyGate {
 	}}
 }
 
-func TestRegistryServer(t *testing.T) {
-	cases := map[string]string{
-		"busybox":                        DockerHubServer,
-		"library/busybox":                DockerHubServer,
-		"busybox:latest":                 DockerHubServer,
-		"contoso.azurecr.io/app":         "contoso.azurecr.io",
-		"contoso.azurecr.io/team/app:v1": "contoso.azurecr.io",
-		"localhost/app":                  "localhost",
-		"localhost:5000/app":             "localhost:5000",
-		"registry:5000/app":              "registry:5000",
-		"":                               "",
-	}
-	for image, want := range cases {
-		if got := RegistryServer(image); got != want {
-			t.Errorf("RegistryServer(%q) = %q, want %q", image, got, want)
+// TestGateResolvesReferencesLikeDocker checks the wiring: the parsing rule now
+// lives in internal/imageref and is tested there, but the gate has to apply it.
+func TestGateResolvesReferencesLikeDocker(t *testing.T) {
+	g := allowlist("contoso.azurecr.io")
+
+	for _, image := range []string{
+		"busybox", "library/busybox", "busybox:latest", // all Docker Hub
+		"localhost/app", "localhost:5000/app", "registry:5000/app",
+	} {
+		if _, denied := g.DenyCreate(map[string]any{"Image": image}); !denied {
+			t.Errorf("allowlist=[contoso.azurecr.io] should deny %q", image)
 		}
+	}
+	for _, image := range []string{"contoso.azurecr.io/app", "contoso.azurecr.io/team/app:v1"} {
+		if _, denied := g.DenyCreate(map[string]any{"Image": image}); denied {
+			t.Errorf("allowlist=[contoso.azurecr.io] should permit %q", image)
+		}
+	}
+
+	// The discriminating case: a Hub namespace must not be read as a registry,
+	// which every denial above would tolerate.
+	hub := allowlist(imageref.DockerHub)
+	for _, image := range []string{"busybox", "library/busybox", "myuser/app"} {
+		if _, denied := hub.DenyCreate(map[string]any{"Image": image}); denied {
+			t.Errorf("allowlist=[docker.io] should permit %q (a Hub namespace is not a registry)", image)
+		}
+	}
+}
+
+// TestUppercaseRegistryIsNotDockerHub is #355 at the gate.
+//
+// Hand-parsing resolved MYREG/img to docker.io, so an allowlist permitting
+// Docker Hub also permitted a pull from a single-label host called MYREG: the
+// gate judged one registry while the daemon contacted another. Same class as
+// the bypasses fixed in #344.
+func TestUppercaseRegistryIsNotDockerHub(t *testing.T) {
+	hub := allowlist(imageref.DockerHub)
+
+	for _, image := range []string{"MYREG/img", "MyReg/img", "MYREG.example.com/img"} {
+		if _, denied := hub.DenyCreate(map[string]any{"Image": image}); !denied {
+			t.Errorf("allowlist=[docker.io] must NOT permit %q — Docker resolves it to that host, not to Hub", image)
+		}
+		if _, denied := hub.DenyPull(image); !denied {
+			t.Errorf("pull of %q must be denied for the same reason", image)
+		}
+	}
+}
+
+// TestUnattributableReferenceIsRefused: a reference dockerd itself cannot parse
+// must not be guessed at. Refusing matches DenyBuild's precedent -- cannot
+// attribute, so refuse -- and is only applied while an allowlist is in force,
+// so a machine with no policy is unaffected.
+func TestUnattributableReferenceIsRefused(t *testing.T) {
+	g := allowlist("contoso.azurecr.io")
+	for _, image := range []string{"/leading", "host./img", "user@host/img", "UPPER/UPPER"} {
+		if _, denied := g.DenyCreate(map[string]any{"Image": image}); !denied {
+			t.Errorf("unparseable reference %q should be refused while an allowlist is active", image)
+		}
+		if _, denied := g.DenyPull(image); !denied {
+			t.Errorf("unparseable reference %q should be refused at pull too", image)
+		}
+	}
+
+	// With no allowlist there is nothing to enforce, so it passes through and
+	// the daemon gives its own error.
+	open := &PolicyGate{Policies: Policies{ContainersAllowed: true, PrivilegedAllowed: true}}
+	if _, denied := open.DenyCreate(map[string]any{"Image": "user@host/img"}); denied {
+		t.Error("with no allowlist deployed, Skrog should not invent a refusal")
 	}
 }
 

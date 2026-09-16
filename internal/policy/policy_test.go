@@ -214,6 +214,27 @@ func TestAllowRegistriesResolvesReferencesLikeDocker(t *testing.T) {
 	if !deniedBy(hub, "ghcr.io/o/r") {
 		t.Error("allow-registries=[docker.io] should deny ghcr.io/o/r")
 	}
+
+	// #355 on this side of the house. An uppercase first component is a domain
+	// to Docker, so allow-registries=[docker.io] must NOT permit MYREG/img —
+	// the daemon would contact a single-label host called MYREG, not Hub.
+	//
+	// This case was added after a control run: reverting the parser left this
+	// whole test green, because every other expectation here is one the old
+	// hand-parser also got right.
+	for _, image := range []string{"MYREG/img", "MyReg/img"} {
+		if !deniedBy(hub, image) {
+			t.Errorf("allow-registries=[docker.io] must not permit %q — Docker resolves it to that host", image)
+		}
+	}
+
+	// An unparseable reference cannot be attributed, so it is refused rather
+	// than guessed into Docker Hub and thereby allowed.
+	for _, image := range []string{"user@host/img", "/leading", "UPPER/UPPER"} {
+		if !deniedBy(hub, image) {
+			t.Errorf("unattributable reference %q should be refused, not resolved to Hub", image)
+		}
+	}
 }
 
 // deniedBy reports whether allow-registries refuses this image.

@@ -204,7 +204,16 @@ func (r Rules) EvaluateCreate(body map[string]any) Decision {
 	image := apibody.String(body, "Image")
 	if image != "" {
 		if len(r.AllowRegistries) > 0 {
-			reg := imageref.Registry(image)
+			reg, ok := imageref.Registry(image)
+			if !ok {
+				// Unparseable, so it cannot be attributed to an allowed
+				// registry. Refuse rather than guess: dockerd rejects this
+				// reference too, and guessing Docker Hub for it would permit it
+				// on any allowlist that names Hub.
+				return deny("allow-registries",
+					"policy cannot attribute %q to a registry (allowed: %s)",
+					image, strings.Join(r.AllowRegistries, ", "))
+			}
 			if !matchesAny(reg, r.AllowRegistries) {
 				return deny("allow-registries",
 					"policy does not allow images from %s (allowed: %s)",
