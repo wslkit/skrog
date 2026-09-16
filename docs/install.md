@@ -81,13 +81,16 @@ autostart needs it), `skrogtray.exe` (an optional status tray), `skrog-agent`
 and `README.md`. Keep them together.
 
 > **SmartScreen will warn on first run.** The binaries are not
-> Authenticode-signed yet. Code signing is applied for through the
-> [SignPath Foundation](https://signpath.org); until a certificate is issued the
-> warning stands. A **real Windows installer — MSI, winget, scoop —** is
-> [#77](https://github.com/wslkit/skrog/issues/77) and waits on that signature,
-> because shipping an unsigned MSI would make the warning worse rather than
-> better. Until then it is download-and-unpack, which is why the checksum step
-> above is written out in full.
+> Authenticode-signed. The [SignPath Foundation](https://signpath.org)'s free
+> programme declined for now — it is for projects with an established user base
+> — and invited a reapplication as visibility grows; paying for a certificate
+> is the other route. Which one, and when, is
+> [#77](https://github.com/wslkit/skrog/issues/77), so no date is promised here.
+>
+> A **real Windows installer — MSI, winget, scoop —** waits on the same answer,
+> because an unsigned installer that asks for elevation is a worse experience
+> than a zip, not a better one. So it is download-and-unpack, which is exactly
+> why the checksum step above is written out in full rather than waved at.
 >
 > What every release *does* carry today is **SLSA build provenance** and a
 > **cosign-signed `SHA256SUMS`** — two things an Authenticode signature does not

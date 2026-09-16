@@ -1,25 +1,42 @@
 # Code signing policy
 
-This page exists because the SignPath Foundation requires projects it sponsors
-to publish one, and because anyone installing a binary that claims to be Skrog
-deserves to know who can make one.
+Anyone installing a binary that claims to be Skrog deserves to know who can
+make one. That is what this page answers, and it stands whoever ends up issuing
+the certificate.
 
-> **Status: accepted, Authenticode not yet in effect.** The roles and the
-> CI-only signing below are settled. Skrog's binaries are **not
-> Authenticode-signed**, because the application to the SignPath Foundation is
-> still open ([#77](https://github.com/wslkit/skrog/issues/77)) — so
-> SmartScreen still warns.
+> **Status: unsigned today. Two routes open, neither closed.**
+>
+> The application to the SignPath **Foundation** — the free programme for open
+> source — was declined for now: it is for projects with an established user
+> base, and Skrog does not have one yet. They invited a reapplication once
+> visibility grows, so that route is deferred rather than refused.
+>
+> The other route is simply to **pay** — a SignPath subscription, or another
+> certificate provider. That needs no one's approval and could happen at any
+> time; it is a cost decision, taken in
+> [#77](https://github.com/wslkit/skrog/issues/77).
+>
+> Until one of those lands, Skrog's binaries are **not Authenticode-signed**
+> and SmartScreen warns on first run.
 >
 > What *is* in effect, from **v0.3.1**: every release artifact carries SLSA
 > build provenance, and `SHA256SUMS` is signed with cosign keyless. Those
-> answer "was this built by that workflow, from that commit" — which an
-> Authenticode signature does not. See
+> answer *"was this built by that workflow, from that commit"* — a question an
+> Authenticode signature does not answer. They are not a substitute for
+> signing; they are a different, and in some ways stronger, check. See
 > [verifying a release](#verifying-a-release-today).
+>
+> Options and their costs are in
+> [#77](https://github.com/wslkit/skrog/issues/77).
 
-## Attribution
+## The policy below still applies
 
-Free code signing provided by [SignPath.io](https://about.signpath.io),
-certificate by the [SignPath Foundation](https://signpath.org).
+The roles, the CI-only signing rule and the threat model were written to meet
+the Foundation's requirements, and they are good practice independent of who
+issues a certificate. They are kept so that the day one is obtained, the
+process is already settled rather than invented in a hurry.
+
+Where the text says "the Foundation", read "whoever issues the certificate".
 
 ## Project roles
 
@@ -98,19 +115,24 @@ SignPath receives the build artifacts and the repository metadata needed to
 verify them. It receives nothing about anyone who installs or runs Skrog,
 because nothing about them exists to send.
 
-## What the programme constrains
+## Free versus paid, and why it is not only about money
 
-Two conditions are worth writing down, because they bind the project and not
-just the pipeline.
+Recorded because it is the actual trade in
+[#77](https://github.com/wslkit/skrog/issues/77), and the cheaper option is not
+automatically the better one.
 
-The certificate is **issued by the Foundation to the project**, not owned by
-us. And the programme requires an OSI-approved licence with **no commercial
-dual-licensing, for any component**. A future paid tier or dual-licence would
-end eligibility and mean buying a commercial certificate instead. Neither is a
-one-way door — but both are doors.
+**The Foundation's programme** issues the certificate *to the project* and
+requires an OSI-approved licence with **no commercial dual-licensing, for any
+component**. A future paid tier would end eligibility. The Foundation can also
+pause or revoke, immediately or retroactively, over a Code of Conduct
+violation. It is free, and it is somebody else's to withdraw.
 
-The Foundation can also pause the subscription or revoke the certificate,
-immediately or retroactively, over a Code of Conduct violation.
+**A paid subscription** costs money and needs an identity to verify, but nobody
+can take it away over a licence change or a disagreement, and it does not wait
+on how popular the project is.
+
+So the free route keeps a door open that the paid route closes — and vice
+versa. Worth deciding deliberately rather than by default.
 
 ## Verifying a release today
 

@@ -197,7 +197,7 @@ Distribution and trust — the difference between a repo and a tool people insta
 - [ ] winget, scoop, and chocolatey manifests; WiX MSI for Intune/Ansible fleet deployment
 - [ ] Windows ARM64 builds alongside x64 (Go cross-compiles; WSL2 and the engine run natively on ARM64 — Snapdragon dev laptops are a growing, underserved slice)
 - [ ] `skrog update [--check]`: self-update from the signed release manifest — explicit invocation only, never automatic (determinism is the CI contract)
-- [ ] Code signing via Azure Trusted Signing or SignPath's OSS program; published checksums; SmartScreen reputation plan
+- [ ] Code signing -- route undecided (#77): the SignPath Foundation declined for now pending visibility, paying is the alternative. Published checksums, SLSA provenance and cosign are in place; SmartScreen reputation only starts accruing once signed
 - [ ] `skrog expose --tcp`: opt-in mutual-TLS TCP endpoint with generated certs, for SDKs that can't speak npipe
 - [ ] Opt-in LAN port mirroring (`netsh interface portproxy`) for published container ports
 - [ ] Enterprise policy layer: ADMX template + registry keys for what admins actually lock down (pin/forbid engine versions, disable `expose --tcp`, lock registry mirrors, disable LAN mirroring)
@@ -302,7 +302,7 @@ The `wsl` package hides every `wsl.exe` invocation behind an interface so unit t
 | Auto-logon forbidden by policy | medium | Unattended runners need a logged-on session, and auto-logon stores a password in LSA secrets. Fleets that ban it cannot run Skrog unattended — nor any WSL-based engine, so no competitor wins those machines either. Mitigation: state it in the docs, name it in `doctor`, and never automate credential storage on the user's behalf. Theoretical escape (out of scope): run the engine in a plain Hyper-V VM instead of WSL. |
 | WSL2 behavior drift | ongoing | Pin a minimum WSL version; doctor detects mismatches; abstract every `wsl.exe` call; test Insider builds before Windows feature updates land. |
 | CI can't run WSL2 | medium | GitHub-hosted Windows runners lack nested virtualization. Keep unit tests host-independent; one self-hosted runner (or a paid larger runner) for the e2e suite. |
-| SmartScreen / unsigned binaries | medium | Sign from the first public release (Azure Trusted Signing is ~$10/mo; SignPath is free for OSS); winget distribution builds reputation fastest. container-desktop's Defender-blocked installer is the cautionary tale. |
+| SmartScreen / unsigned binaries | **raised: high** | The free route is gated on the thing it would help fix. SignPath's Foundation programme declined pending an established user base; winget builds reputation fastest but wants a signed installer; reputation only accrues once signed. Paying breaks the loop and needs nobody's approval (#77). container-desktop's Defender-blocked installer is the cautionary tale. |
 | Corporate VPN / DNS breakage | chronic | The #1 WSL2 support topic everywhere — treated as a product surface, not an issue label: platform fixes, fingerprint database, doctor --fix, opt-in relay (section 07). |
 | Pipe security | design-time | ACL the pipe to interactive user + admins; TCP only as opt-in mutual-TLS; publish a short threat model so security teams can approve it. |
 
