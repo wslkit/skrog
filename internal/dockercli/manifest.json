@@ -25,7 +25,7 @@
   "components": [
     {
       "name": "docker",
-      "version": "29.8.0",
+      "version": "29.8.1",
       "role": "cli",
       "target": "docker.exe",
       "zipEntry": "docker/docker.exe",
@@ -33,8 +33,8 @@
       "licenseURL": "https://raw.githubusercontent.com/docker/cli/master/LICENSE",
       "arch": {
         "amd64": {
-          "url": "https://download.docker.com/win/static/stable/x86_64/docker-29.8.0.zip",
-          "sha256": "bca70bfcddb4eed5bb8af5c15a1fb583b95edacf6096152e20a621ae68c871cb"
+          "url": "https://download.docker.com/win/static/stable/x86_64/docker-29.8.1.zip",
+          "sha256": "f99b6e0ac1950e6c47c267b1d7ac53ef973682208523212d03477478c6562aaf"
         },
         "arm64": { "url": "", "sha256": "" }
       }
@@ -59,19 +59,19 @@
     },
     {
       "name": "buildx",
-      "version": "0.37.0",
+      "version": "0.37.1",
       "role": "plugin",
       "target": "docker-buildx.exe",
       "license": "Apache-2.0",
       "licenseURL": "https://raw.githubusercontent.com/docker/buildx/master/LICENSE",
       "arch": {
         "amd64": {
-          "url": "https://github.com/docker/buildx/releases/download/v0.37.0/buildx-v0.37.0.windows-amd64.exe",
-          "sha256": "f49fa81c676e178ebac4679cc33c6560f14a56b586f33c9e298a917313cd909b"
+          "url": "https://github.com/docker/buildx/releases/download/v0.37.1/buildx-v0.37.1.windows-amd64.exe",
+          "sha256": "3904abb2802f9bd83a2bf483b35bba81c57a4e0baff981e6886564c461f908b3"
         },
         "arm64": {
-          "url": "https://github.com/docker/buildx/releases/download/v0.37.0/buildx-v0.37.0.windows-arm64.exe",
-          "sha256": "822457d04cd6d0685dce5e6f343cdca86f6dbeba6bae6302d033ff93e95c9d23"
+          "url": "https://github.com/docker/buildx/releases/download/v0.37.1/buildx-v0.37.1.windows-arm64.exe",
+          "sha256": "bdf356a5f2c8f3efd8a357b1f044860216e15e654a9a7105ca4e5dd5b5697ee4"
         }
       }
     },
