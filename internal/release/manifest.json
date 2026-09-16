@@ -26,8 +26,24 @@
   ],
   "engines": [
     {
-      "version": "29.8.0",
+      "version": "29.8.1",
       "default": true,
+      "rootfs": {
+        "url": "https://github.com/wslkit/skrog/releases/download/rootfs-v29.8.1-1/skrog-rootfs-29.8.1-1.tar.gz",
+        "sha256": ""
+      },
+      "components": {
+        "dockerd": "29.8.1",
+        "containerd": "2.1.4",
+        "runc": "1.3.0",
+        "buildkit": "0.27.0",
+        "alpine": "3.24.1",
+        "nvidia-cdi-hook": "1.20.0"
+      }
+    },
+    {
+      "version": "29.8.0",
+      "default": false,
       "rootfs": {
         "url": "https://github.com/wslkit/skrog/releases/download/rootfs-v29.8.0-2/skrog-rootfs-29.8.0-2.tar.gz",
         "sha256": "a16cd3bc38f0529542a7fc6fba066d944e96302f459595ebf7c5d04035a600af"
