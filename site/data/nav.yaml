@@ -16,7 +16,7 @@ sections:
   - section: Fleet and CI
     pages: [ci-runners, auto-logon-runner, declarative-install, profiles, remote-engine, local-ci]
   - section: Advanced
-    pages: [gpu, kubernetes, hooks, cli-json, reference]
+    pages: [wslc-deep-dive, gpu, kubernetes, hooks, cli-json, reference]
   - section: Contributing
     pages: [bumping-upstream]
 
@@ -27,6 +27,7 @@ short:
   install: Installing Skrog
   wsl-containers: wslc and Skrog
   wslc-backend: wslc as the engine
+  wslc-deep-dive: wslc deep dive
   code-signing: Code signing
   auto-logon-runner: Unattended runners
   security: Security model

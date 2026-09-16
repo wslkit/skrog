@@ -170,6 +170,10 @@ wslc --session <name> system session run curl -s --unix-socket /var/run/docker.s
 If that prints a Docker version payload, you have just talked to the engine
 Microsoft ships and the one nothing on your machine can otherwise reach.
 
+For the whole picture in one place — the capability envelope, how the bridge
+works, and what we would want from upstream — see
+[wslc as a full Docker engine](wslc-deep-dive.md).
+
 Both layers of the protocol are open source, MIT licensed, in
 [microsoft/WSL](https://github.com/microsoft/WSL): the COM interfaces in
 `src/windows/service/inc/wslc.idl`, and the guest message protocol in
