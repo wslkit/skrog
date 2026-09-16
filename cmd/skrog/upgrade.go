@@ -15,6 +15,7 @@ import (
 	"github.com/wslkit/skrog/internal/dockercli"
 	"github.com/wslkit/skrog/internal/provision"
 	"github.com/wslkit/skrog/internal/release"
+	"github.com/wslkit/skrog/internal/selfexe"
 	"github.com/wslkit/skrog/internal/supervise"
 	"github.com/wslkit/skrog/internal/upgrade"
 )
@@ -32,6 +33,7 @@ func runUpgrade(args []string) int {
 		asJSON   = fs.Bool("json", false, "emit machine-readable JSON (implies --check)")
 		stateDir = fs.String("state-dir", "", "override Skrog's state directory")
 		timeout  = fs.Duration("timeout", 15*time.Second, "how long to wait for the releases API")
+		force    = fs.Bool("force", false, "replace the binary even when a package manager owns this install")
 	)
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, `usage: skrog upgrade [--check|--dry-run] [--yes] [--offline] [--json]
@@ -53,6 +55,7 @@ as it was.
   --apply     replace skrog.exe too, not just the engine and the CLI
   --dry-run   print exactly what would be applied, and apply nothing
   --yes       do not ask (runners)
+  --force     replace the binary even when a package manager owns this install
 
 --apply replaces the files. skrog.exe takes effect immediately, because the
 supervisor is recycled onto the new one; skrogw.exe and skrogtray.exe take
@@ -168,7 +171,7 @@ flags:
 	// failure in the engine or CLI half leaves the running binary the one that
 	// produced the log the user is about to read.
 	if appBehind && *apply {
-		return applyApp(rep.AppStream().Latest, opts.StateDir)
+		return applyApp(rep.AppStream().Latest, opts.StateDir, *force)
 	}
 	return exitOK
 }
@@ -320,18 +323,32 @@ func installedCLIVersion(opts provision.Options) string {
 // touch the install directory. Nothing here can leave a half-upgraded install
 // -- SwapBinaries rolls back if any file cannot be replaced, and a download
 // that fails verification never reaches the swap at all.
-func applyApp(version, stateDir string) int {
+func applyApp(version, stateDir string, force bool) int {
 	exe, err := os.Executable()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "skrog: locating the running binary: %v\n", err)
 		return exitError
 	}
+
+	// Refuse to fight a package manager (#370).
+	//
+	// The check needs the RESOLVED path, because a winget install is reached
+	// through an alias symlink and only the target is inside the package
+	// directory (#360). The swap below deliberately uses the UNRESOLVED one:
+	// they are different questions, and conflating them is what #360 was.
+	if resolved, rerr := selfexe.Path(); rerr == nil {
+		if owner, owned := upgrade.OwnedBy(resolved); owned && !force {
+			fmt.Fprintf(os.Stderr, "skrog: this install is managed by %s, so `skrog upgrade --apply` "+
+				"would overwrite files it owns and leave it reporting a version you no longer have.\n\n"+
+				"  upgrade with:  %s\n\n"+
+				"Pass --force to replace the binary anyway.\n", owner.Name, owner.Command)
+			return exitError
+		}
+	}
+
 	// Deliberately NOT resolved through symlinks (#360). Everywhere else that
 	// derives a sibling uses internal/selfexe, but replacing a binary is the
-	// one case where following a link would be wrong: a winget "portable"
-	// install is owned by winget, and overwriting its package directory behind
-	// its back would leave it reporting a version it no longer has. Detecting
-	// that case and deferring to `winget upgrade` is its own task.
+	// one case where following a link would be wrong.
 	dir := filepath.Dir(exe)
 
 	// Clear leftovers from a previous upgrade before making new ones, so the

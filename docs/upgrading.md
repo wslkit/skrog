@@ -52,6 +52,31 @@ Same verb at two scopes:
   restarting the supervisor onto the new binary
 ```
 
+### If a package manager installed Skrog, let it do the upgrade
+
+`--apply` refuses when the binary lives inside a package manager's directory:
+
+```
+$ skrog upgrade --apply
+skrog: this install is managed by winget, so `skrog upgrade --apply` would
+overwrite files it owns and leave it reporting a version you no longer have.
+
+  upgrade with:  winget upgrade wslkit.skrog
+
+Pass --force to replace the binary anyway.
+```
+
+Replacing the files behind the manager's back leaves it believing something
+untrue: `winget list` keeps reporting the version it installed, a later
+`winget upgrade` reinstalls over the newer binary and silently downgrades it,
+and `winget uninstall` removes a package whose contents no longer match its
+manifest. scoop and Chocolatey are recognised the same way.
+
+A zip you unpacked yourself — including the one the install script places in
+`%LOCALAPPDATA%\Programs\skrog` — is owned by nobody and upgrades itself
+normally. Only a recognised package-manager location is refused, so an
+unfamiliar install directory is always treated as unmanaged.
+
 The order is the safety argument: the release zip is downloaded and checked
 against **that release's `SHA256SUMS`** before anything on disk is touched, and
 the binaries are moved aside rather than overwritten, so a failure at any point
