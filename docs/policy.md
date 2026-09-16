@@ -73,6 +73,49 @@ bare hostname in the allowlist matches that host on **any port**; write
 **`require-digest`** refuses anything without `@sha256:` — including
 `ubuntu:24.04`, because a tag can move.
 
+### Which calls each rule judges
+
+The image rules apply at **pull and push**, not only at container create. That
+matters: gating only `create` would stop a blocked image *running* while still
+letting it be *fetched onto the machine*, which is not what either rule says.
+
+| rule | judged on |
+|---|---|
+| `deny-privileged`, `deny-added-capabilities`, `deny-capabilities`, `deny-host-namespaces`, `allow-bind-sources` | `create` / `run` |
+| `allow-registries` | `create` / `run`, **`pull`**, **`push`** |
+| `require-digest` | `create` / `run`, **`pull`** |
+
+`require-digest` does **not** apply to a push. It exists to stop unpinned images
+being *consumed*; a push publishes something you just built, and requiring a
+digest there would refuse every ordinary `docker push app:v1`.
+
+> **This is a behaviour change if you already use `allow-registries` or
+> `require-digest`.** A `docker pull` that worked before is now refused on both
+> backends, at the pull rather than at the container create. That is the rule
+> doing what it always said, but it will look new.
+
+### What `allow-registries` does not stop
+
+**A build.** A Dockerfile's `FROM` and any `RUN` can reach any registry, and at
+the pipe a BuildKit build is an opaque gRPC stream, so a build cannot be
+attributed to a registry in advance. `policy.yaml` lets builds through rather
+than refusing them.
+
+That is a deliberate choice, not an oversight. Skrog's
+[wslc backend](wslc-backend.md) *does* refuse builds while the administrator's
+`WSLContainerRegistryAllowlist` is active — but that policy is deployed by GPO
+against a user who cannot edit it, where failing closed is the only coherent
+answer. `policy.yaml` is your own file: refusing every build on a machine that
+merely lists its registries would break working setups to close a hole its
+author can walk around by editing one line. Making it opt-in is
+[#376](https://github.com/wslkit/skrog/issues/376).
+
+**The network.** This is admission control at the Docker API. A running
+container can reach any registry it likes, and `docker load` plus `docker tag`
+will launder an image past a reference-based rule
+([#343](https://github.com/wslkit/skrog/issues/343)). The rules are a guardrail
+against mistakes, which is the claim this page has always made.
+
 ## What a denial looks like
 
 The bridge answers **403** with the reason, and the docker CLI prints it

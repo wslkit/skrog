@@ -754,9 +754,38 @@ func pullTarget(req *http.Request) (image string, isPull bool) {
 		return "", false
 	}
 	if tag := get("tag"); tag != "" && !strings.ContainsAny(from, "@") {
-		from += ":" + tag
+		// A digest arrives in `tag` too, and joining it with ":" produces a
+		// reference no rule can read. Captured from a real `docker pull
+		// ubuntu@sha256:...`:
+		//
+		//	fromImage=docker.io%2Flibrary%2Fubuntu&tag=sha256%3A1e622c5f...
+		//
+		// Composing that as "...ubuntu:sha256:1e622c5f..." loses the fact that
+		// it IS a digest, so a require-digest rule refuses precisely the pull
+		// it exists to encourage. Rejoin with "@" when the tag names a digest
+		// algorithm.
+		if isDigest(tag) {
+			from += "@" + tag
+		} else {
+			from += ":" + tag
+		}
 	}
 	return from, true
+}
+
+// isDigest reports whether a `tag` value is really a digest — "algo:hex", the
+// shape OCI uses. Deliberately shallow: this only has to decide how to rejoin
+// the reference, and the gate that reads it does its own parsing.
+func isDigest(tag string) bool {
+	algo, hex, found := strings.Cut(tag, ":")
+	if !found || hex == "" {
+		return false
+	}
+	switch algo {
+	case "sha256", "sha384", "sha512":
+		return true
+	}
+	return false
 }
 
 // isFormEncoded reports whether the body is urlencoded, which is the only case

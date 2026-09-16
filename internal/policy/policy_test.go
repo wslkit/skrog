@@ -406,3 +406,77 @@ func TestWatcherKeepsLastGoodRulesWhenTheFileBreaks(t *testing.T) {
 		t.Error("a fixed file should take effect")
 	}
 }
+
+// TestDenyPullAppliesTheImageRules is #334.
+//
+// allow-registries was evaluated only on container create, so a blocked image
+// could not RUN but could still be FETCHED onto the machine. require-digest had
+// the same gap.
+func TestDenyPullAppliesTheImageRules(t *testing.T) {
+	r := Rules{AllowRegistries: []string{"registry.example.com"}}
+
+	for _, image := range []string{"ubuntu", "library/ubuntu", "ghcr.io/o/r", "MYREG/img"} {
+		if _, denied := r.DenyPull(image); !denied {
+			t.Errorf("allow-registries should refuse the pull of %q", image)
+		}
+	}
+	if _, denied := r.DenyPull("registry.example.com/app:v1"); denied {
+		t.Error("an allowed registry should pull")
+	}
+
+	// An empty reference is not a pull to judge.
+	if _, denied := r.DenyPull(""); denied {
+		t.Error("an empty reference should not be refused")
+	}
+}
+
+// TestRequireDigestAtPullAcceptsADigest is the case that would have been broken
+// by the obvious implementation.
+//
+// A real `docker pull ubuntu@sha256:...` does NOT put the digest in fromImage.
+// Captured from the CLI:
+//
+//	fromImage=docker.io%2Flibrary%2Fubuntu&tag=sha256%3A1e622c5f...
+//
+// so the bridge has to rejoin it with "@". If it joins with ":" instead, the
+// reference reads "...ubuntu:sha256:1e622c5f..." and require-digest refuses
+// precisely the pull it exists to encourage.
+func TestRequireDigestAtPullAcceptsADigest(t *testing.T) {
+	r := Rules{RequireDigest: true}
+
+	const pinned = "docker.io/library/ubuntu@sha256:1e622c5f073b4f6bfad6632f2616c7f59ef256e96fe78bf6a595d1dc4376ac02"
+	if reason, denied := r.DenyPull(pinned); denied {
+		t.Errorf("a digest-pinned pull must be allowed, got %q", reason)
+	}
+	for _, image := range []string{"ubuntu", "ubuntu:24.04", "docker.io/library/ubuntu:latest"} {
+		if _, denied := r.DenyPull(image); !denied {
+			t.Errorf("require-digest should refuse the unpinned pull of %q", image)
+		}
+	}
+}
+
+// TestDenyPushAppliesAllowRegistriesOnly: require-digest is about what is
+// consumed, and a push publishes something built locally. Demanding a digest
+// there would refuse every ordinary `docker push app:v1`.
+func TestDenyPushAppliesAllowRegistriesOnly(t *testing.T) {
+	if _, denied := (Rules{RequireDigest: true}).DenyPush("registry.example.com/app:v1"); denied {
+		t.Error("require-digest must not apply to a push")
+	}
+
+	r := Rules{AllowRegistries: []string{"registry.example.com"}}
+	if _, denied := r.DenyPush("evil.example.com/x"); !denied {
+		t.Error("allow-registries should refuse a push to a registry outside it")
+	}
+	if _, denied := r.DenyPush("registry.example.com/app:v1"); denied {
+		t.Error("an allowed registry should accept a push")
+	}
+}
+
+// Builds are deliberately not refused; see Rules.DenyBuild and #376. Pinned so
+// that changing it is a conscious act rather than a side effect.
+func TestBuildsAreNotRefusedByPolicyYAML(t *testing.T) {
+	r := Rules{AllowRegistries: []string{"registry.example.com"}}
+	if reason, denied := r.DenyBuild(); denied {
+		t.Errorf("policy.yaml does not refuse builds (#376); got %q", reason)
+	}
+}

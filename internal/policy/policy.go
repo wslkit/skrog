@@ -41,6 +41,7 @@ import (
 
 	"github.com/wslkit/skrog/internal/apibody"
 	"github.com/wslkit/skrog/internal/imageref"
+	"github.com/wslkit/skrog/internal/pipeproxy"
 )
 
 // FileName is the rule set's name inside the state dir.
@@ -432,6 +433,83 @@ func (r Rules) DenyCreate(body map[string]any) (reason string, denied bool) {
 	return d.Reason, d.Denied
 }
 
+// DenyPull applies the image rules to `docker pull` and to the implicit pull
+// inside `docker run` (#334).
+//
+// Until this existed, allow-registries was evaluated only on container create,
+// so a blocked image could not RUN but could still be FETCHED onto the machine
+// — the same gap #322 closed for the administrator's WSL policy. require-digest
+// had it too: an unpinned image landed in the local store and only the create
+// was refused.
+//
+// Note this changes distro-backend behaviour, not just wslc: a `docker pull`
+// that worked yesterday on a machine with allow-registries set is refused now.
+// That is the rule doing what it says, but it is a change in a shipping
+// product, which is why it is documented in docs/policy.md rather than slipped
+// in.
+func (r Rules) DenyPull(image string) (reason string, denied bool) {
+	if image == "" {
+		return "", false
+	}
+	if len(r.AllowRegistries) > 0 {
+		reg, ok := imageref.Registry(image)
+		if !ok {
+			return fmt.Sprintf("policy cannot attribute %q to a registry (allowed: %s)",
+				image, strings.Join(r.AllowRegistries, ", ")), true
+		}
+		if !matchesAny(reg, r.AllowRegistries) {
+			return fmt.Sprintf("policy does not allow images from %s (allowed: %s)",
+				reg, strings.Join(r.AllowRegistries, ", ")), true
+		}
+	}
+	if r.RequireDigest && !strings.Contains(image, "@sha256:") {
+		return fmt.Sprintf("policy requires an image pinned by digest; %s is not (use image@sha256:...)", image), true
+	}
+	return "", false
+}
+
+// DenyBuild implements pipeproxy.ImageGate. policy.yaml does NOT refuse builds,
+// and that is a decision rather than an omission.
+//
+// The case for refusing is real: a Dockerfile's FROM and any RUN can reach any
+// registry, so a build cannot be attributed in advance, and allow-registries is
+// therefore bypassable by anyone who writes a Dockerfile. Skrog's wslc gate
+// does refuse, following wslpolicies.h.
+//
+// It is not followed here because the two rule sets answer to different people.
+// The WSL policy is an ADMINISTRATOR's, deployed by GPO against a user who
+// cannot edit it, so failing closed is the only coherent choice. policy.yaml is
+// the machine owner's own file; refusing every build on a machine that merely
+// lists its registries would break working setups today to close a hole its own
+// author can walk around by editing one line.
+//
+// So it stays open and documented rather than closed and surprising. Making it
+// opt-in (a `deny-unattributable-builds` rule) is #376.
+func (r Rules) DenyBuild() (reason string, denied bool) { return "", false }
+
+// DenyPush applies the registry allowlist to `docker push`, matching what the
+// WSL gate does (#353): an allowlist that governs only inbound says nothing
+// about what leaves the machine.
+//
+// require-digest deliberately does NOT apply here. It exists to stop unpinned
+// images being CONSUMED; a push is publishing something built locally, and
+// demanding a digest for it would refuse every ordinary `docker push app:v1`.
+func (r Rules) DenyPush(image string) (reason string, denied bool) {
+	if image == "" || len(r.AllowRegistries) == 0 {
+		return "", false
+	}
+	reg, ok := imageref.Registry(image)
+	if !ok {
+		return fmt.Sprintf("policy cannot attribute %q to a registry (allowed: %s)",
+			image, strings.Join(r.AllowRegistries, ", ")), true
+	}
+	if !matchesAny(reg, r.AllowRegistries) {
+		return fmt.Sprintf("policy does not allow pushing to %s (allowed: %s)",
+			reg, strings.Join(r.AllowRegistries, ", ")), true
+	}
+	return "", false
+}
+
 // isHostPath distinguishes a bind source from a named volume in the legacy
 // "src:dst" form. Docker's rule: a source with no separator is a volume name.
 // A Windows drive letter counts as a path even though it carries a colon.
@@ -568,3 +646,45 @@ func (w *Watcher) DenyCreate(body map[string]any) (string, bool) {
 	}
 	return w.Rules().DenyCreate(body)
 }
+
+// DenyPull, DenyBuild and DenyPush make the Watcher a pipeproxy.ImageGate, so
+// the image rules reach pulls and pushes on BOTH backends (#334).
+//
+// Each carries the same unreadable-file refusal as DenyCreate: a rule file the
+// operator wrote and we cannot parse must not silently allow the very requests
+// it was written to judge (#254).
+func (w *Watcher) DenyPull(image string) (string, bool) {
+	if err := w.Unavailable(); err != nil {
+		return unreadableRules(err), true
+	}
+	return w.Rules().DenyPull(image)
+}
+
+func (w *Watcher) DenyBuild() (string, bool) {
+	// Not gated -- see Rules.DenyBuild for why. The unreadable-file check is
+	// still skipped deliberately: refusing builds on an unparseable file would
+	// impose the very behaviour that method declines to impose.
+	return "", false
+}
+
+func (w *Watcher) DenyPush(image string) (string, bool) {
+	if err := w.Unavailable(); err != nil {
+		return unreadableRules(err), true
+	}
+	return w.Rules().DenyPush(image)
+}
+
+func unreadableRules(err error) string {
+	return "policy is configured but its rule file cannot be read, so this request is refused " +
+		"rather than allowed unjudged (" + err.Error() + "). Fix the file, or remove it to run without rules."
+}
+
+// Without these the Watcher could quietly stop being an ImageGate and every
+// pull and push would pass unjudged, which is indistinguishable from a rule set
+// that allows everything (#353).
+var (
+	_ pipeproxy.Gate      = (*Watcher)(nil)
+	_ pipeproxy.ImageGate = (*Watcher)(nil)
+	_ pipeproxy.Gate      = Rules{}
+	_ pipeproxy.ImageGate = Rules{}
+)
