@@ -1045,6 +1045,7 @@ as it was.
   --apply     replace skrog.exe too, not just the engine and the CLI
   --dry-run   print exactly what would be applied, and apply nothing
   --yes       do not ask (runners)
+  --force     replace the binary even when a package manager owns this install
 
 --apply replaces the files. skrog.exe takes effect immediately, because the
 supervisor is recycled onto the new one; skrogw.exe and skrogtray.exe take
@@ -1076,6 +1077,8 @@ flags:
     	report only; change nothing
   -dry-run
     	print what would be applied, and apply nothing
+  -force
+    	replace the binary even when a package manager owns this install
   -json
     	emit machine-readable JSON (implies --check)
   -offline
