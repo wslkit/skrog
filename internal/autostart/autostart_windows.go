@@ -35,9 +35,7 @@ var runKeyPath = `Software\Microsoft\Windows\CurrentVersion\Run`
 // launcher sits next to the TARGET, never next to the link the user invoked
 // (#360).
 func Enable(skrogExe string) error {
-	if resolved, err := filepath.EvalSymlinks(skrogExe); err == nil {
-		skrogExe = resolved
-	}
+	skrogExe = resolvePath(skrogExe)
 	launcher := filepath.Join(filepath.Dir(skrogExe), "skrogw.exe")
 	if _, err := os.Stat(launcher); err != nil {
 		return fmt.Errorf("autostart needs the skrogw.exe launcher next to skrog.exe "+
@@ -83,11 +81,26 @@ func DisableIfOwned(installDir string) (bool, error) {
 		return false, err
 	}
 	registered := strings.ToLower(filepath.Clean(strings.Trim(cmd, `"`)))
-	dir := strings.ToLower(filepath.Clean(installDir))
-	if !strings.HasPrefix(registered, dir+string(filepath.Separator)) {
-		return false, nil // someone else's entry; leave it alone
+
+	// Compare against BOTH the resolved and the raw spelling of the directory.
+	//
+	// Enable records a path resolved through EvalSymlinks (#360), and that call
+	// normalises more than symlinks: it also expands 8.3 short names, so
+	// C:\Users\RUNNER~1\... becomes C:\Users\runneradmin\... A caller handing us
+	// the unresolved directory would then fail to match its own entry and
+	// silently decline to remove it — which CI caught and a developer machine
+	// with long-form paths did not.
+	//
+	// Both spellings are checked because resolution can also fail: during an
+	// uninstall the directory may already be gone, and the raw form is then the
+	// only one available.
+	for _, d := range []string{resolvePath(installDir), installDir} {
+		dir := strings.ToLower(filepath.Clean(d))
+		if strings.HasPrefix(registered, dir+string(filepath.Separator)) {
+			return true, Disable()
+		}
 	}
-	return true, Disable()
+	return false, nil // someone else's entry; leave it alone
 }
 
 // Status returns whether autostart is registered, and the command if so.
@@ -106,4 +119,14 @@ func Status() (enabled bool, command string, err error) {
 		return false, "", fmt.Errorf("reading the Run entry: %w", err)
 	}
 	return true, v, nil
+}
+
+// resolvePath normalises a path the way Enable and DisableIfOwned must agree
+// on: symlinks followed, and 8.3 short names expanded. Unresolvable paths come
+// back unchanged, because a best-effort answer beats refusing to act.
+func resolvePath(p string) string {
+	if resolved, err := filepath.EvalSymlinks(p); err == nil {
+		return resolved
+	}
+	return p
 }

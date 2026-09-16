@@ -136,3 +136,61 @@ func TestDisableIfOwnedProtectsOtherInstalls(t *testing.T) {
 		t.Fatal("entry still present after the owner removed it")
 	}
 }
+
+// Enable resolves the path it registers (#360), and EvalSymlinks normalises
+// more than symlinks -- it also expands 8.3 short names. So an owner handing
+// DisableIfOwned the UNRESOLVED directory must still match its own entry.
+//
+// This is the regression CI caught and a developer machine did not: the runner's
+// TEMP is C:\Users\RUNNER~1\..., which resolves to a different string, while a
+// long-form local TEMP resolves to itself and hides the bug.
+func TestDisableIfOwnedMatchesAnUnresolvedDir(t *testing.T) {
+	useScratchKey(t)
+
+	exe := fakeInstall(t, true)
+	dir := filepath.Dir(exe)
+
+	if err := Enable(exe); err != nil {
+		t.Fatalf("Enable: %v", err)
+	}
+
+	// The spelling the caller has need not be the spelling Enable recorded.
+	resolved, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		t.Skipf("cannot resolve the temp dir: %v", err)
+	}
+	if resolved == dir {
+		t.Log("temp dir already canonical here; the assertion below still holds")
+	}
+
+	removed, err := DisableIfOwned(dir)
+	if err != nil {
+		t.Fatalf("DisableIfOwned: %v", err)
+	}
+	if !removed {
+		t.Fatal("the owner could not remove its own entry when passing an unresolved directory")
+	}
+}
+
+// And the resolved spelling works too, since callers may have either.
+func TestDisableIfOwnedMatchesAResolvedDir(t *testing.T) {
+	useScratchKey(t)
+
+	exe := fakeInstall(t, true)
+	dir := filepath.Dir(exe)
+
+	if err := Enable(exe); err != nil {
+		t.Fatalf("Enable: %v", err)
+	}
+	resolved, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		resolved = dir
+	}
+	removed, err := DisableIfOwned(resolved)
+	if err != nil {
+		t.Fatalf("DisableIfOwned: %v", err)
+	}
+	if !removed {
+		t.Fatal("the owner could not remove its own entry when passing a resolved directory")
+	}
+}
