@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/wslkit/skrog/internal/apibody"
+	"github.com/wslkit/skrog/internal/imageref"
 )
 
 // PolicyGate enforces the administrator's WSL container policy at Skrog's pipe,
@@ -122,32 +123,17 @@ func (g *PolicyGate) DenyBuild() (string, bool) {
 		"per source inside BuildKit, which Skrog cannot do at the pipe", true
 }
 
-// RegistryServer extracts the registry host from an image reference, the way
+// RegistryServer names the registry an image reference points at, the way
 // WSL's RepositoryReference does before checking the allowlist.
 //
-// The rule is Docker's: the part before the first slash is a registry only if
-// it looks like a host — it contains a dot or a colon, or is "localhost".
-// Otherwise the reference is a Docker Hub short name ("busybox",
-// "library/busybox").
-func RegistryServer(image string) string {
-	ref := strings.TrimSpace(image)
-	if ref == "" {
-		return ""
-	}
-	first, _, found := strings.Cut(ref, "/")
-	if !found {
-		return DockerHubServer
-	}
-	if first == "localhost" || strings.ContainsAny(first, ".:") {
-		return first
-	}
-	return DockerHubServer
-}
+// The rule itself lives in internal/imageref, because Skrog's own policy.yaml
+// needs the identical answer and used to compute it separately (#371).
+func RegistryServer(image string) string { return imageref.Registry(image) }
 
 // DockerHubServer is what an unqualified image reference resolves to. An
 // allowlist that does not name it therefore blocks `docker pull busybox`, which
 // is the point of deploying one.
-const DockerHubServer = "docker.io"
+const DockerHubServer = imageref.DockerHub
 
 // truthyPriv accepts the shapes a JSON decode can produce for a boolean the
 // daemon will read as true. A bare type assertion to bool missed `"Privileged":

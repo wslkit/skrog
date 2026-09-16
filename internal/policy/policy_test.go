@@ -166,24 +166,60 @@ func TestAllowRegistries(t *testing.T) {
 	}
 }
 
-func TestRegistryOfFollowsDockersOwnRule(t *testing.T) {
-	// The first component is a registry only if it looks like a host. This is
-	// what makes an allowlist actually block Hub rather than accidentally
-	// treating "library" as a registry.
-	for image, want := range map[string]string{
-		"ubuntu":                     "docker.io",
-		"library/ubuntu":             "docker.io",
-		"myuser/myimage":             "docker.io",
-		"docker.io/library/ubuntu":   "docker.io",
-		"ghcr.io/o/r":                "ghcr.io",
-		"localhost/x":                "localhost",
-		"localhost:5000/x":           "localhost:5000",
-		"registry.example.com:5/a/b": "registry.example.com:5",
-	} {
-		if got := registryOf(image); got != want {
-			t.Errorf("registryOf(%q) = %q, want %q", image, got, want)
+// TestAllowRegistriesResolvesReferencesLikeDocker checks the wiring rather than
+// the parsing: the rule itself now lives in internal/imageref and is tested
+// there (#371). What this asserts is that allow-registries actually applies it
+// — which is the half that would break if the call site regressed.
+//
+// The cases are the ones that matter to an allowlist: a Hub namespace must not
+// be mistaken for a registry, or an allowlist naming only an internal registry
+// would silently permit half of Docker Hub.
+func TestAllowRegistriesResolvesReferencesLikeDocker(t *testing.T) {
+	r := Rules{AllowRegistries: []string{"ghcr.io"}}
+
+	denied := []string{
+		"ubuntu",                   // Hub short name
+		"library/ubuntu",           // Hub namespace, NOT a registry called "library"
+		"myuser/myimage",           // ditto
+		"docker.io/library/ubuntu", // Hub, named explicitly
+		"localhost/x",              // localhost is a host, and is not allowed here
+		"localhost:5000/x",
+		"registry.example.com:5/a/b",
+	}
+	for _, image := range denied {
+		if !deniedBy(r, image) {
+			t.Errorf("allow-registries=[ghcr.io] should deny %q", image)
 		}
 	}
+
+	for _, image := range []string{"ghcr.io/o/r", "ghcr.io/o/r:v1"} {
+		if deniedBy(r, image) {
+			t.Errorf("allow-registries=[ghcr.io] should permit %q", image)
+		}
+	}
+
+	// The discriminating case. Everything above stays green even if the parser
+	// wrongly returned the first path component — "library" is not in the
+	// allowlist either, so a broken parser still denies and the test still
+	// passes. Allowing Docker Hub is what separates the two: a parser that
+	// reads "library/ubuntu" as a registry called "library" denies this, and a
+	// correct one permits it.
+	hub := Rules{AllowRegistries: []string{"docker.io"}}
+	for _, image := range []string{"ubuntu", "library/ubuntu", "myuser/myimage"} {
+		if deniedBy(hub, image) {
+			t.Errorf("allow-registries=[docker.io] should permit %q "+
+				"(a Hub namespace is not a registry)", image)
+		}
+	}
+	if !deniedBy(hub, "ghcr.io/o/r") {
+		t.Error("allow-registries=[docker.io] should deny ghcr.io/o/r")
+	}
+}
+
+// deniedBy reports whether allow-registries refuses this image.
+func deniedBy(r Rules, image string) bool {
+	_, denied := r.DenyCreate(map[string]any{"Image": image})
+	return denied
 }
 
 func TestRequireDigest(t *testing.T) {
