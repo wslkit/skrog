@@ -6,13 +6,13 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/wslkit/skrog/internal/autostart"
 	"github.com/wslkit/skrog/internal/dockerctx"
 	"github.com/wslkit/skrog/internal/pipeproxy"
 	"github.com/wslkit/skrog/internal/provision"
+	"github.com/wslkit/skrog/internal/selfexe"
 	"github.com/wslkit/skrog/internal/version"
 	"github.com/wslkit/skrog/internal/wslc"
 )
@@ -161,11 +161,9 @@ See docs/wslc-backend.md for what does and does not work.
 // between "installed" and "usable", and the install output said nothing about
 // it -- so the next step was `docker run` and "command not found".
 func printCLIHintIfMissing() {
-	exe, err := os.Executable()
-	if err != nil {
-		return
-	}
-	if len(version.FindDockerBinaries(version.Env{SkrogBin: filepath.Dir(exe)})) > 0 {
+	// selfexe, not os.Executable: a winget portable install runs through a
+	// symlink, and the bundled CLI sits beside the real binary (#360).
+	if len(version.FindDockerBinaries(version.Env{SkrogBin: selfexe.Dir()})) > 0 {
 		return
 	}
 	fmt.Printf(`No ` + "`docker`" + ` command found on PATH. Skrog runs the engine; the CLI is

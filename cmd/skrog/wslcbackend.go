@@ -187,6 +187,9 @@ func shippedAgentPath() (string, error) {
 	if err != nil {
 		return "", err
 	}
+	// Resolved through any symlink -- see internal/selfexe and #360. Kept
+	// inline rather than calling selfexe.Path so the test seam
+	// (executablePath) stays local to this file.
 	if resolved, err := filepath.EvalSymlinks(exe); err == nil {
 		exe = resolved
 	}

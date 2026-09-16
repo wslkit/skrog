@@ -29,11 +29,12 @@ import (
 	"golang.org/x/sys/windows"
 
 	"github.com/wslkit/skrog/internal/logging"
+	"github.com/wslkit/skrog/internal/selfexe"
 	"github.com/wslkit/skrog/internal/watchdog"
 )
 
 func main() {
-	self, err := os.Executable()
+	self, err := selfexe.Path()
 	if err != nil {
 		os.Exit(1)
 	}
