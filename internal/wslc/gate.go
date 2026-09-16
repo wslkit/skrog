@@ -51,7 +51,19 @@ func (g *PolicyGate) DenyCreate(body map[string]any) (string, bool) {
 	p := g.policies()
 
 	if image := apibody.String(body, "Image"); image != "" {
-		if server := RegistryServer(image); !p.RegistryAllowed(server) {
+		server, ok := imageref.Registry(image)
+		if !ok {
+			// Unparseable. Refuse while an allowlist is active rather than
+			// guessing a registry for it: dockerd rejects this reference too,
+			// so nothing legitimate is lost, and guessing is how a gate permits
+			// something the daemon then resolves elsewhere. Same precedent as
+			// DenyBuild — cannot attribute, so refuse.
+			if p.HasRegistryAllowlist() {
+				return fmt.Sprintf(
+					"image reference %q cannot be attributed to a registry, and "+
+						"WSLContainerRegistryAllowlist is in force on this machine", image), true
+			}
+		} else if !p.RegistryAllowed(server) {
 			return fmt.Sprintf(
 				"WSLContainerRegistryAllowlist does not permit registry %q (image %q); "+
 					"this machine's WSL policy allows: %s",
@@ -78,7 +90,15 @@ func (g *PolicyGate) DenyCreate(body map[string]any) (string, bool) {
 // bytes are requested.
 func (g *PolicyGate) DenyPull(image string) (string, bool) {
 	p := g.policies()
-	server := RegistryServer(image)
+	server, ok := imageref.Registry(image)
+	if !ok {
+		if p.HasRegistryAllowlist() {
+			return fmt.Sprintf(
+				"image reference %q cannot be attributed to a registry, and "+
+					"WSLContainerRegistryAllowlist is in force on this machine", image), true
+		}
+		return "", false
+	}
 	if p.RegistryAllowed(server) {
 		return "", false
 	}
@@ -122,18 +142,6 @@ func (g *PolicyGate) DenyBuild() (string, bool) {
 		"Skrog refuses the build; `wslc image build` instead enforces the allowlist " +
 		"per source inside BuildKit, which Skrog cannot do at the pipe", true
 }
-
-// RegistryServer names the registry an image reference points at, the way
-// WSL's RepositoryReference does before checking the allowlist.
-//
-// The rule itself lives in internal/imageref, because Skrog's own policy.yaml
-// needs the identical answer and used to compute it separately (#371).
-func RegistryServer(image string) string { return imageref.Registry(image) }
-
-// DockerHubServer is what an unqualified image reference resolves to. An
-// allowlist that does not name it therefore blocks `docker pull busybox`, which
-// is the point of deploying one.
-const DockerHubServer = imageref.DockerHub
 
 // truthyPriv accepts the shapes a JSON decode can produce for a boolean the
 // daemon will read as true. A bare type assertion to bool missed `"Privileged":
