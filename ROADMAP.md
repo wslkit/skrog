@@ -117,7 +117,9 @@ Goal: the difference between a repo and a tool people install at work. Holiday g
 - [ ] MSI deploys silently via Intune-style unattended flags
 - [ ] a security reviewer can walk checksum → SBOM → source commit for every shipped byte
 
-**Lead-time items to start early:** SignPath application (during v0.3), winget package review queue (can take 1–2 weeks), SmartScreen reputation begins accruing only after signing — sign *pre-release* builds from v0.3 onward if possible.
+**Lead-time items to start early:** winget package review queue (can take 1-2 weeks); SmartScreen reputation begins accruing only after signing, so sign *pre-release* builds as soon as a certificate exists.
+
+**Code signing status (Sep 2026):** the SignPath Foundation application was declined for now -- the free programme wants an established user base -- with an invitation to reapply as visibility grows. Paying for a certificate is the other route and needs nobody's approval. That makes signing a decision rather than a scheduled item, so it has been lifted out of the weekend plan above and lives in [#77](https://github.com/wslkit/skrog/issues/77). Everything downstream of it -- MSI, winget, scoop, SmartScreen reputation -- moves with it.
 
 ---
 

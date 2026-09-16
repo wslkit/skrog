@@ -71,12 +71,14 @@ own, and `docker --context skrog ...` (or `docker context use skrog`) is how you
 it. The install output names the pipe it took, and `docker context inspect skrog` shows
 it at any time.
 
-Binaries are not Authenticode-signed yet, so SmartScreen will warn on first run. Code
-signing is applied for through the [SignPath Foundation](https://signpath.org), with
-signing by [SignPath.io](https://about.signpath.io); until a certificate is issued the
-warning stands — and a real Windows installer (MSI, winget, scoop,
-[#77](https://github.com/wslkit/skrog/issues/77)) waits on that signature, since an
-unsigned MSI would make the warning worse rather than better, and the [code signing policy](docs/code-signing.md) says who can produce
+Binaries are **not Authenticode-signed**, so SmartScreen warns on first run. The
+[SignPath Foundation](https://signpath.org)'s free programme declined for now — it is
+for projects with an established user base — and invited a reapplication as visibility
+grows; paying for a certificate is the other route and needs nobody's approval. Which
+one, and when, is [#77](https://github.com/wslkit/skrog/issues/77), and a real Windows
+installer (MSI, winget, scoop) waits on the same answer, since an unsigned installer
+asking for elevation is worse than a zip. The
+[code signing policy](docs/code-signing.md) says who could produce
 a signed binary and how. What every release **does** carry today is SLSA build
 provenance and a cosign-signed `SHA256SUMS` — two checks an Authenticode signature does
 not give you, since they tie the artifact to a workflow and a commit. See

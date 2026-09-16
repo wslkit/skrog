@@ -87,9 +87,15 @@ check means a preview that reports `dev` fails the build rather than shipping.
 
 ## What is not in place yet
 
-- **Code signing.** Lands in v0.4 with Azure Trusted Signing or SignPath. Until
-  then binaries are unsigned and SmartScreen will warn. `SHA256SUMS` is
-  published so a download can be verified, which is not a substitute.
-- **winget / scoop / choco manifests.** Also v0.4.
+- **Code signing.** No longer tied to a release number. The SignPath
+  Foundation's free programme declined for now (it wants an established user
+  base) and invited a reapplication as visibility grows; paying for a
+  certificate is the other route and waits on nobody. So this is a decision to
+  take, not a milestone to schedule — [#77](https://github.com/wslkit/skrog/issues/77).
+  Until then binaries are unsigned and SmartScreen warns. `SHA256SUMS`, SLSA
+  provenance and the cosign bundle are published so a download can be verified,
+  which is not a substitute.
+- **winget / scoop / choco manifests.** Behind the same decision: an unsigned
+  installer that asks for elevation is worse than a zip.
 - No release currently updates `manifest.json` automatically; step 2 above is
   deliberately a reviewed commit, because it changes what every install fetches.
