@@ -378,7 +378,13 @@ func runProxyWslc(agentPath, pipeName, sddl string, noContext bool, opts provisi
 		shares.Close(cleanup)
 	}()
 
-	gate := combinedGate{wsl: &wslc.PolicyGate{Policies: policies}, skrog: ownPolicy}
+	// Re-read on every judged request, so a policy deployed or tightened while
+	// the bridge is up is honoured without a restart (#354). Seeded with the
+	// startup read above, which is the one that fails closed.
+	policyWatcher := wslc.NewPolicyWatcher(policies)
+	policyWatcher.Logger = log
+
+	gate := combinedGate{wsl: &wslc.PolicyGate{Source: policyWatcher.Policies}, skrog: ownPolicy}
 	srv := &pipeproxy.Server{
 		Dialer:  dialer,
 		Logger:  log,
