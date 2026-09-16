@@ -31,18 +31,37 @@ func (g combinedGate) DenyCreate(body map[string]any) (string, bool) {
 	return "", false
 }
 
-// DenyPull, DenyBuild and DenyPush currently consult only the WSL policy.
+// DenyPull and DenyPush consult both policies, in the same order and for the
+// same reason as DenyCreate: when both would refuse, the message should name
+// the one the user cannot simply edit (#334).
 //
-// Skrog's own policy.yaml has an allow-registries rule with the same shape of
-// gap this closed for the WSL policy: it is evaluated on container create, so
-// it stops a blocked image running without stopping it being fetched. Closing
-// that is #334, and it applies equally to the distro backend — which is why it
-// is not bolted on here.
-func (g combinedGate) DenyPull(image string) (string, bool) { return g.wsl.DenyPull(image) }
+// The skrog gate is only asked if it is an ImageGate. It is — policy.Watcher
+// implements it — but the field is typed as the narrower pipeproxy.Gate, so the
+// assertion is what bridges that, exactly as the handler does.
+func (g combinedGate) DenyPull(image string) (string, bool) {
+	if reason, denied := g.wsl.DenyPull(image); denied {
+		return reason, true
+	}
+	if ig, ok := g.skrog.(pipeproxy.ImageGate); ok && g.skrog != nil {
+		return ig.DenyPull(image)
+	}
+	return "", false
+}
 
+func (g combinedGate) DenyPush(image string) (string, bool) {
+	if reason, denied := g.wsl.DenyPush(image); denied {
+		return reason, true
+	}
+	if ig, ok := g.skrog.(pipeproxy.ImageGate); ok && g.skrog != nil {
+		return ig.DenyPush(image)
+	}
+	return "", false
+}
+
+// DenyBuild consults only the WSL policy, because policy.yaml deliberately does
+// not refuse builds. See policy.Rules.DenyBuild for that decision, and #376 for
+// making it opt-in.
 func (g combinedGate) DenyBuild() (string, bool) { return g.wsl.DenyBuild() }
-
-func (g combinedGate) DenyPush(image string) (string, bool) { return g.wsl.DenyPush(image) }
 
 // Without these, dropping a method here would not fail the build — combinedGate
 // would quietly stop satisfying ImageGate and every pull, build and push on

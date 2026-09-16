@@ -503,3 +503,52 @@ func TestNonPushPathsAreNotJudgedAsPushes(t *testing.T) {
 		}
 	}
 }
+
+// A digest pull must reach the gate AS a digest.
+//
+// The docker CLI does not put the digest in fromImage. Captured from a real
+// `docker pull ubuntu@sha256:...` against a listener standing in for the engine:
+//
+//	POST /v1.56/images/create?fromImage=docker.io%2Flibrary%2Fubuntu&tag=sha256%3A1e622c5f...
+//
+// Rejoining that with ":" yields "docker.io/library/ubuntu:sha256:1e622c5f...",
+// which no rule can recognise as pinned — so a require-digest rule would refuse
+// exactly the pull it exists to encourage.
+func TestDigestPullReachesTheGateAsADigest(t *testing.T) {
+	const digest = "sha256:1e622c5f073b4f6bfad6632f2616c7f59ef256e96fe78bf6a595d1dc4376ac02"
+	gate := &fakeImageGate{}
+	driveRequest(t, gate,
+		"POST /v1.45/images/create?fromImage=docker.io%2Flibrary%2Fubuntu&tag="+
+			strings.ReplaceAll(digest, ":", "%3A")+" HTTP/1.1\r\nHost: d\r\nContent-Length: 0\r\n\r\n")
+
+	want := "docker.io/library/ubuntu@" + digest
+	if gate.sawPull != want {
+		t.Errorf("gate saw %q, want %q — a digest tag must rejoin with @, not :", gate.sawPull, want)
+	}
+}
+
+// An ordinary tag still joins with ":", which is the case the digest handling
+// must not disturb.
+func TestTagPullStillJoinsWithColon(t *testing.T) {
+	gate := &fakeImageGate{}
+	driveRequest(t, gate,
+		"POST /v1.45/images/create?fromImage=docker.io%2Flibrary%2Fubuntu&tag=24.04 HTTP/1.1\r\nHost: d\r\nContent-Length: 0\r\n\r\n")
+
+	if want := "docker.io/library/ubuntu:24.04"; gate.sawPull != want {
+		t.Errorf("gate saw %q, want %q", gate.sawPull, want)
+	}
+}
+
+// A tag that merely contains a colon is not a digest. "sha256" alone, or an
+// unknown algorithm, must not be treated as one.
+func TestOnlyRealDigestAlgorithmsRejoinWithAt(t *testing.T) {
+	for _, tag := range []string{"sha256", "weird:abc", "v1:2"} {
+		gate := &fakeImageGate{}
+		driveRequest(t, gate,
+			"POST /v1.45/images/create?fromImage=x.example.com%2Fa&tag="+
+				strings.ReplaceAll(tag, ":", "%3A")+" HTTP/1.1\r\nHost: d\r\nContent-Length: 0\r\n\r\n")
+		if want := "x.example.com/a:" + tag; gate.sawPull != want {
+			t.Errorf("tag %q: gate saw %q, want %q", tag, gate.sawPull, want)
+		}
+	}
+}
