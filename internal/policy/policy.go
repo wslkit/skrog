@@ -40,6 +40,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/wslkit/skrog/internal/apibody"
+	"github.com/wslkit/skrog/internal/imageref"
 )
 
 // FileName is the rule set's name inside the state dir.
@@ -203,7 +204,7 @@ func (r Rules) EvaluateCreate(body map[string]any) Decision {
 	image := apibody.String(body, "Image")
 	if image != "" {
 		if len(r.AllowRegistries) > 0 {
-			reg := registryOf(image)
+			reg := imageref.Registry(image)
 			if !matchesAny(reg, r.AllowRegistries) {
 				return deny("allow-registries",
 					"policy does not allow images from %s (allowed: %s)",
@@ -370,22 +371,6 @@ func normPath(p string) string {
 		return "\x00escaped"
 	}
 	return cleaned
-}
-
-// registryOf extracts the registry host from an image reference, applying
-// docker's own rule: the first component is a registry only if it looks like a
-// host (contains a dot or colon, or is "localhost"). Everything else is Docker
-// Hub, which is why a rule set allowing only an internal registry also stops
-// `docker run ubuntu`.
-func registryOf(image string) string {
-	first, _, found := strings.Cut(image, "/")
-	if !found {
-		return "docker.io"
-	}
-	if first == "localhost" || strings.ContainsAny(first, ".:") {
-		return first
-	}
-	return "docker.io"
 }
 
 // matchesAny compares a registry against the allowlist, case-insensitively,
