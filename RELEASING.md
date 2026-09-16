@@ -85,6 +85,45 @@ pre-release"** so it does not become `latest`. Everything else behaves the same.
 Pre-releases are the right way to shake out the pipeline; the version stamp
 check means a preview that reports `dev` fails the build rather than shipping.
 
+## Publishing to winget
+
+winget does **not** wait on code signing, which this file claimed for a long
+time and which was simply wrong. The `portable` installer type unpacks a zip
+per-user under `%LOCALAPPDATA%\Microsoft\WinGet\Packages\` and drops an alias
+symlink in `...\WinGet\Links\` (which is on PATH). No elevation, no MSI, no
+Authenticode. ripgrep and fzf ship exactly this way, unsigned. SmartScreen still
+warns on first run of the exe — that part is real, and is [#77](https://github.com/wslkit/skrog/issues/77).
+
+Manifests live in [`microsoft/winget-pkgs`](https://github.com/microsoft/winget-pkgs)
+under `manifests/w/wslkit/skrog/<version>/`, three files: `wslkit.skrog.yaml`
+(version), `wslkit.skrog.locale.en-US.yaml` (metadata), and
+`wslkit.skrog.installer.yaml` (URLs and SHA256 per architecture). Each release
+is a new PR adding a new version directory; existing versions are never edited.
+
+Per release, after the app tag has published its assets:
+
+1. Take the amd64 and arm64 hashes from the release's `SHA256SUMS` and put them
+   in the installer manifest, along with the new `InstallerUrl`s, `PackageVersion`,
+   `ReleaseDate` and `ReleaseNotesUrl`.
+2. `winget validate --manifest <dir>` — catches schema errors only.
+3. **Install it and drive it**, which validation does not do:
+   ```powershell
+   winget settings --enable LocalManifestFiles   # once, elevated
+   winget install --manifest <dir> --scope user
+   ```
+   Then run the binary **through the alias symlink**, not the package directory,
+   because that is what a user gets and it is a different code path:
+   `skrog version`, and `skrog autostart enable` — the latter derives
+   `skrogw.exe` as a sibling and is the one that broke under winget
+   ([#360](https://github.com/wslkit/skrog/issues/360)). Uninstall afterwards.
+4. Open the PR against `microsoft/winget-pkgs`. Automated validation runs on it;
+   review is typically one to two weeks.
+
+Step 3 is not optional ceremony. 0.5.0 passed `winget validate` cleanly and was
+still broken under a real winget install — the fix for #360 had landed one
+commit *after* the tag, so the artifact being packaged predated it. Validation
+checks the manifest; only installing checks the product.
+
 ## What is not in place yet
 
 - **Code signing.** No longer tied to a release number. The SignPath
@@ -95,7 +134,8 @@ check means a preview that reports `dev` fails the build rather than shipping.
   Until then binaries are unsigned and SmartScreen warns. `SHA256SUMS`, SLSA
   provenance and the cosign bundle are published so a download can be verified,
   which is not a substitute.
-- **winget / scoop / choco manifests.** Behind the same decision: an unsigned
-  installer that asks for elevation is worse than a zip.
+- **MSI / choco packaging.** These install machine-wide and ask for elevation,
+  where an unsigned installer really is a worse experience than a zip, so they
+  do wait on the signing decision.
 - No release currently updates `manifest.json` automatically; step 2 above is
   deliberately a reviewed commit, because it changes what every install fetches.

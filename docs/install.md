@@ -87,10 +87,12 @@ and `README.md`. Keep them together.
 > is the other route. Which one, and when, is
 > [#77](https://github.com/wslkit/skrog/issues/77), so no date is promised here.
 >
-> A **real Windows installer — MSI, winget, scoop —** waits on the same answer,
-> because an unsigned installer that asks for elevation is a worse experience
-> than a zip, not a better one. So it is download-and-unpack, which is exactly
-> why the checksum step above is written out in full rather than waved at.
+> An **MSI** waits on the same answer, because an installer that asks for
+> elevation unsigned is a worse experience than a zip, not a better one. A
+> **winget** package does not — winget's `portable` type unpacks per-user and
+> needs no elevation or signature — and one is on the way; until it lands it is
+> download-and-unpack, which is exactly why the checksum step above is written
+> out in full rather than waved at.
 >
 > What every release *does* carry today is **SLSA build provenance** and a
 > **cosign-signed `SHA256SUMS`** — two things an Authenticode signature does not
