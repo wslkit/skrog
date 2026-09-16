@@ -8,6 +8,8 @@ report it. Tracked in [#316](https://github.com/wslkit/skrog/issues/316).
 nothing on your machine can otherwise reach the Docker engine inside it. This
 page is the other half: how to point Skrog at one, what you get, what you give
 up, and how to decide whether that trade is worth taking.
+[wslc as a full Docker engine](wslc-deep-dive.md) is the long version — how the
+bridge works, and what we would want from upstream.
 
 The short version, if you only read one paragraph: **take this backend if your
 source tree lives on a Windows drive, and leave it alone if you need a pinned
