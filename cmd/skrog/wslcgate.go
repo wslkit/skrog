@@ -31,13 +31,23 @@ func (g combinedGate) DenyCreate(body map[string]any) (string, bool) {
 	return "", false
 }
 
-// DenyPull and DenyBuild currently consult only the WSL policy.
+// DenyPull, DenyBuild and DenyPush currently consult only the WSL policy.
 //
-// Skrog's own policy.yaml has an allow-registries rule, and it has the same
-// shape of gap this issue closed for the WSL policy: it is evaluated on
-// container create, so it stops a blocked image running without stopping it
-// being fetched. Extending it to pulls is worth doing — and applies equally to
-// the distro backend, which is why it is not bolted on here.
+// Skrog's own policy.yaml has an allow-registries rule with the same shape of
+// gap this closed for the WSL policy: it is evaluated on container create, so
+// it stops a blocked image running without stopping it being fetched. Closing
+// that is #334, and it applies equally to the distro backend — which is why it
+// is not bolted on here.
 func (g combinedGate) DenyPull(image string) (string, bool) { return g.wsl.DenyPull(image) }
 
 func (g combinedGate) DenyBuild() (string, bool) { return g.wsl.DenyBuild() }
+
+func (g combinedGate) DenyPush(image string) (string, bool) { return g.wsl.DenyPush(image) }
+
+// Without these, dropping a method here would not fail the build — combinedGate
+// would quietly stop satisfying ImageGate and every pull, build and push on
+// this backend would pass unjudged.
+var (
+	_ pipeproxy.Gate      = combinedGate{}
+	_ pipeproxy.ImageGate = combinedGate{}
+)

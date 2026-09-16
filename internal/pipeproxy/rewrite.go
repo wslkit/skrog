@@ -125,6 +125,10 @@ func rewriteBinds(client net.Conn, engine io.ReadWriteCloser, audit AuditSink, g
 				if reason, no := ig.DenyPull(image); no {
 					denied = errors.New(reason)
 				}
+			} else if image, isPush := pushTarget(req); isPush {
+				if reason, no := ig.DenyPush(image); no {
+					denied = errors.New(reason)
+				}
 			} else if isImageBuild(req) {
 				if reason, no := ig.DenyBuild(); no {
 					denied = errors.New(reason)
@@ -620,7 +624,26 @@ type ImageGate interface {
 	// takes the same position for `wslc image build`, refusing whenever an
 	// allowlist is active because it cannot attribute the traffic.
 	DenyBuild() (reason string, denied bool)
+
+	// DenyPush judges `docker push` and `docker plugin push`. The image is the
+	// reference as it appears in the request path.
+	//
+	// A registry allowlist that gates only inbound traffic controls what may
+	// ENTER the machine and says nothing about what leaves it — and leaving is
+	// the direction that moves data off it (#353). WSL's own `wslc push`
+	// refuses a blocked registry, so gating here is matching them rather than
+	// Skrog inventing a second reading of what an allowlist means.
+	DenyPush(image string) (reason string, denied bool)
 }
+
+// NOTE for anyone adding a method to ImageGate: the handler reaches it through
+// a TYPE ASSERTION, so a gate that is one method short does not fail to build.
+// It silently stops being an ImageGate, and every pull, build and push then
+// passes unjudged with nothing logged. Adding a method here is therefore a
+// security-relevant edit.
+//
+// Each implementation carries a `var _ pipeproxy.ImageGate = ...` next to its
+// own definition, which turns that silent gap into a compile error. Keep them.
 
 var (
 	imageCreatePath = regexp.MustCompile(`^(/v[0-9.]+)?/images/create$`)
@@ -658,7 +681,34 @@ var (
 	// wrong, which is how the first two bypasses in this file happened.
 	unattributablePath = regexp.MustCompile(
 		`^(/v[0-9.]+)?/(plugins/pull|plugins/.+/upgrade|services/create|services/.+/update|swarm/init)$`)
+
+	// pushPath matches `docker push` and `docker plugin push` (#353).
+	//
+	// The reference is in the PATH rather than the query, unescaped and
+	// containing slashes — dockerd routes these as /images/{name:.*}/push — so
+	// the capture is greedy up to the trailing /push. The tag rides in ?tag=
+	// and is irrelevant here: an allowlist matches on the registry server.
+	pushPath = regexp.MustCompile(`^(/v[0-9.]+)?/(?:images|plugins)/(.+)/push$`)
 )
+
+// pushTarget reports the image a push request names, if it is one.
+func pushTarget(req *http.Request) (string, bool) {
+	if req.Method != http.MethodPost {
+		return "", false
+	}
+	m := pushPath.FindStringSubmatch(req.URL.Path)
+	if m == nil {
+		return "", false
+	}
+	// Path segments arrive percent-encoded for anything unusual; decode so the
+	// gate judges the reference the daemon will act on, not its wire spelling.
+	// A reference that will not decode is passed through as-is and the gate
+	// fails it closed rather than this returning "not a push".
+	if unescaped, err := url.PathUnescape(m[2]); err == nil {
+		return unescaped, true
+	}
+	return m[2], true
+}
 
 // pullTarget reports the image a pull request names, if it is one.
 //
