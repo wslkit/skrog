@@ -19,10 +19,21 @@ import (
 type fakeImageGate struct {
 	denyPull  string
 	denyBuild string
+	denyPush  string
 
 	sawPull  string
 	sawBuild bool
+	sawPush  string
 }
+
+// If this ever stops holding, the handler's type assertion fails and every
+// pull, build and push in these tests passes unjudged — which is what happened
+// when DenyPush was added to the interface and this fake was not updated. The
+// tests below caught it, but a compile error is the cheaper place to find out.
+var (
+	_ pipeproxy.Gate      = (*fakeImageGate)(nil)
+	_ pipeproxy.ImageGate = (*fakeImageGate)(nil)
+)
 
 func (g *fakeImageGate) DenyCreate(map[string]any) (string, bool) { return "", false }
 
@@ -40,6 +51,14 @@ func (g *fakeImageGate) DenyBuild() (string, bool) {
 		return "", false
 	}
 	return g.denyBuild, true
+}
+
+func (g *fakeImageGate) DenyPush(image string) (string, bool) {
+	g.sawPush = image
+	if g.denyPush == "" {
+		return "", false
+	}
+	return g.denyPush, true
 }
 
 // driveRequest sends one raw request through the bridge and returns what the
@@ -405,6 +424,82 @@ func TestUnattributableMatcherIsNotOverBroad(t *testing.T) {
 			"POST "+path+" HTTP/1.1\r\nHost: d\r\nContent-Length: 0\r\n\r\n")
 		if resp.StatusCode == http.StatusForbidden && path != "/v1.44/containers/create" {
 			t.Errorf("%s: refused as unattributable, but it fetches nothing", path)
+		}
+	}
+}
+
+// A blocked registry must not be a place this machine can SEND to. An allowlist
+// gating only inbound controls what enters the machine and says nothing about
+// what leaves it, and leaving is the direction that moves data off it (#353).
+func TestDeniedPushNeverReachesTheEngine(t *testing.T) {
+	gate := &fakeImageGate{denyPush: "allowlist does not permit pushing to evil.example.com"}
+	resp, engineReached := driveRequest(t, gate,
+		"POST /v1.45/images/evil.example.com/x/push?tag=latest HTTP/1.1\r\nHost: d\r\nContent-Length: 0\r\n\r\n")
+
+	if resp.StatusCode != http.StatusForbidden {
+		t.Errorf("status = %d, want 403", resp.StatusCode)
+	}
+	if engineReached() {
+		t.Error("the engine was contacted for a denied push; the layers may already have left the machine")
+	}
+	if gate.sawPush != "evil.example.com/x" {
+		t.Errorf("gate saw %q, want %q — the reference is the path up to /push", gate.sawPush, "evil.example.com/x")
+	}
+	buf := make([]byte, 512)
+	n, _ := resp.Body.Read(buf)
+	if got := string(buf[:n]); !strings.Contains(got, "does not permit pushing") {
+		t.Errorf("the reason must reach the user verbatim, got %q", got)
+	}
+}
+
+func TestAllowedPushReachesTheEngine(t *testing.T) {
+	gate := &fakeImageGate{}
+	_, engineReached := driveRequest(t, gate,
+		"POST /v1.45/images/contoso.azurecr.io/team/app/push?tag=v1 HTTP/1.1\r\nHost: d\r\nContent-Length: 0\r\n\r\n")
+
+	if !engineReached() {
+		t.Error("an allowed push must reach the engine")
+	}
+	if gate.sawPush != "contoso.azurecr.io/team/app" {
+		t.Errorf("gate saw %q, want %q — a multi-segment repository must survive intact",
+			gate.sawPush, "contoso.azurecr.io/team/app")
+	}
+}
+
+// `docker plugin push` fetches nothing but sends a plugin to a registry, so it
+// is the same outbound question and the same route.
+func TestPluginPushIsJudged(t *testing.T) {
+	gate := &fakeImageGate{denyPush: "nope"}
+	resp, engineReached := driveRequest(t, gate,
+		"POST /v1.45/plugins/evil.example.com/p/push HTTP/1.1\r\nHost: d\r\nContent-Length: 0\r\n\r\n")
+
+	if resp.StatusCode != http.StatusForbidden {
+		t.Errorf("status = %d, want 403", resp.StatusCode)
+	}
+	if engineReached() {
+		t.Error("the engine was contacted for a denied plugin push")
+	}
+	if gate.sawPush != "evil.example.com/p" {
+		t.Errorf("gate saw %q", gate.sawPush)
+	}
+}
+
+// Endpoints that merely LOOK like a push must not be swept up. /images/json is
+// a listing, and a container named "push" is a container, not a registry
+// operation.
+func TestNonPushPathsAreNotJudgedAsPushes(t *testing.T) {
+	for _, raw := range []string{
+		"GET /v1.45/images/json HTTP/1.1\r\nHost: d\r\n\r\n",
+		"POST /v1.45/containers/push/start HTTP/1.1\r\nHost: d\r\nContent-Length: 0\r\n\r\n",
+		"GET /v1.45/images/evil.example.com/x/push HTTP/1.1\r\nHost: d\r\n\r\n", // GET, not POST
+	} {
+		gate := &fakeImageGate{denyPush: "should not be consulted"}
+		_, engineReached := driveRequest(t, gate, raw)
+		if gate.sawPush != "" {
+			t.Errorf("%q was judged as a push (gate saw %q)", strings.SplitN(raw, "\r\n", 2)[0], gate.sawPush)
+		}
+		if !engineReached() {
+			t.Errorf("%q should have reached the engine", strings.SplitN(raw, "\r\n", 2)[0])
 		}
 	}
 }

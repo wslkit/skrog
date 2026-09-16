@@ -359,6 +359,15 @@ not that Skrog invents a second policy language next to it.
 | `WSLContainerRegistryAllowlist` | `docker pull`, and the image named by `run`/`create` |
 | `AllowWSLContainerPrivileged` | `--privileged` on create |
 | `WSLContainerRegistryAllowlist` | `docker build` — **refused outright** while an allowlist is active |
+| `WSLContainerRegistryAllowlist` | `docker push` and `docker plugin push` |
+
+Push is gated because an allowlist that controls only inbound traffic governs
+what may *enter* the machine and says nothing about what leaves it — and leaving
+is the direction that moves data off it. WSL's own `wslc push` refuses a blocked
+registry, so this is parity rather than a second reading of what an allowlist
+means. Note the limit, which is the same one below: a container can still reach
+any registry it likes over the network. Gating push raises the bar for an
+accident, not for a determined local user.
 
 Skrog's own [`policy.yaml`](policy.md) and the [audit log](audit.md) apply on
 top. The audit log is worth turning on here for its own sake: it records every

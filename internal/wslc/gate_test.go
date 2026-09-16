@@ -192,3 +192,47 @@ func TestUnconfiguredPolicyDeniesNothing(t *testing.T) {
 		t.Error("a container was refused with no policy deployed")
 	}
 }
+
+// TestDenyPushAppliesTheAllowlist is #353 at the gate.
+//
+// An allowlist that gates only inbound controls what may enter the machine and
+// says nothing about what leaves it. WSL's own `wslc push` refuses a blocked
+// registry, so matching it is parity rather than Skrog inventing a reading.
+func TestDenyPushAppliesTheAllowlist(t *testing.T) {
+	g := allowlist("contoso.azurecr.io")
+
+	if _, denied := g.DenyPush("evil.example.com/x"); !denied {
+		t.Error("push to a registry outside the allowlist should be refused")
+	}
+	if _, denied := g.DenyPush("busybox"); !denied {
+		t.Error("push to Docker Hub should be refused when it is not on the allowlist")
+	}
+	if _, denied := g.DenyPush("contoso.azurecr.io/team/app"); denied {
+		t.Error("push to an allowed registry should proceed")
+	}
+
+	// Unattributable references are refused for the same reason as at pull.
+	for _, image := range []string{"user@host/img", "/leading"} {
+		if _, denied := g.DenyPush(image); !denied {
+			t.Errorf("unattributable reference %q should be refused at push", image)
+		}
+	}
+
+	// With no allowlist there is nothing to enforce.
+	open := &PolicyGate{Policies: Policies{ContainersAllowed: true, PrivilegedAllowed: true}}
+	if _, denied := open.DenyPush("evil.example.com/x"); denied {
+		t.Error("with no allowlist deployed, push must not be refused")
+	}
+}
+
+// The message has to say PUSH. A user told "does not permit pulling from" while
+// running `docker push` will go looking in the wrong place.
+func TestDenyPushSaysPush(t *testing.T) {
+	reason, denied := allowlist("contoso.azurecr.io").DenyPush("evil.example.com/x")
+	if !denied {
+		t.Fatal("expected a denial")
+	}
+	if !strings.Contains(reason, "pushing") {
+		t.Errorf("reason should name the operation, got %q", reason)
+	}
+}
