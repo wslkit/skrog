@@ -365,9 +365,21 @@ top. The audit log is worth turning on here for its own sake: it records every
 container-affecting call with its outcome, including each denial and the reason,
 which is a record WSLC itself does not keep.
 
-A policy that cannot be read is treated as a failure, not as "no policy" — the
-bridge refuses to start. Guessing in the permissive direction is how a bypass
-ships.
+A policy that cannot be read **at startup** is treated as a failure, not as "no
+policy" — the bridge refuses to start. Guessing in the permissive direction is
+how a bypass ships.
+
+After that it is re-read on **every judged request**, so a policy deployed or
+tightened while the bridge is running is honoured without a restart. That
+matters more here than it sounds: the supervisor starts at logon and survives
+sleep, resume and `wsl --shutdown`, so a snapshot taken at startup could go on
+enforcing a months-old policy on a machine that looks correctly configured.
+
+If a later re-read fails, Skrog keeps enforcing the last policy it read
+successfully rather than falling back to the permissive default, and logs it
+once. A transient registry failure must never *widen* what is enforced — but
+refusing every request forever because of one blip would be its own outage,
+which is why the strict "refuse to start" rule applies only to the first read.
 
 ### Verified against a real deployment
 

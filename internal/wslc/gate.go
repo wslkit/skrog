@@ -18,7 +18,26 @@ import (
 // separate, additional gate; this one exists so an Intune deployment is not
 // silently voided by installing Skrog.
 type PolicyGate struct {
+	// Policies is the policy to enforce when Source is nil. Tests set it
+	// directly; production wires Source instead.
 	Policies Policies
+
+	// Source returns the policy to enforce for THIS request, re-reading it if
+	// it has changed on disk.
+	//
+	// It exists because a fixed snapshot is wrong here: the supervisor runs for
+	// months, so a policy deployed or tightened after it started would never be
+	// enforced (#354). Every judgement below goes through policies() rather
+	// than touching the field, so there is one place this can be got wrong.
+	Source func() Policies
+}
+
+// policies is the policy in force for the request being judged.
+func (g *PolicyGate) policies() Policies {
+	if g.Source != nil {
+		return g.Source()
+	}
+	return g.Policies
 }
 
 // DenyCreate judges `docker create` / `docker run`.
@@ -26,16 +45,20 @@ type PolicyGate struct {
 // Two checks: the image's registry against the allowlist, and --privileged
 // against AllowWSLContainerPrivileged.
 func (g *PolicyGate) DenyCreate(body map[string]any) (string, bool) {
+	// Read once for the whole judgement: both checks below must apply the same
+	// policy, and re-reading between them could straddle a GPO refresh.
+	p := g.policies()
+
 	if image := apibody.String(body, "Image"); image != "" {
-		if server := RegistryServer(image); !g.Policies.RegistryAllowed(server) {
+		if server := RegistryServer(image); !p.RegistryAllowed(server) {
 			return fmt.Sprintf(
 				"WSLContainerRegistryAllowlist does not permit registry %q (image %q); "+
 					"this machine's WSL policy allows: %s",
-				server, image, strings.Join(g.Policies.RegistryAllowlist, ", ")), true
+				server, image, strings.Join(p.RegistryAllowlist, ", ")), true
 		}
 	}
 
-	if !g.Policies.PrivilegedAllowed {
+	if !p.PrivilegedAllowed {
 		if hc, ok := apibody.Map(body, "HostConfig"); ok {
 			if priv, _ := apibody.Field(hc, "Privileged"); truthyPriv(priv) {
 				return "AllowWSLContainerPrivileged denies privileged containers on this machine", true
@@ -53,14 +76,15 @@ func (g *PolicyGate) DenyCreate(body map[string]any) (string, bool) {
 // gives: it applies the allowlist when wslcsession handles the pull, before the
 // bytes are requested.
 func (g *PolicyGate) DenyPull(image string) (string, bool) {
+	p := g.policies()
 	server := RegistryServer(image)
-	if g.Policies.RegistryAllowed(server) {
+	if p.RegistryAllowed(server) {
 		return "", false
 	}
 	return fmt.Sprintf(
 		"WSLContainerRegistryAllowlist does not permit pulling from %q (image %q); "+
 			"this machine's WSL policy allows: %s",
-		server, image, strings.Join(g.Policies.RegistryAllowlist, ", ")), true
+		server, image, strings.Join(p.RegistryAllowlist, ", ")), true
 }
 
 // DenyBuild judges `docker build`.
@@ -89,7 +113,7 @@ func (g *PolicyGate) DenyPull(image string) (string, bool) {
 // stream. Until that exists, Skrog is stricter than WSL here rather than
 // looser, and says so in the refusal.
 func (g *PolicyGate) DenyBuild() (string, bool) {
-	if !g.Policies.HasRegistryAllowlist() {
+	if !g.policies().HasRegistryAllowlist() {
 		return "", false
 	}
 	return "WSLContainerRegistryAllowlist is in force on this machine, and a build " +

@@ -111,8 +111,11 @@ type wslcSupervised struct {
 	Dialer    pipeproxy.Dialer
 	Engine    supervise.Engine
 	Translate pipeproxy.SourceTranslator
-	Policies  wslc.Policies
-	Session   string
+	// Policy is re-read on every judged request, so a policy deployed or
+	// tightened while this long-lived supervisor runs is honoured without a
+	// restart (#354).
+	Policy  *wslc.PolicyWatcher
+	Session string
 	// Busy vetoes an idle stop while real containers are running. Non-nil, or
 	// the supervisor vetoes EVERY idle stop (see supervise.maybeIdleStop).
 	Busy      func(ctx context.Context) (bool, error)
@@ -151,9 +154,10 @@ func startWslcStack(ctx context.Context, agentPath, stateDir string, log *slog.L
 		return nil, err
 	}
 
-	// Policy is read once at startup and fails closed, exactly as the proxy
-	// path does: a deployed allowlist that cannot be read is not the same as
-	// no allowlist (#322).
+	// The FIRST read fails closed, exactly as the proxy path does: a deployed
+	// allowlist that cannot be read is not the same as no allowlist (#322).
+	// Here, where nothing is serving yet, refusing to start is the right
+	// answer.
 	policies, err := wslc.ReadPolicies()
 	if err != nil {
 		return nil, fmt.Errorf("cannot read the WSL container policy: %w", err)
@@ -163,6 +167,12 @@ func startWslcStack(ctx context.Context, agentPath, stateDir string, log *slog.L
 			"registry-allowlist", policies.RegistryAllowlist,
 			"privileged-allowed", policies.PrivilegedAllowed)
 	}
+
+	// From then on it is re-read per judged request. This supervisor starts at
+	// logon and runs for months, so a snapshot would keep enforcing whatever
+	// was deployed on the day it started (#354).
+	policyWatcher := wslc.NewPolicyWatcher(policies)
+	policyWatcher.Logger = log
 
 	l := wslc.New()
 	agent, err := loadGuestAgent(ctx, agentPath)
@@ -189,7 +199,7 @@ func startWslcStack(ctx context.Context, agentPath, stateDir string, log *slog.L
 	s := &wslcSupervised{
 		Dialer:    dialer,
 		Translate: shares.Translator(ctx),
-		Policies:  policies,
+		Policy:    policyWatcher,
 		Session:   session,
 		Busy:      wslcBusy(runningContainerNames(dialer)),
 		watcher:   watcher,
@@ -220,7 +230,7 @@ func startWslcStack(ctx context.Context, agentPath, stateDir string, log *slog.L
 // the shared path keeps exactly the handler it always had.
 func (s *wslcSupervised) Handler(auditor pipeproxy.AuditSink, own pipeproxy.Gate) func(net.Conn, io.ReadWriteCloser) error {
 	return pipeproxy.RewriteBindsFor(s.Translate, auditor,
-		combinedGate{wsl: &wslc.PolicyGate{Policies: s.Policies}, skrog: own})
+		combinedGate{wsl: &wslc.PolicyGate{Source: s.Policy.Policies}, skrog: own})
 }
 
 // wslcStatus reports the engine state and session name for `skrog status` on a
