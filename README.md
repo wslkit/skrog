@@ -161,8 +161,9 @@ docker context. Nothing else on the system is touched.
   by digest, and excluded from the idle-stop probe so it never holds the engine awake
   ([docs/registry-cache.md](docs/registry-cache.md))
 - **`skrog wsl-integrate <distro>`**: use the engine from inside your own WSL distros
-- **`skrog migrate --from-desktop`**: copy images and volumes out of Docker Desktop,
-  non-destructively and resumably (`--dry-run` first)
+- **`skrog migrate`**: copy images and volumes out of **Docker Desktop**, **Rancher
+  Desktop** (`--from-rancher`) or **Podman** (`--from-podman`) — non-destructively and
+  resumably (`--dry-run` first), so trying Skrog never means starting from an empty engine
 - Optional status-light tray (`skrogtray.exe`) — six menu items, forever
 - Headless CI installs (`--headless`, exit codes, `--json` on every state-reporting command —
   the contract in [docs/cli-json.md](docs/cli-json.md)), `skrog healthcheck --wait` as a
@@ -205,11 +206,14 @@ containers, Kubernetes and macOS support; Skrog gives you none of those, deliber
 **Rancher Desktop** also runs a real container engine on WSL2, free and open source, with a
 GUI and k3s in the box. If you want a cluster or a graphical UI, take Rancher — Skrog has
 neither and will not grow them. It is also cross-platform, where Skrog is Windows-only.
+If you have already built up images there, `skrog migrate --from-rancher` copies them over
+without touching Rancher.
 
 **Podman Desktop** fronts podman, whose API is Docker-*compatible* rather than Docker. That
 distinction is usually invisible and occasionally expensive: rootless defaults, compose
 handled by a shim, and the corners where tooling reaches for dockerd's actual behaviour.
-Skrog runs dockerd itself, so there is no compatibility surface to fall off.
+Skrog runs dockerd itself, so there is no compatibility surface to fall off. That same
+compatible API is how `skrog migrate --from-podman` reads your images out.
 
 **`wslc`** is Microsoft's own, and if you have updated WSL recently you already have it —
 `wslc.exe` ships with WSL 2.9.3+ and is headed for general availability. It runs, builds
