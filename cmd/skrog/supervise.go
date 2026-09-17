@@ -388,6 +388,17 @@ flags:
 		// Lifecycle hooks (#70): fire off-thread and time-bounded so a user's
 		// script never blocks the reconciler.
 		Hook: hookRunner(opts.StateDir, log),
+		// Automatic disk reclamation (#393), read per tick like IdleTimeout so
+		// `skrog config set prune.every` applies live. Off unless configured.
+		PrunePolicy: func() supervise.PrunePolicy {
+			c := cfg.Config()
+			return supervise.PrunePolicy{
+				Every:      c.PruneEvery,
+				KeepSince:  c.KeepSince(),
+				BuildCache: c.PruneBuildCache,
+			}
+		},
+		Prune: autoPrune(log),
 	}
 	srv.Dialer = &demandDialer{sup: sup, inner: dialer}
 	go sup.Run(ctx)

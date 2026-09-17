@@ -114,6 +114,30 @@ var WSLKeys = map[string]string{
 // flagged before pulls start failing.
 const KeyDiskWarnBelow = "disk.warn-below"
 
+// KeyPruneEvery is how often the supervisor reclaims disk on its own (#393):
+// a duration like 168h, or "off" (the default). Automatic deletion is opt-in
+// and stays that way — a tool that removes a user's images because a timer
+// fired, without being asked, has earned every bit of the distrust that
+// follows.
+const KeyPruneEvery = "prune.every"
+
+// KeyPruneKeepSince is the age guard on an automatic prune: nothing younger
+// than this is touched. It maps to `prune --until`.
+//
+// There is no "no guard" setting on purpose. An unguarded automatic prune
+// would delete the image someone pulled an hour ago for tomorrow's demo, and
+// the only signal it left would be a slow pull later. The default is a week.
+const KeyPruneKeepSince = "prune.keep-since"
+
+// KeyPruneBuildCache widens an automatic prune to the BuildKit cache. Off by
+// default: the cache is expensive to rebuild and cheap to keep, so dropping it
+// is a choice rather than housekeeping.
+//
+// There is deliberately NO equivalent for volumes. `skrog prune --volumes`
+// exists for a human who typed it; a timer must never be able to delete a
+// database because nothing referenced it this week.
+const KeyPruneBuildCache = "prune.build-cache"
+
 // path is the settings file inside the state dir.
 func path(stateDir string) string {
 	return filepath.Join(stateDir, "config.json")
@@ -138,6 +162,28 @@ type Config struct {
 	VerifySignature bool
 	// DiskWarnBelow is the doctor free-space floor in bytes; 0 means default.
 	DiskWarnBelow uint64
+	// PruneEvery of zero means the supervisor never prunes on its own (#393).
+	PruneEvery time.Duration
+	// PruneKeepSince is the age guard on an automatic prune; zero means the
+	// built-in default rather than "no guard", which must not be expressible.
+	PruneKeepSince time.Duration
+	// PruneBuildCache widens an automatic prune to the BuildKit cache.
+	PruneBuildCache bool
+}
+
+// DefaultPruneKeepSince is the age guard used when prune.every is set and
+// prune.keep-since is not. A week: long enough that a Friday pull survives to
+// Monday, short enough to be worth running.
+const DefaultPruneKeepSince = 168 * time.Hour
+
+// KeepSince is the age guard actually in force, defaulting rather than
+// returning zero — callers must never be able to launch an unguarded prune by
+// forgetting to check.
+func (c Config) KeepSince() time.Duration {
+	if c.PruneKeepSince <= 0 {
+		return DefaultPruneKeepSince
+	}
+	return c.PruneKeepSince
 }
 
 // Load parses the settings file. A missing file is the default configuration,
@@ -170,6 +216,21 @@ func Load(stateDir string) (Config, error) {
 		}
 		c.DiskWarnBelow = n
 	}
+	if v, ok := raw[KeyPruneEvery]; ok {
+		d, err := parseIdleTimeout(v)
+		if err != nil {
+			return Config{}, fmt.Errorf("config %s: %w", KeyPruneEvery, err)
+		}
+		c.PruneEvery = d
+	}
+	if v, ok := raw[KeyPruneKeepSince]; ok {
+		d, err := parseIdleTimeout(v)
+		if err != nil {
+			return Config{}, fmt.Errorf("config %s: %w", KeyPruneKeepSince, err)
+		}
+		c.PruneKeepSince = d
+	}
+	c.PruneBuildCache = raw[KeyPruneBuildCache] == "on"
 	return c, nil
 }
 
@@ -212,6 +273,9 @@ var validators = map[string]func(string) (string, error){
 	KeyGPU:             validateOnOff,
 	KeyGPUVendor:       validateGPUVendor,
 	KeyDiskWarnBelow:   validateSize,
+	KeyPruneEvery:      validateDurationOrOff,
+	KeyPruneKeepSince:  validatePruneKeepSince,
+	KeyPruneBuildCache: validateOnOff,
 	KeyVerifySignature: validateOnOff,
 
 	// Validated the way WSL reads them, so a typo fails here rather than
@@ -276,6 +340,38 @@ func parseIdleTimeout(v string) (time.Duration, error) {
 		return 0, fmt.Errorf("%q is below the 10s minimum; use off to disable", v)
 	}
 	return d, nil
+}
+
+// validateDurationOrOff normalizes a duration setting, writing "off" for zero
+// so `skrog config` reads the same way the user would say it.
+func validateDurationOrOff(v string) (string, error) {
+	d, err := parseIdleTimeout(v)
+	if err != nil {
+		return "", err
+	}
+	if d == 0 {
+		return "off", nil
+	}
+	return d.String(), nil
+}
+
+// validatePruneKeepSince is validateDurationOrOff minus the escape hatch: an
+// automatic prune with no age guard would delete an image pulled an hour ago,
+// so "off" is refused here rather than silently meaning "delete everything
+// unused". Clearing the key (empty) restores the default guard.
+func validatePruneKeepSince(v string) (string, error) {
+	if strings.TrimSpace(v) == "" {
+		return "", nil
+	}
+	d, err := parseIdleTimeout(v)
+	if err != nil {
+		return "", err
+	}
+	if d == 0 {
+		return "", fmt.Errorf("an automatic prune always keeps a window; " +
+			"clear the key to use the default (168h) rather than turning the guard off")
+	}
+	return d.String(), nil
 }
 
 // Keys lists the settable keys, for help text.

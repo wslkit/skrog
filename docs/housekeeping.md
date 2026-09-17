@@ -27,8 +27,77 @@ the natural caller:
 skrog prune --all --until 168h
 ```
 
-A `prune.schedule` setting that lets the supervisor run this on a cadence is
-the follow-up on [#145](https://github.com/wslkit/skrog/issues/145).
+## Letting the supervisor do it: automatic prune
+
+Off by default. When you turn it on, the supervisor reclaims disk on a cadence
+without anyone remembering to:
+
+```powershell
+skrog config set prune.every 168h          # weekly; "off" is the default
+skrog config set prune.keep-since 336h     # optional; 168h if unset
+skrog config set prune.build-cache on      # optional; off by default
+```
+
+It applies live — the supervisor re-reads the file, so nothing needs a restart.
+
+### What it will and will not do
+
+It removes **stopped containers and unused images older than
+`prune.keep-since`**, and the BuildKit cache if you asked for it.
+
+It does **not** touch volumes, ever, and there is no setting that makes it.
+`skrog prune --volumes` exists for a person who typed it and meant it; a timer
+that can delete a database because nothing referenced it this week is a
+different kind of tool, and not this one.
+
+The age guard cannot be turned off either — `skrog config set prune.keep-since
+off` is refused. Clearing the key restores the 168h default rather than
+removing the window. Without a guard, an automatic sweep would take the image
+you pulled an hour ago for tomorrow's demo, and the only evidence would be a
+slow pull later.
+
+### When it skips
+
+- **While any container is running.** The same veto that defers an idle stop.
+  A machine that is always busy therefore never auto-prunes; that is the
+  conservative failure, and on a CI runner it is also the right one, because a
+  build is exactly when losing the cache hurts most.
+- **While the engine is down**, including idle-stopped. It never starts the
+  engine to prune, the same rule `skrog status` follows.
+- **The first time it sees the setting.** Turning it on starts the clock; the
+  first sweep is one interval later. "I enabled it and it immediately deleted
+  things" is a bad way to learn what a feature does.
+
+An idle stop will also wait while a prune is running, rather than stopping the
+engine out from under it.
+
+### Finding out what it did
+
+Every run is logged, because a missing image needs an explanation somewhere:
+
+```
+skrog logs | Select-String "automatic prune"
+```
+
+```
+automatic prune starting keepSince=168h0m0s buildCache=false
+automatic prune done reclaimedBytes=4187593113 keepSince=168h0m0s took=12s
+```
+
+A failed prune is logged and the clock still advances, so a wedged engine
+turns into one failure per interval rather than one per tick.
+
+### Before this existed
+
+A lifecycle hook gets you a cruder version, and still does if you want the
+prune tied to an event rather than a clock:
+
+```powershell
+skrog config set hook.on-idle-stop C:\ops\prune.ps1
+```
+
+It is not a substitute. Hooks fire on engine events, so a machine whose engine
+never idles never prunes.
 
 ## The free-space warning
 
