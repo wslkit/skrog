@@ -87,6 +87,9 @@ type Facts struct {
 	// SSHAgent is how `docker build --ssh default` would find an agent (#391).
 	SSHAgent SSHAgentInfo
 
+	// MultiArch is whether the default buildx driver can cross-build (#384).
+	MultiArch MultiArchInfo
+
 	// Session0 is advisory guidance about unattended (no-logon) operation; see
 	// checkSession0.
 	Session0 Session0Info
@@ -194,6 +197,18 @@ type SSHAgentInfo struct {
 	Err        string `json:"err,omitempty"`
 }
 
+// MultiArchInfo is the foreign-architecture emulation available to the default
+// buildx driver (#384). Probed is false when the engine was down, in which case
+// Handlers says nothing — doctor never boots a distro to answer (#82).
+//
+// The handlers are read from the WSL2 utility VM's binfmt_misc table, which
+// every distro on the machine shares, so an entry here may belong to someone's
+// Ubuntu rather than to Skrog.
+type MultiArchInfo struct {
+	Probed   bool     `json:"probed"`
+	Handlers []string `json:"handlers,omitempty"`
+}
+
 // Session0Info carries the advisory session-0 guidance. Verifying the account
 // right reliably needs elevation, so doctor explains it rather than asserting a
 // value it may not be able to read as a standard user.
@@ -284,6 +299,10 @@ func Gather(ctx context.Context, opts GatherOptions) Facts {
 		f.GPU.Probed = true
 		f.GPU.Visible = p.GPUAvailable(ctx, pOpts)
 		f.GPU.SpecInstalled = p.GPUSpecInstalled(ctx, pOpts)
+		// Same gate, same reason (#82): reading the handler table execs in the
+		// distro, and doctor must never boot a stopped one to answer.
+		f.MultiArch.Probed = true
+		f.MultiArch.Handlers = p.BinfmtHandlers(ctx, pOpts)
 	}
 
 	f.VPNs = vpnfingerprint.Detect(gatherAdapters(ctx))

@@ -89,6 +89,7 @@ func Registry() []Check {
 		checkNetwork(),
 		checkVPN(),
 		checkGPU(),
+		checkMultiArch(),
 		checkDisk(),
 		checkSession0(),
 		checkRunner(),

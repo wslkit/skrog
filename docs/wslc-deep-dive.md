@@ -98,7 +98,7 @@ Honest limits, separated by whose limit it is.
 | | |
 |---|---|
 | **API 1.44, with zero headroom** | Docker CLI 29.x's *minimum* is 1.44, so the stock CLI negotiates down and works — but anything needing 1.45+ fails rather than degrades: newer BuildKit attestation/SBOM flags, some Compose fields, `docker debug` |
-| **No cross-architecture execution** | `--platform` selects and pulls fine, but there is no qemu/binfmt, so a foreign binary cannot run: `exec /bin/true: exec format error`. `buildx --platform linux/arm64` clears `FROM` and dies at the first `RUN` |
+| **No cross-architecture execution** | `--platform` selects and pulls fine, but there is no qemu/binfmt, so a foreign binary cannot run: `exec /bin/true: exec format error`. `buildx --platform linux/arm64` clears `FROM` and dies at the first `RUN`. **Not a wslc-only trait:** the distro backend registers no handlers either, and neither does a plain Linux engine — see [cross-architecture builds](docker-cli.md#cross-architecture-builds-arm64-on-an-amd64-machine), which work on both through a container-driver builder |
 | **No engine pinning** | Microsoft ships it. `wsl --update` can move it in either direction, silently. Reproducibility cannot be promised |
 
 A trap worth stating because it is easy to inflict on yourself: pulling a
