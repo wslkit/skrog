@@ -550,15 +550,31 @@ flags:
 copy images and volumes from Docker Desktop into the engine
 
 ```
-usage: skrog migrate --from-desktop [--dry-run]
+usage: skrog migrate --from-desktop|--from-rancher|--from-podman [--dry-run]
 
-Copies images and named volumes from Docker Desktop into the Skrog engine, so
-trying Skrog does not mean starting from an empty engine.
+Copies images and named volumes from another engine into the Skrog engine, so
+trying Skrog does not mean starting from an empty one.
 
-The copy is one-way and non-destructive: nothing in Docker Desktop is changed
-or removed, and an interrupted migration leaves Desktop exactly as it was. Run
-it again to resume — anything already copied is skipped. Images stream via
-docker save|load, volumes via a streamed tar; neither stages a file on disk.
+  skrog migrate --from-desktop --dry-run    # what would move, and how big
+  skrog migrate --from-rancher
+  skrog migrate --from-podman
+
+The copy is one-way and non-destructive: nothing in the source is changed or
+removed, and an interrupted migration leaves it exactly as it was. Run it again
+to resume — anything already copied is skipped. Images stream via docker
+save|load, volumes via a streamed tar; neither stages a file on disk.
+
+Sources:
+  --from-desktop   Docker Desktop, via its desktop-linux context
+  --from-rancher   Rancher Desktop, via its rancher-desktop context. Needs the
+                   dockerd (moby) backend: with containerd selected there is no
+                   Docker API to read, and nothing here can work around that
+  --from-podman    Podman, via its Docker-compatible API on the machine's named
+                   pipe. Nothing shells out to podman; the docker CLI talks to
+                   it directly. For a non-default machine, --from-host
+                   npipe:////./pipe/podman-machine-<name>
+
+  --from-context / --from-host address any other engine directly.
 
 Build cache is not migrated: it is not portable through save/load. Anonymous
 (unnamed) volumes are skipped — they belong to specific containers, which do
@@ -574,9 +590,15 @@ flags:
   -dry-run
     	list what would move and how big it is, then stop
   -from-context string
-    	source docker context (default: desktop-linux with --from-desktop)
+    	source docker context, instead of one of the --from-* engines
   -from-desktop
     	migrate from Docker Desktop (the desktop-linux context)
+  -from-host string
+    	source engine endpoint, e.g. npipe:////./pipe/podman-machine-<name>
+  -from-podman
+    	migrate from Podman (its Docker-compatible API on the machine's named pipe)
+  -from-rancher
+    	migrate from Rancher Desktop (the rancher-desktop context; needs its dockerd backend)
   -only value
     	limit to images/volumes whose name contains this (repeatable)
   -state-dir string

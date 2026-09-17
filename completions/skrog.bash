@@ -49,7 +49,7 @@ _skrog() {
             install) flags="--agent --config --data-dir --distro --engine --engine-version --headless --json --locked --no-autostart --no-verify-signature --offline --rootfs-sha256 --rootfs-url --state-dir" ;;
             lock) flags="--engine-version --o --output" ;;
             logs) flags="--follow --json --n --source --state-dir" ;;
-            migrate) flags="--docker --docker-host --dry-run --from-context --from-desktop --only --state-dir" ;;
+            migrate) flags="--docker --docker-host --dry-run --from-context --from-desktop --from-host --from-podman --from-rancher --only --state-dir" ;;
             prewarm) flags="--concurrency --json" ;;
             profile) flags="--json --state-dir" ;;
             proxy) flags="--agent --distro --engine --no-context --no-path-translation --pipe --sddl --socket --state-dir" ;;

@@ -16,7 +16,10 @@ func runMigrate(args []string) int {
 	fs := flag.NewFlagSet("migrate", flag.ContinueOnError)
 	var (
 		fromDesktop = fs.Bool("from-desktop", false, "migrate from Docker Desktop (the desktop-linux context)")
-		fromContext = fs.String("from-context", "", "source docker context (default: desktop-linux with --from-desktop)")
+		fromRancher = fs.Bool("from-rancher", false, "migrate from Rancher Desktop (the rancher-desktop context; needs its dockerd backend)")
+		fromPodman  = fs.Bool("from-podman", false, "migrate from Podman (its Docker-compatible API on the machine's named pipe)")
+		fromContext = fs.String("from-context", "", "source docker context, instead of one of the --from-* engines")
+		fromHost    = fs.String("from-host", "", "source engine endpoint, e.g. npipe:////./pipe/podman-machine-<name>")
 		dryRun      = fs.Bool("dry-run", false, "list what would move and how big it is, then stop")
 		only        multiFlag
 		stateDir    = fs.String("state-dir", "", "override Skrog's state directory")
@@ -25,15 +28,31 @@ func runMigrate(args []string) int {
 	)
 	fs.Var(&only, "only", "limit to images/volumes whose name contains this (repeatable)")
 	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, `usage: skrog migrate --from-desktop [--dry-run]
+		fmt.Fprintf(os.Stderr, `usage: skrog migrate --from-desktop|--from-rancher|--from-podman [--dry-run]
 
-Copies images and named volumes from Docker Desktop into the Skrog engine, so
-trying Skrog does not mean starting from an empty engine.
+Copies images and named volumes from another engine into the Skrog engine, so
+trying Skrog does not mean starting from an empty one.
 
-The copy is one-way and non-destructive: nothing in Docker Desktop is changed
-or removed, and an interrupted migration leaves Desktop exactly as it was. Run
-it again to resume — anything already copied is skipped. Images stream via
-docker save|load, volumes via a streamed tar; neither stages a file on disk.
+  skrog migrate --from-desktop --dry-run    # what would move, and how big
+  skrog migrate --from-rancher
+  skrog migrate --from-podman
+
+The copy is one-way and non-destructive: nothing in the source is changed or
+removed, and an interrupted migration leaves it exactly as it was. Run it again
+to resume — anything already copied is skipped. Images stream via docker
+save|load, volumes via a streamed tar; neither stages a file on disk.
+
+Sources:
+  --from-desktop   Docker Desktop, via its desktop-linux context
+  --from-rancher   Rancher Desktop, via its rancher-desktop context. Needs the
+                   dockerd (moby) backend: with containerd selected there is no
+                   Docker API to read, and nothing here can work around that
+  --from-podman    Podman, via its Docker-compatible API on the machine's named
+                   pipe. Nothing shells out to podman; the docker CLI talks to
+                   it directly. For a non-default machine, --from-host
+                   npipe:////./pipe/podman-machine-<name>
+
+  --from-context / --from-host address any other engine directly.
 
 Build cache is not migrated: it is not portable through save/load. Anonymous
 (unnamed) volumes are skipped — they belong to specific containers, which do
@@ -49,13 +68,14 @@ flags:
 		return exitUsage
 	}
 
-	sourceCtx := *fromContext
-	if sourceCtx == "" {
-		if !*fromDesktop {
-			fmt.Fprintln(os.Stderr, "skrog: specify a source: --from-desktop (or --from-context <name>)")
-			return exitUsage
-		}
-		sourceCtx = "desktop-linux"
+	source, err := resolveMigrateSource(map[string]bool{
+		"from-desktop": *fromDesktop,
+		"from-rancher": *fromRancher,
+		"from-podman":  *fromPodman,
+	}, *fromContext, *fromHost)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "skrog: %v\n", err)
+		return exitUsage
 	}
 
 	opts := optsWithResolvedStateDir(provision.Options{StateDir: *stateDir})
@@ -76,7 +96,7 @@ flags:
 		dockerHost = pipeproxy.DockerHostFor(pipe)
 	}
 
-	src := migrate.DockerCLI{Exe: *dockerExe, Context: sourceCtx}
+	src := migrate.DockerCLI{Exe: *dockerExe, Context: source.Context, Host: source.Host}
 	dst := migrate.DockerCLI{Exe: *dockerExe, Host: dockerHost}
 	transfer := migrate.CLITransfer{Src: src, Dest: dst}
 	m := &migrate.Migrator{Source: src, Dest: dst, Transfer: transfer, Logger: log, Only: only}
@@ -88,8 +108,8 @@ flags:
 
 	plan, err := m.Plan(ctx)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "skrog: %v\n", err)
-		fmt.Fprintf(os.Stderr, "  (is Docker Desktop running, and is its %q context present? `docker context ls`)\n", sourceCtx)
+		fmt.Fprintf(os.Stderr, "skrog: reading %s: %v\n", source.Label, err)
+		fmt.Fprintf(os.Stderr, "  %s\n", source.Hint)
 		return exitError
 	}
 
