@@ -178,9 +178,25 @@ func (s *Supervisor) Run(ctx context.Context) {
 	t := time.NewTicker(s.Config.interval())
 	defer t.Stop()
 
+	// A second, much faster ticker that only looks at the two state FILES
+	// (#398).
+	//
+	// tick() is expensive: Engine.Running is a wsl exec, ~165 ms on a warm
+	// distro and seconds on a cold one, so the health interval cannot simply
+	// be shortened. But the cost of noticing `skrog start` is an os.ReadFile
+	// of a few bytes, and paying the health interval to learn about it meant
+	// the user waited up to a full interval before anything began — measured
+	// as ~3 s of a 6.6-9.4 s start, spent doing nothing at all.
+	//
+	// So: poll the files often, reconcile only when they have CHANGED. A
+	// steady machine does the same amount of engine probing as before.
+	poke := time.NewTicker(pokeInterval)
+	defer poke.Stop()
+
 	// Reconcile immediately rather than waiting out the first tick: the
 	// supervisor usually starts at logon, and the user is waiting.
 	s.tick(ctx)
+	seen := s.readIntent()
 	for {
 		select {
 		case <-ctx.Done():
@@ -188,7 +204,39 @@ func (s *Supervisor) Run(ctx context.Context) {
 			return
 		case <-t.C:
 			s.tick(ctx)
+			seen = s.readIntent()
+		case <-poke.C:
+			// Only on a change, or this becomes the health loop it was
+			// written to avoid becoming.
+			if now := s.readIntent(); now != seen {
+				seen = now
+				s.tick(ctx)
+			}
 		}
+	}
+}
+
+// pokeInterval is how often the supervisor checks whether the user has asked
+// for something. Not configurable: it is two small file reads, and a knob here
+// would only ever be turned the wrong way.
+const pokeInterval = 250 * time.Millisecond
+
+// intent is what the CLI has asked for, as the two files record it.
+//
+// Both matter, and watching only the first was the bug worth avoiding: `skrog
+// start` on an IDLE-stopped engine leaves desired at "running" (idle never
+// changed it) and instead deletes the engine-state marker. Watching desired
+// alone would therefore see no change and make exactly the case that most
+// needs waking wait out the full interval.
+type intent struct {
+	desired Desired
+	engine  EngineState
+}
+
+func (s *Supervisor) readIntent() intent {
+	return intent{
+		desired: ReadDesired(s.Config.StateDir),
+		engine:  ReadEngineState(s.Config.StateDir),
 	}
 }
 

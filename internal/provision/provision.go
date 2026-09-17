@@ -444,11 +444,20 @@ func (p *Provisioner) applyGPU(ctx context.Context, opts Options) {
 	// Remove every spec this vendor is not using, so switching vendors (or
 	// turning GPU off) never leaves a stale kind behind that a container could
 	// still select.
+	//
+	// One exec, not one per vendor (#398). Each wsl round trip is ~165 ms on a
+	// warm distro, and this runs on EVERY engine start — so the loop was
+	// spending a third of a second per start on `rm -f` for files that, on the
+	// overwhelming majority of machines, have never existed.
+	stale := make([]string, 0, len(gpu.Vendors()))
 	for _, other := range gpu.Vendors() {
 		if opts.GPUEnabled && other == v {
 			continue
 		}
-		p.wsl().Exec(ctx, opts.Distro, "root", "rm", "-f", other.SpecPath())
+		stale = append(stale, other.SpecPath())
+	}
+	if len(stale) > 0 {
+		p.wsl().Exec(ctx, opts.Distro, "root", append([]string{"rm", "-f"}, stale...)...)
 	}
 }
 
