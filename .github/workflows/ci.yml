@@ -37,6 +37,14 @@ jobs:
         shell: pwsh
         run: pwsh -File scripts/build-reference.ps1 -Check
 
+      # completions/ is generated from the same source (#392). Adding a flag
+      # without regenerating would ship completions that describe the previous
+      # release, and a completion that silently offers nothing is worse than
+      # none at all -- the user blames their shell.
+      - name: completions are current
+        shell: pwsh
+        run: pwsh -File scripts/build-completions.ps1 -Check
+
       # internal/release/manifest.json names rootfs tarballs published on this
       # repo's releases. Nothing offline can tell whether those URLs resolve --
       # and a rename pass once rewrote the published filenames, pointing every

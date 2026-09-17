@@ -111,6 +111,10 @@ jobs:
             go build -trimpath -ldflags "-s -w" -o $outa ./guest/agent
             if ($LASTEXITCODE -ne 0) { exit 1 }
             Copy-Item LICENSE, README.md (Split-Path $out)
+            # Shell completions (#392), generated from this same tree and
+            # verified current by CI. Text files, so the size budget below is
+            # unaffected.
+            Copy-Item -Recurse completions (Split-Path $out)
             Write-Host "built $out ($([math]::Round((Get-Item $out).Length/1MB,1)) MB) + skrogw + skrogtray + skrog-agent"
           }
 
