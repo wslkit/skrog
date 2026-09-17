@@ -92,6 +92,55 @@ No administrator? Two ways through without the service: point `SSH_AUTH_SOCK` at
 another agent, which buildx prefers over the pipe when it is set, or hand buildx
 the key directly with `docker build --ssh default=C:\path\to\key`.
 
+## Cross-architecture builds: arm64 on an amd64 machine
+
+Building for another architecture on the **default** builder fails, and the
+error does not say why:
+
+```
+$ docker buildx build --platform linux/arm64 .
+#5 [2/2] RUN uname -m
+#5 0.224 exec /bin/sh: exec format error
+```
+
+That reads like a broken Dockerfile or a bad base image. It is neither. The
+default `docker` driver builds inside dockerd's own BuildKit, which carries no
+emulator, so a foreign `RUN` needs a `binfmt_misc` handler registered on the
+host — and a stock WSL2 machine has none.
+
+**A container-driver builder needs nothing installed**, because official
+BuildKit images bundle the emulators:
+
+```powershell
+docker buildx create --name cross --driver docker-container --bootstrap
+docker buildx build --builder cross --platform linux/arm64 .
+# aarch64
+```
+
+Measured on this engine: the build succeeds, and the host's `binfmt_misc` table
+is **untouched** afterwards — the emulators live inside the builder container
+(`/usr/bin/buildkit-qemu-aarch64` and friends), not on your machine.
+
+`skrog doctor` reports which case you are in, as information rather than a
+warning: most people never cross-build.
+
+### Why Skrog does not just register the handlers
+
+Docker Desktop does — its docs say multi-platform builds work "by default...
+using the QEMU that's bundled within the Docker Desktop VM" — so this is one
+step Desktop does not ask of you.
+
+Registering handlers is not a distro-local act, though. **Every WSL2 distro
+shares one utility VM and one `binfmt_misc` table** — same kernel, same
+`boot_id` — so handlers Skrog registered would change how your Ubuntu executes
+foreign binaries too, and would silently replace any that `tonistiigi/binfmt`
+or your distro's `qemu-user-static` had put there. That is the same category as
+`~/.wslconfig`, which [`skrog wsl-config apply`](vm-sizing.md) treats as
+needing your consent rather than doing on your behalf.
+
+So it stays a thing you opt into, and the one command above is the answer for
+almost everyone.
+
 ## Licensing
 
 The bundled tools are open source and redistributable: the docker CLI, Compose,
