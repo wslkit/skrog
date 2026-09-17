@@ -8,12 +8,14 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/wslkit/skrog/internal/integrate"
 	"github.com/wslkit/skrog/internal/pipeproxy"
 	"github.com/wslkit/skrog/internal/provision"
+	"github.com/wslkit/skrog/internal/regcache"
 	"github.com/wslkit/skrog/internal/supervise"
 )
 
@@ -38,6 +40,28 @@ func (d *demandDialer) Dial(ctx context.Context) (io.ReadWriteCloser, error) {
 // Deadlines are no-ops; the probe's lifetime is bounded by its context.
 type rwcConn struct {
 	io.ReadWriteCloser
+}
+
+// probedContainer is the slice of /containers/json the busy probe reads.
+type probedContainer struct {
+	Names []string `json:"Names"`
+	State string   `json:"State"`
+}
+
+// isInfra reports whether this container is Skrog's own plumbing rather than
+// the user's work, so an idle stop (#41) or a scheduled prune (#393) may
+// ignore it. Getting this wrong in either direction is bad in a quiet way:
+// counting infrastructure holds the engine awake forever, and skipping a
+// user's container stops the engine out from under it. So the list is
+// explicit, exact-match, and short.
+func (c probedContainer) isInfra() bool {
+	for _, n := range c.Names {
+		switch strings.TrimPrefix(n, "/") {
+		case regcache.ContainerName:
+			return true
+		}
+	}
+	return false
 }
 
 type dummyAddr string
@@ -87,13 +111,16 @@ func busyProbe(dialer pipeproxy.Dialer, busyLog *slog.Logger) func(ctx context.C
 		if resp.StatusCode != http.StatusOK {
 			return false, fmt.Errorf("engine returned %s to the container probe", resp.Status)
 		}
-		var containers []struct {
-			Names []string `json:"Names"`
-			State string   `json:"State"`
-		}
+		var containers []probedContainer
 		if err := json.NewDecoder(resp.Body).Decode(&containers); err != nil {
 			return false, err
 		}
+		// Skrog's own infrastructure is not work (#385). The pull-through
+		// cache is a long-lived container, and counting it would hold the
+		// engine awake forever and suppress every scheduled prune — turning
+		// on a cache would silently disable two other features, with no error
+		// anywhere to explain it.
+		containers = slices.DeleteFunc(containers, probedContainer.isInfra)
 		if len(containers) > 0 && busyLog != nil {
 			names := make([]string, len(containers))
 			for i, c := range containers {

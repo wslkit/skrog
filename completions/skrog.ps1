@@ -12,6 +12,7 @@ $script:SkrogCommands = @(
     'audit'
     'autostart'
     'bundle'
+    'cache'
     'cli'
     'compact'
     'config'
@@ -49,6 +50,7 @@ $script:SkrogCommands = @(
 $script:SkrogSubcommands = @{
     'audit' = @('tail', 'trace')
     'autostart' = @('enable', 'disable', 'status')
+    'cache' = @('enable', 'disable', 'status')
     'cli' = @('install', 'status', 'uninstall')
     'config' = @('get', 'set', 'export')
     'engine' = @('list', 'upgrade', 'rollback')
@@ -64,6 +66,7 @@ $script:SkrogSubcommands = @{
 $script:SkrogFlags = @{
     'audit' = @('--json', '--n', '--raw', '--since', '--state-dir')
     'bundle' = @('--engine-version', '--o', '--output', '--state-dir')
+    'cache' = @('--json', '--keep-data', '--port', '--state-dir', '--upstream')
     'compact' = @('--distro', '--dry-run', '--json', '--no-trim', '--restart', '--state-dir', '--wait')
     'config' = @('--json', '--state-dir')
     'doctor' = @('--fix', '--json', '--report', '--state-dir')

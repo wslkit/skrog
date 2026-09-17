@@ -12,7 +12,7 @@ sections:
   - section: Keep it healthy
     pages: [housekeeping, snapshots, upgrading, engine-upgrade, vm-sizing]
   - section: At work
-    pages: [corporate-network, vpn, air-gap, security, code-signing, audit, policy]
+    pages: [corporate-network, vpn, air-gap, registry-cache, security, code-signing, audit, policy]
   - section: Fleet and CI
     pages: [ci-runners, auto-logon-runner, declarative-install, profiles, remote-engine, local-ci, monitoring]
   - section: Advanced
