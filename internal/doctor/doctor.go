@@ -78,6 +78,7 @@ type Check struct {
 func Registry() []Check {
 	return []Check{
 		checkWSL(),
+		checkWSLFastPath(),
 		checkDockerCLI(),
 		checkCredentialHelper(),
 		checkEngine(),

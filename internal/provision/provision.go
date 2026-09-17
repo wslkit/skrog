@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/wslkit/skrog/internal/engineconfig"
@@ -188,13 +189,23 @@ type Provisioner struct {
 	Fetcher Fetcher
 	// Logger receives progress. Defaults to slog.Default().
 	Logger *slog.Logger
+
+	// defaultWSL is the backend built on first use and reused thereafter.
+	//
+	// Memoised rather than constructed per call, which is what this used to do.
+	// The default backend now holds a COM apartment on a thread of its own
+	// (#356), and building one per call would start a thread per call — the
+	// supervisor asks on every health tick.
+	wslOnce    sync.Once
+	defaultWSL wsl.WSL
 }
 
 func (p *Provisioner) wsl() wsl.WSL {
 	if p.WSL != nil {
 		return p.WSL
 	}
-	return wsl.NewLocal()
+	p.wslOnce.Do(func() { p.defaultWSL = wsl.NewFast() })
+	return p.defaultWSL
 }
 
 func (p *Provisioner) fetcher() Fetcher {

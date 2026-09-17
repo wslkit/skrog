@@ -41,6 +41,13 @@ type Facts struct {
 	WSL    wsl.Status
 	WSLErr string
 
+	// WSLFastPath reports whether the COM fast path to wslservice is in use,
+	// and why not when it is not (#356). A machine that has silently fallen
+	// back to spawning wsl.exe is not broken, only slower -- which is exactly
+	// the kind of thing that goes unnoticed until someone profiles it.
+	WSLFastPath    bool
+	WSLFastPathWhy string
+
 	// Report is the `skrog version` picture: docker binaries on PATH, active
 	// context, negotiated API version, and the install manifest. Never nil after
 	// Gather.
@@ -200,7 +207,8 @@ func Gather(ctx context.Context, opts GatherOptions) Facts {
 	stateDir := opts.StateDir
 	pOpts := provision.Options{StateDir: stateDir}
 	p := &provision.Provisioner{}
-	w := wsl.NewLocal()
+	w := wsl.NewFast()
+	defer w.Close()
 
 	f := Facts{
 		StateDir:   stateDir,
@@ -208,6 +216,8 @@ func Gather(ctx context.Context, opts GatherOptions) Facts {
 		Desired:    string(supervise.ReadDesired(stateDir)),
 		Session0:   Session0Info{AutostartConfigured: opts.AutostartConfigured},
 	}
+
+	f.WSLFastPath, f.WSLFastPathWhy = w.Accelerated()
 
 	if st, err := w.Status(ctx); err != nil {
 		f.WSLErr = err.Error()
