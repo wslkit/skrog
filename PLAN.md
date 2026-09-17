@@ -36,7 +36,7 @@ Docker Desktop requires a paid subscription for most companies. Rancher Desktop 
 - Kubernetes in any form
 - Container-management GUI, dashboards, extensions — Portainer and lazydocker already work against Skrog because it's the real engine
 - Image registries, scanning, build acceleration services
-- GitHub/GitLab *hosted* Windows runners — they don't expose nested virtualization, so WSL2 cannot start there; no tool can fix that
+- ~~GitHub/GitLab *hosted* Windows runners — they don't expose nested virtualization, so WSL2 cannot start there~~ — **overturned for x64 (#389).** `windows-latest` does expose it: setup-skrog's own CI installs the engine and prints `Hello from Docker!` on a hosted runner every push. It remains true for **`windows-11-arm`**, where the Cobalt VMs expose none — measured, `HCS_E_HYPERV_NOT_INSTALLED`. So hosted x64 CI is supported and tested, hosted ARM CI is build-and-test only
 - macOS / Linux hosts (Colima and native engines own those)
 
 Scope discipline is the moat: the moment a Kubernetes checkbox or a management UI appears, this converges on Rancher Desktop with fewer resources. The tray menu never grows past six items.
@@ -222,7 +222,7 @@ Advanced-user features no other Docker product on Windows offers — kept out of
 
 Boring on purpose: reliability guarantees, not features.
 
-- [ ] End-to-end suite on a self-hosted Windows runner with nested virtualization (GitHub-hosted runners can't run WSL2)
+- [ ] End-to-end suite on a Windows runner with nested virtualization — hosted `windows-latest` now qualifies (#389), so this no longer implies self-hosting on x64
 - [ ] Compatibility matrix across Windows 11 23H2/24H2+ / Insider, plus Windows 10 22H2-under-ESU as best-effort (mirrored networking and several doctor fixes are Win11-only — the matrix says which); WSL version pinning policy
 - [ ] Semantic versioning, upgrade guarantees, published threat model for the pipe (so security teams can approve it)
 - [ ] Checkpoint: the concrete tripwire is **movement on microsoft/WSL#40976** (a Docker Engine API endpoint for wslc — today unanswered, no milestone), not wslc GA itself, which ships without it. A maintainer reply, a milestone, or a `settings.yaml` endpoint in release notes triggers a deliberate positioning review
@@ -254,7 +254,7 @@ This is a WSL constraint rather than a Skrog one, and it binds every alternative
 
 **The honest cost:** auto-logon stores the account password in LSA secrets, recoverable by an administrator. Organizations that forbid it by policy cannot run Skrog unattended at all — nor any WSL-based engine. That belongs in the docs, and in `doctor` as a named check rather than a mystery.
 
-Two boundaries, stated honestly: GitHub/GitLab *hosted* Windows runners cannot work (no nested virtualization — a hypervisor policy, not a software gap), and Hyper-V guest VMs used as runners need nested virtualization enabled on their host. Notably, Microsoft's `wslc` doesn't threaten this niche: CI workloads are exactly the Docker-API-dependent tools it can't run.
+Two boundaries, stated honestly — and the first has moved since this was written. GitHub-hosted **x64** Windows runners *do* work: `windows-latest` exposes nested virtualization today, and setup-skrog's CI installs the engine and runs a container on one every push. GitHub-hosted **arm64** runners (`windows-11-arm`) do not, and that one is a hypervisor policy rather than a software gap (#389). Hyper-V guest VMs used as runners still need nested virtualization enabled on their host. Notably, Microsoft's `wslc` doesn't threaten this niche: CI workloads are exactly the Docker-API-dependent tools it can't run.
 
 ---
 
@@ -301,7 +301,7 @@ The `wsl` package hides every `wsl.exe` invocation behind an interface so unit t
 | ~~Session-0 / no-login WSL~~ — **settled, and negative** | resolved | Spike B (#3) measured it: WSL2 will not create its utility VM outside an interactive session. LocalSystem is refused by name; a dedicated service account fails in HCS with `ERROR_LOGON_TYPE_NOT_GRANTED` holding Service + Batch + Interactive rights and local admin. No longer a risk but a documented constraint (§03, §06). Cost of finding out: one day, in week one, exactly as intended. |
 | Auto-logon forbidden by policy | medium | Unattended runners need a logged-on session, and auto-logon stores a password in LSA secrets. Fleets that ban it cannot run Skrog unattended — nor any WSL-based engine, so no competitor wins those machines either. Mitigation: state it in the docs, name it in `doctor`, and never automate credential storage on the user's behalf. Theoretical escape (out of scope): run the engine in a plain Hyper-V VM instead of WSL. |
 | WSL2 behavior drift | ongoing | Pin a minimum WSL version; doctor detects mismatches; abstract every `wsl.exe` call; test Insider builds before Windows feature updates land. |
-| CI can't run WSL2 | medium | GitHub-hosted Windows runners lack nested virtualization. Keep unit tests host-independent; one self-hosted runner (or a paid larger runner) for the e2e suite. |
+| CI can't run WSL2 | **retired for x64** | Was: GitHub-hosted Windows runners lack nested virtualization. `windows-latest` now has it — setup-skrog's CI runs the engine on one every push — so the e2e suite needs no self-hosted runner on x64. Still live for `windows-11-arm`, which has none (#389); unit tests stay host-independent regardless. |
 | SmartScreen / unsigned binaries | **raised: high** | The free route is gated on the thing it would help fix. SignPath's Foundation programme declined pending an established user base; winget builds reputation fastest but wants a signed installer; reputation only accrues once signed. Paying breaks the loop and needs nobody's approval (#77). container-desktop's Defender-blocked installer is the cautionary tale. |
 | Corporate VPN / DNS breakage | chronic | The #1 WSL2 support topic everywhere — treated as a product surface, not an issue label: platform fixes, fingerprint database, doctor --fix, opt-in relay (section 07). |
 | Pipe security | design-time | ACL the pipe to interactive user + admins; TCP only as opt-in mutual-TLS; publish a short threat model so security teams can approve it. |

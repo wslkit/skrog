@@ -43,6 +43,37 @@ equivalent via docker is `docker context inspect skrog --format
 '{{.Endpoints.docker.Host}}'`, which asks docker what Skrog told it — the same
 answer, one step further away.
 
+## GitHub Actions (hosted `windows-latest`)
+
+Hosted x64 runners can run the engine — no self-hosting, no auto-logon, nothing
+to provision:
+
+```yaml
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: wslkit/setup-skrog@v2
+        with:
+          version: 0.5.0        # pin it; "latest" resolves the newest release
+      - run: docker run --rm alpine:3.20 echo hello
+```
+
+This is not a claim on trust: setup-skrog's own CI runs exactly this on every
+push and prints `Hello from Docker!` from a hosted runner.
+
+**`windows-11-arm` cannot do this.** Those runners are real Windows 11 ARM64
+but expose no nested virtualization, so WSL2 never starts — `wsl --import`
+fails with `HCS_E_HYPERV_NOT_INSTALLED` even though WSL itself installs and
+`Microsoft-Hyper-V` reports `Enabled`. Nothing in a workflow changes it. Use
+`install: false` there to stage `skrog.exe` for packaging steps, or an x64
+runner for anything that needs the engine.
+
+A self-hosted runner still buys things a hosted one cannot — a warm image
+cache, a persistent build cache, and your own hardware — which is the section
+below.
+
 ## GitHub Actions (self-hosted Windows runner)
 
 ```yaml
