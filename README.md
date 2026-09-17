@@ -138,7 +138,10 @@ docker context. Nothing else on the system is touched.
 - **`skrog status --stats`**: container/image/volume counts and reclaimable space, the
   VHDX footprint, VM memory and CPUs (configured versus actual), engine and supervisor
   uptime with idle-stop history, and bridge counters including **which transport is live**
-  — the one number that explains a slow `docker` with a healthy engine
+  — the one number that explains a slow `docker` with a healthy engine. `--prometheus`
+  emits the same numbers for node_exporter's textfile collector, so a fleet's health
+  lands in the dashboard you already run — local only, still no telemetry
+  ([docs/monitoring.md](docs/monitoring.md))
 - **Right-size the VM with consent**: `skrog config set wsl.memory 4GB` then
   `skrog wsl-config apply` shows the diff to the GLOBAL ~/.wslconfig and writes only on
   a yes (`--yes` for runners, idempotent) — [docs/vm-sizing.md](docs/vm-sizing.md)
@@ -313,7 +316,8 @@ page is reachable from here.
 [Declarative install](docs/declarative-install.md) ·
 [Profiles](docs/profiles.md) ·
 [Remote engine over mTLS](docs/remote-engine.md) ·
-[Local CI](docs/local-ci.md)
+[Local CI](docs/local-ci.md) ·
+[Monitoring a fleet](docs/monitoring.md)
 
 **Advanced**
 [GPU (NVIDIA, and experimental AMD)](docs/gpu.md) ·

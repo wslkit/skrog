@@ -669,8 +669,9 @@ func runStatus(args []string) int {
 	stateDir := fs.String("state-dir", "", "override Skrog's state directory")
 	asJSON := fs.Bool("json", false, "emit machine-readable JSON")
 	withStats := fs.Bool("stats", false, "add engine, disk, VM, uptime and bridge statistics (needs a running engine for the first three)")
+	asProm := fs.Bool("prometheus", false, "emit Prometheus text (node_exporter textfile format); implies --stats")
 	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, `usage: skrog status [--json] [--stats]
+		fmt.Fprintf(os.Stderr, `usage: skrog status [--json] [--stats] [--prometheus]
 
 Reports the distro, whether the supervisor and engine are running, the desired
 state the user last asked for, and — while a supervisor is running — the pipe
@@ -694,12 +695,29 @@ The engine is one of:
 because collecting them costs WSL calls a readiness probe should not pay; the
 default shape is the pinned probe contract (%s).
 
+--prometheus emits the same numbers as Prometheus text, for node_exporter's
+textfile collector (a scheduled task writes it into the collector directory).
+It implies --stats. Nothing leaves this machine: there is no listener and no
+telemetry — it is the operator measuring their own host.
+
 Exit codes: 0 engine running or idle, %d engine down, %d usage, %d not installed.
+--prometheus always exits 0 when it could write metrics, because the engine's
+state is IN the metrics: a scrape that failed because the engine was down would
+discard exactly the reading worth having.
 `, "docs/cli-json.md", exitError, exitUsage, exitNotFound)
 		fs.PrintDefaults()
 	}
 	if err := fs.Parse(args); err != nil {
 		return exitUsage
+	}
+	if *asProm && *asJSON {
+		fmt.Fprintln(os.Stderr, "skrog: choose --json or --prometheus, not both")
+		return exitUsage
+	}
+	// The metrics are drawn from the statistics, so asking for them asks for
+	// those too rather than quietly exporting an almost-empty file.
+	if *asProm {
+		*withStats = true
 	}
 
 	opts := optsWithResolvedStateDir(provision.Options{StateDir: *stateDir})
@@ -772,6 +790,16 @@ Exit codes: 0 engine running or idle, %d engine down, %d usage, %d not installed
 	if *withStats && st.Installed {
 		s := gatherStats(context.Background(), opts, st.Distro, st.Engine == "running")
 		st.Stats = &s
+	}
+
+	// Before the not-installed early return: "no engine here" is a fact a fleet
+	// dashboard wants, and skrog_installed 0 is how it says so.
+	if *asProm {
+		if err := writePrometheus(os.Stdout, st, buildVersion); err != nil {
+			fmt.Fprintf(os.Stderr, "skrog: writing metrics: %v\n", err)
+			return exitError
+		}
+		return exitOK
 	}
 
 	if *asJSON {

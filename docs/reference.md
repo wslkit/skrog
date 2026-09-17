@@ -920,7 +920,7 @@ running, and waits for the engine to answer.
 report supervisor, engine and desired state
 
 ```
-usage: skrog status [--json] [--stats]
+usage: skrog status [--json] [--stats] [--prometheus]
 
 Reports the distro, whether the supervisor and engine are running, the desired
 state the user last asked for, and — while a supervisor is running — the pipe
@@ -944,9 +944,19 @@ The engine is one of:
 because collecting them costs WSL calls a readiness probe should not pay; the
 default shape is the pinned probe contract (docs/cli-json.md).
 
+--prometheus emits the same numbers as Prometheus text, for node_exporter's
+textfile collector (a scheduled task writes it into the collector directory).
+It implies --stats. Nothing leaves this machine: there is no listener and no
+telemetry — it is the operator measuring their own host.
+
 Exit codes: 0 engine running or idle, 1 engine down, 2 usage, 3 not installed.
+--prometheus always exits 0 when it could write metrics, because the engine's
+state is IN the metrics: a scrape that failed because the engine was down would
+discard exactly the reading worth having.
   -json
     	emit machine-readable JSON
+  -prometheus
+    	emit Prometheus text (node_exporter textfile format); implies --stats
   -state-dir string
     	override Skrog's state directory
   -stats
