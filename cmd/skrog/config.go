@@ -42,13 +42,23 @@ itself land when the engine next starts, which `+"`skrog restart`"+` asks for.
                  docker call. See `+"`skrog audit tail`"+`.
   %s  refuse the rootfs at install time unless its signature verifies
   %s free-space floor under which `+"`skrog doctor`"+` warns, e.g. 10GB
+  %s    how often the supervisor reclaims disk on its own: a duration
+                 like 168h, or "off" (the default). It prunes stopped
+                 containers and unused images older than prune.keep-since,
+                 skipping entirely while containers are running. NEVER volumes.
+  %s how much history an automatic prune keeps; nothing younger is
+                 touched. Defaults to 168h, and cannot be turned off — clear
+                 the key to restore the default.
+  %s also drop the BuildKit cache on an automatic prune; on/off
+                 ("off" by default, because the cache is expensive to rebuild).
 
 Engine settings (engine.<key>) are written into the engine's daemon.json,
 validated with `+"`dockerd --validate`"+` before they replace the live file, and
 applied by bouncing the engine (rolled back if it does not come back). Set an
 empty value to clear a key. Lists are comma-separated; maps are k=v,k=v.
 
-`, config.KeyIdleTimeout, config.KeyAudit, config.KeyVerifySignature, config.KeyDiskWarnBelow)
+`, config.KeyIdleTimeout, config.KeyAudit, config.KeyVerifySignature, config.KeyDiskWarnBelow,
+			config.KeyPruneEvery, config.KeyPruneKeepSince, config.KeyPruneBuildCache)
 		for _, k := range engineconfig.KeyHelp() {
 			fmt.Fprintf(os.Stderr, "  engine.%-24s %s\n", k.Name, k.Help)
 		}

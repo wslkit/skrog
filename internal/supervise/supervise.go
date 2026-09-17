@@ -83,6 +83,22 @@ type Supervisor struct {
 	// blocks a tick or the mutex. Nil disables hooks.
 	Hook func(event string)
 
+	// PrunePolicy is the automatic-prune settings, read every tick so
+	// `skrog config set prune.every` takes effect without a restart. Nil, or
+	// a zero Every, disables automatic pruning — which is the default.
+	PrunePolicy func() PrunePolicy
+
+	// Prune reclaims disk and reports what it freed. Nil disables automatic
+	// pruning regardless of policy, so a caller that has not wired an engine
+	// client cannot accidentally schedule deletions it cannot perform.
+	Prune func(ctx context.Context, p PrunePolicy) (reclaimed uint64, err error)
+
+	// pruning guards against a second prune starting while one is still
+	// running. A prune runs OFF the reconciler (it can take minutes, and the
+	// tick holds mu across a cold start), so the tick needs a way to see that
+	// one is already in flight without taking a lock the prune also wants.
+	pruning atomic.Bool
+
 	// lastUp is the engine health the reconciler saw on its most recent tick.
 	// Atomic rather than guarded by mu on purpose: readers must never block on
 	// the reconciler, which holds mu across a slow engine start (#192).
@@ -260,6 +276,10 @@ func (s *Supervisor) tick(ctx context.Context) {
 			s.idleStopped = false
 			WriteEngineState(s.Config.StateDir, EngineActive)
 		}
+		// Prune first: it only decides here and runs on its own goroutine, and
+		// maybeIdleStop below refuses to stop an engine while that goroutine
+		// is still working.
+		s.maybePrune(ctx)
 		s.maybeIdleStop(ctx)
 	}
 }
@@ -277,6 +297,14 @@ func (s *Supervisor) maybeIdleStop(ctx context.Context) {
 	}
 	if n := s.Activity.ActiveConns(); n > 0 {
 		s.veto("open client connections", "conns", n)
+		return
+	}
+	// An automatic prune runs off this goroutine and talks to the engine the
+	// whole time (#393). Stopping it mid-sweep would fail the prune and leave
+	// the reclaim half-done, and the bridge sees none of that traffic, so
+	// nothing else here would notice.
+	if s.pruning.Load() {
+		s.veto("an automatic prune is running")
 		return
 	}
 	// The idle clock starts at whichever is later: the last connection, or

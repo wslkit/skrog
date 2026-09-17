@@ -133,7 +133,7 @@ Kept out of v0.4 so the ship-it release stays tight.
 | Weekend | Work |
 |---|---|
 | W12 (Feb 6–7) | `snapshot create/restore` (VHDX copy while stopped); `create --name` side-by-side engines, each its own distro + context |
-| W13 (Feb 20–21) | Opt-in prune policy + tray disk-quota alert (#393); `cache enable` pull-through mirror (#385); ~~PowerShell + bash completions~~ **shipped (#392)** — generated from `help --json` and CI-checked, like the command reference |
+| W13 (Feb 20–21) | ~~Opt-in prune policy~~ **shipped (#393)** — `prune.every` on the supervisor's own timer, age-guarded, never volumes; the tray disk-quota alert is still open and must not become a seventh tray item. `cache enable` pull-through mirror (#385); ~~PowerShell + bash completions~~ **shipped (#392)** — generated from `help --json` and CI-checked, like the command reference |
 
 **Exit criteria:** snapshot → break everything → restore is bit-perfect; two engines run simultaneously with independent contexts.
 

@@ -216,6 +216,15 @@ itself land when the engine next starts, which `skrog restart` asks for.
                  docker call. See `skrog audit tail`.
   install.verify-signature  refuse the rootfs at install time unless its signature verifies
   disk.warn-below free-space floor under which `skrog doctor` warns, e.g. 10GB
+  prune.every    how often the supervisor reclaims disk on its own: a duration
+                 like 168h, or "off" (the default). It prunes stopped
+                 containers and unused images older than prune.keep-since,
+                 skipping entirely while containers are running. NEVER volumes.
+  prune.keep-since how much history an automatic prune keeps; nothing younger is
+                 touched. Defaults to 168h, and cannot be turned off — clear
+                 the key to restore the default.
+  prune.build-cache also drop the BuildKit cache on an automatic prune; on/off
+                 ("off" by default, because the cache is expensive to rebuild).
 
 Engine settings (engine.<key>) are written into the engine's daemon.json,
 validated with `dockerd --validate` before they replace the live file, and

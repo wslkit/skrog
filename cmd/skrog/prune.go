@@ -1,13 +1,16 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
+	"log/slog"
 	"os"
 
 	"github.com/wslkit/skrog/internal/dockerctx"
 	"github.com/wslkit/skrog/internal/prune"
+	"github.com/wslkit/skrog/internal/supervise"
 )
 
 // runPrune is `skrog prune` (#145): reclaim disk on the engine — stopped
@@ -88,4 +91,38 @@ flags:
 	}
 	fmt.Printf("\nreclaimed %s in total\n", humanBytes(res.ReclaimedBytes))
 	return code
+}
+
+// autoPrune adapts internal/prune for the supervisor's scheduled reclaim
+// (#393). It is the same code path `skrog prune` uses, with two differences
+// that are the whole safety story:
+//
+//   - Volumes is never set, and there is no setting that could set it. A human
+//     who types `--volumes` has decided to risk data; a timer has not.
+//   - Until always carries the policy's guard, which config refuses to let
+//     anyone zero.
+//
+// All is on: an automatic sweep that only removed dangling layers would leave
+// the tagged images that actually fill a disk, and the age guard is what keeps
+// that honest rather than the dangling-only filter.
+func autoPrune(log *slog.Logger) func(context.Context, supervise.PrunePolicy) (uint64, error) {
+	return func(ctx context.Context, p supervise.PrunePolicy) (uint64, error) {
+		res := prune.Run(ctx, prune.DockerRunner{}, prune.Options{
+			All:        true,
+			Until:      p.KeepSince,
+			BuildCache: p.BuildCache,
+		})
+		for _, st := range res.Steps {
+			if st.Err != "" {
+				log.Warn("automatic prune step failed", "step", st.Name, "error", st.Err)
+			}
+		}
+		if res.Failed > 0 && res.ReclaimedBytes == 0 {
+			return 0, fmt.Errorf("every prune step failed (%d)", res.Failed)
+		}
+		if res.ReclaimedBytes < 0 {
+			return 0, nil
+		}
+		return uint64(res.ReclaimedBytes), nil
+	}
 }

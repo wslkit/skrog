@@ -152,8 +152,9 @@ docker context. Nothing else on the system is touched.
 - **Disk hygiene**: `skrog prune` reclaims stopped containers, unused images and build cache
   through whatever docker targets; **`skrog compact`** then shrinks the engine's VHDX itself
   (`fstrim` + `CompactVirtualDisk`, no administrator rights, so it works on Windows Home);
-  `skrog doctor` warns below a configurable free-space floor
-  ([docs/housekeeping.md](docs/housekeeping.md))
+  `skrog doctor` warns below a configurable free-space floor. `skrog config set
+  prune.every 168h` hands the job to the supervisor — opt-in, age-guarded, and
+  never volumes ([docs/housekeeping.md](docs/housekeeping.md))
 - **`skrog wsl-integrate <distro>`**: use the engine from inside your own WSL distros
 - **`skrog migrate --from-desktop`**: copy images and volumes out of Docker Desktop,
   non-destructively and resumably (`--dry-run` first)
