@@ -14,7 +14,7 @@ sections:
   - section: At work
     pages: [corporate-network, vpn, air-gap, security, code-signing, audit, policy]
   - section: Fleet and CI
-    pages: [ci-runners, auto-logon-runner, declarative-install, profiles, remote-engine, local-ci]
+    pages: [ci-runners, auto-logon-runner, declarative-install, profiles, remote-engine, local-ci, monitoring]
   - section: Advanced
     pages: [wslc-deep-dive, gpu, kubernetes, hooks, cli-json, reference]
   - section: Contributing

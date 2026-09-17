@@ -101,6 +101,14 @@ healthy machines as broken.
 > `1` meaning warn. A consumer written against the old text iterated object
 > keys and treated a *failing* doctor as a usage error.
 
+## Not JSON: `skrog status --prometheus`
+
+The same numbers `status --stats --json` reports are also available as
+Prometheus text for node_exporter's textfile collector — see
+[monitoring.md](monitoring.md). It is the one machine-readable output here that
+is not JSON, and its exit code deliberately differs (always `0` when metrics
+could be written, because the engine's state is *in* the metrics).
+
 ## `skrog config --json`
 
 ```json

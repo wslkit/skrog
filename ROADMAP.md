@@ -171,7 +171,7 @@ Ideas that could raise the project's ceiling, held here until a milestone earns 
 | **One-line bootstrap** — `irm https://skrog.dev/install.ps1 \| iex` (signed, checksum-verified) | everyone, pre-winget; the README's first command | v0.1 |
 | **Publish the doctor VPN knowledge base as docs pages** — every fingerprinted failure gets a public URL | SEO: "WSL2 VPN DNS not working" searchers become users; turns support load into acquisition | v0.4 docs site |
 | **`skrog migrate --from-rancher / --from-podman`** — same lever as `--from-desktop` | the second- and third-place switcher pools | v0.5 |
-| **Opt-in local health metrics** — `skrog status --prometheus` textfile/endpoint (local only; the no-telemetry promise is about *us*, not about the user's own monitoring) | fleet operators who need runner health in their dashboards | v0.5 |
+| ~~**Opt-in local health metrics**~~ — **shipped (#390)**: `skrog status --prometheus` emits node_exporter textfile format. Textfile only, no listener — a resident endpoint would be a new network surface for no gain ([docs/monitoring.md](docs/monitoring.md)) | fleet operators who need runner health in their dashboards | v0.5 |
 | **Sustainability** — GitHub Sponsors from day one; later a paid priority-support tier for fleets (the product stays 100 % free) | keeps the maintainer maintaining; enterprises *want* someone to pay | v0.4 |
 
 ## Working agreements
