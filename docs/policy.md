@@ -11,12 +11,72 @@ skrog policy check                      # validate the file without applying it
 skrog policy test create-body.json      # judge one request, and say why
 ```
 
+## Two layers, and only one of them is yours
+
+Rules come from two files:
+
+| | Where | Who can write it |
+| --- | --- | --- |
+| **Machine** | `%ProgramData%\skrog\policy.yaml` | administrators |
+| **You** | `policy.yaml` in the state dir (`skrog policy show` prints the path) | you |
+
+They merge with one rule: **the user layer may only tighten.** You can forbid
+more than the machine does. You cannot permit anything it forbids.
+
+```
+$ skrog policy show
+machine rules: C:\ProgramData\skrog\policy.yaml  (administrator-writable; you cannot loosen these)
+  deny --privileged
+  bind mounts only from: C:\work
+
+your rules: C:\Users\you\AppData\Local\Skrog\policy.yaml
+  images must be pinned by digest
+
+in effect (machine rules, tightened by yours):
+  deny --privileged
+  bind mounts only from: C:\work
+  images must be pinned by digest
+```
+
+Most machines have no machine file, and on those nothing above changes: one
+file, one layer, as before.
+
+### How the merge works
+
+- **Deny rules OR.** A machine `deny-privileged: true` cannot be un-denied.
+- **`deny-capabilities` unions.** Both lists are forbidden.
+- **Allow-lists intersect**, which is the subtle one. An allow-list is a
+  *permission*, so tightening means keeping fewer entries: a user entry
+  survives only if the machine layer already permitted it.
+
+That last point is worth an example, because "intersect" is not quite set
+intersection. With machine `allow-bind-sources: [C:\work]`:
+
+| Your file says | In effect | Why |
+| --- | --- | --- |
+| nothing | `C:\work` | the machine's |
+| `C:\work\proj` | `C:\work\proj` | it is *under* a machine root, so it was already permitted |
+| `D:\other` | `C:\work` | nothing you asked for was permitted, so you get the machine's list |
+
+A tightening step never produces an *empty* allow-list, because empty means
+"no restriction" — the one value that grants more than it looks like.
+
 ## What it is not
 
-**Not a security boundary against a hostile local user.** They own the
-machine: they can edit the rules file, point `DOCKER_HOST` somewhere else, or
-talk to the engine directly. This catches mistakes, and gives shared and CI
-machines a policy surface. Claiming more would be dishonest.
+**Not a security boundary against a local ADMINISTRATOR.** They can edit the
+machine file, or uninstall Skrog. Nothing here survives someone who owns the
+box outright.
+
+**It IS a boundary against a standard user**, which is the actual
+configuration of a managed corporate laptop. A standard user cannot write to
+`%ProgramData%\skrog`, cannot loosen what is there, and cannot make `skrog
+policy show` lie about it. On a machine with no machine-wide file — a personal
+laptop — the original caveat stands in full: the rules are yours, you can edit
+them, and this catches mistakes rather than adversaries.
+
+**Not a rule language.** No Rego, no expressions. The vocabulary is small and
+fixed so a reader can tell at a glance what is forbidden — which is most of
+the value of writing a policy down.
 
 **Not a rule language.** No Rego, no expressions. The vocabulary is small and
 fixed so a reader can tell at a glance what is forbidden — which is most of
@@ -170,6 +230,43 @@ skrog: policy: yaml: unmarshal errors:
 ```
 
 Run `skrog policy check` after editing, before restarting.
+
+## Deploying the machine layer
+
+It is one file, so anything that puts a file on a machine will do: Intune, an
+Ansible task, a Packer provisioner, Group Policy Preferences, or a line in
+your golden-image script. `contrib/` already has
+[Ansible and Packer](../contrib/README.md) examples to hang it off.
+
+```powershell
+# elevated
+New-Item -ItemType Directory -Force "$env:ProgramData\skrog" | Out-Null
+Set-Content "$env:ProgramData\skrog\policy.yaml" @'
+deny-privileged: true
+deny-host-namespaces: true
+allow-registries:
+  - registry.example.com
+'@
+```
+
+Check it before you ship it to a fleet — `skrog policy check` validates a file,
+and `skrog policy test` judges a real request against the *effective* rules:
+
+```powershell
+echo '{"Image":"ubuntu","HostConfig":{"Privileged":true}}' | skrog policy test -
+# DENIED by deny-privileged
+```
+
+A machine file that does not parse is an **error**, not an empty layer: a typo
+in a deployment must not quietly turn into an unenforced machine. The
+supervisor keeps the rules that were working and says so.
+
+### Not yet: ADMX
+
+There is no Group Policy template, so this is not manageable from `gpedit`
+alongside other products yet. The file is the deployable mechanism today, and
+the registry/ADMX route is tracked separately — writing an ADMX I cannot test
+against a real domain would be worse than not shipping one.
 
 ## Scope today
 

@@ -543,6 +543,13 @@ type Watcher struct {
 	modTime time.Time
 	size    int64
 	loaded  bool
+	// machine mirrors the fields above for the machine-wide layer (#386). It
+	// is watched the same way and on the same schedule: a fleet policy that
+	// only took effect after a logon would be a fleet policy nobody trusted.
+	machineRules   Rules
+	machineModTime time.Time
+	machineSize    int64
+	machineLoaded  bool
 	// unknown is set when a rule file exists but has never parsed. The rules
 	// are then neither "empty" nor known, and requests are refused.
 	unknown bool
@@ -559,12 +566,50 @@ type Watcher struct {
 // a machine with no policy.
 func NewWatcher(stateDir string) *Watcher { return &Watcher{stateDir: stateDir} }
 
-// Rules returns the current rule set, re-reading if the file changed.
+// Rules returns the current EFFECTIVE rule set — the machine layer tightened
+// by the user's (#386) — re-reading either file if it changed.
 func (w *Watcher) Rules() Rules {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	w.refreshLocked()
-	return w.rules
+	w.refreshMachineLocked()
+	return Merge(w.machineRules, w.rules)
+}
+
+// refreshMachineLocked re-reads the machine layer when its stamp has moved.
+//
+// A machine file that stops parsing keeps the rules that were working, exactly
+// as the user layer does, and for a sharper reason: dropping a fleet policy
+// because somebody deployed a typo is how a managed estate silently stops
+// being managed.
+func (w *Watcher) refreshMachineLocked() {
+	path := MachinePath()
+	if path == "" {
+		return
+	}
+	fi, err := os.Stat(path)
+	switch {
+	case os.IsNotExist(err):
+		w.machineRules = Rules{}
+		w.machineLoaded, w.machineModTime, w.machineSize = true, time.Time{}, 0
+		return
+	case err != nil:
+		return
+	}
+	if w.machineLoaded && fi.ModTime().Equal(w.machineModTime) && fi.Size() == w.machineSize {
+		return
+	}
+	rules, err := LoadMachine()
+	if err != nil {
+		if w.OnError != nil && err.Error() != w.lastErr {
+			w.OnError(err)
+		}
+		w.lastErr = err.Error()
+		w.machineModTime, w.machineSize = fi.ModTime(), fi.Size()
+		return
+	}
+	w.machineRules, w.machineLoaded = rules, true
+	w.machineModTime, w.machineSize = fi.ModTime(), fi.Size()
 }
 
 // refreshLocked re-reads the file when its mtime or size has moved.

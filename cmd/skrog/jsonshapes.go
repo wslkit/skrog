@@ -243,11 +243,17 @@ type compactJSONShape struct {
 
 // policyShowJSON is `skrog policy show --json` (#120).
 type policyShowJSON struct {
-	Path     string       `json:"path"`
-	Exists   bool         `json:"exists"`
-	Active   bool         `json:"active"`
-	Enforced bool         `json:"enforced"`
-	Rules    policy.Rules `json:"rules"`
+	Path     string `json:"path"`
+	Exists   bool   `json:"exists"`
+	Active   bool   `json:"active"`
+	Enforced bool   `json:"enforced"`
+	// Rules are the EFFECTIVE rules: the machine layer tightened by the user's
+	// (#386). Unchanged shape for a machine with no fleet policy, which is
+	// most of them.
+	Rules policy.Rules `json:"rules"`
+	// Source reports what each layer contributed, so "why can I not run this"
+	// has an answer that names the file to argue with.
+	Source policy.Source `json:"source"`
 }
 
 // policyTestJSON is `skrog policy test --json` (#120): the verdict on one
