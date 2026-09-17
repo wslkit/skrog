@@ -73,6 +73,41 @@ jobs:
             Pop-Location
           }
 
+  # release.yml ships a windows/arm64 skrog.exe, and until this job existed
+  # nothing ever compiled it under test -- an arm64-only break would have
+  # reached users as a release asset. Build and test only: the engine cannot
+  # run here.
+  #
+  # `windows-11-arm` runners are real Windows 11 ARM64 (Azure Cobalt 100) but
+  # expose no nested virtualization, so WSL2 cannot start on them. Measured
+  # (#389): WSL installs fine from the upstream arm64 MSI and `wsl --version`
+  # answers, then `wsl --import` fails with
+  #   Wsl/Service/RegisterDistro/CreateVm/HCS/HCS_E_HYPERV_NOT_INSTALLED
+  # with VirtualizationFirmwareEnabled=False, while Microsoft-Hyper-V,
+  # VirtualMachinePlatform and Microsoft-Windows-Subsystem-Linux all report
+  # Enabled. Nothing in a workflow changes that -- do not add engine steps here.
+  #
+  # The platform-independent checks (gofmt, links, reference, spikes) are not
+  # repeated; they cannot differ by architecture and the build job owns them.
+  arm64:
+    name: build & test (windows arm64)
+    runs-on: windows-11-arm
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version: stable
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go build
+        run: go build ./...
+
+      - name: go test
+        run: go test ./...
+
   # #166: a supervisor serving the pipe died with Go runtime memory corruption
   # ("found pointer to free object"; "unknown caller pc" inside go-winio's IOCP
   # processor), leaving the engine unreachable until `skrog start`. The cause
