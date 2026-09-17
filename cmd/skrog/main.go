@@ -121,6 +121,39 @@ func main() {
 type helpEntry struct {
 	Name    string `json:"name"`
 	Summary string `json:"summary"`
+	// Subs are the command's subcommands, absent when it has none. They feed
+	// the shell completions generated from this index (#392).
+	Subs []string `json:"subcommands,omitempty"`
+}
+
+// subcommands maps a command to the words that may follow it.
+//
+// Declared as data rather than parsed out of each command's usage text: that
+// text is prose written for a human, and reformatting a sentence would
+// silently break completion. It lives here rather than in the command table so
+// the table stays one line per command, and a missing entry is one line to add.
+//
+// The lists come from each command's dispatch switch, not from its usage
+// string, because the two disagree: `profile delete`, `remote remove` and the
+// explicit `list` forms are all accepted by the binary and documented in
+// neither. Completion should offer what the CLI takes, not what it advertises.
+//
+// A command whose bare form does something (`skrog config` lists, `skrog
+// profile` lists) still appears here: completion offers the subcommands, and
+// the user is free to press enter instead.
+var subcommands = map[string][]string{
+	"audit":      {"tail", "trace"},
+	"autostart":  {"enable", "disable", "status"},
+	"cli":        {"install", "status", "uninstall"},
+	"config":     {"get", "set", "export"},
+	"engine":     {"list", "upgrade", "rollback"},
+	"policy":     {"show", "check", "test"},
+	"profile":    {"list", "create", "switch", "show", "delete"},
+	"remote":     {"list", "add", "use", "test", "remove"},
+	"runner":     {"check"},
+	"serve":      {"cert"},
+	"snapshot":   {"list", "save", "restore", "delete"},
+	"wsl-config": {"show", "apply"},
 }
 
 // helpIndex is the command list as data, so the reference generator does not
@@ -130,7 +163,7 @@ func helpIndex() []helpEntry {
 	cmds := commands()
 	out := make([]helpEntry, 0, len(cmds))
 	for _, c := range cmds {
-		out = append(out, helpEntry{Name: c.name, Summary: c.summary})
+		out = append(out, helpEntry{Name: c.name, Summary: c.summary, Subs: subcommands[c.name]})
 	}
 	return out
 }

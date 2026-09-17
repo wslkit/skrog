@@ -175,6 +175,47 @@ docker context use skrog      # or: docker --context skrog ps
 The install output names which case you are in, and `docker context inspect
 skrog` shows it at any time.
 
+## Tab completion
+
+Optional, and worth the one line: `skrog` has 35 commands and a config surface
+of around 25 dotted keys, which is more than anyone should type from memory.
+
+The release zip contains a `completions` folder.
+
+**PowerShell** — dot-source it from your profile:
+
+```powershell
+# see where your profile lives, and create it if it does not exist
+if (-not (Test-Path $PROFILE)) { New-Item -ItemType File -Path $PROFILE -Force }
+Add-Content $PROFILE ". '$env:LOCALAPPDATA\Programs\skrog\completions\skrog.ps1'"
+```
+
+Open a new terminal, then `skrog sn<TAB>` completes to `snapshot`, and
+`skrog status --<TAB>` offers that command's flags.
+
+**bash** (Git Bash, or a distro you have `wsl-integrate`d):
+
+```bash
+source /c/Users/you/AppData/Local/Programs/skrog/completions/skrog.bash
+# or, to make it permanent
+echo "source .../completions/skrog.bash" >> ~/.bashrc
+```
+
+Both scripts complete commands, subcommands and flags from a list generated
+from the binary itself — CI fails if they drift from what the CLI accepts.
+Where the useful answer is something only your machine knows, they ask it at
+the moment you press TAB:
+
+| You type | It offers |
+| --- | --- |
+| `skrog config set <TAB>` | every setting key, including `engine.*` and `hook.*` |
+| `skrog profile switch <TAB>` | your saved profiles |
+| `skrog snapshot restore <TAB>` | your snapshots |
+| `skrog remote use <TAB>` | your registered remotes, plus `local` |
+
+Those lookups are read-only and never start the engine, so completing a word
+never costs you a cold start.
+
 ## Upgrading
 
 ```powershell

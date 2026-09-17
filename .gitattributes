@@ -8,3 +8,8 @@
 versions.env text eol=lf
 *.Dockerfile text eol=lf
 .githooks/* text eol=lf
+
+# Same trap, same reason: a CRLF completion script fails in bash with
+# "$'\r': command not found" the moment it is sourced, and only for people who
+# cloned on Windows -- which is everyone here.
+*.bash text eol=lf
