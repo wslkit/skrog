@@ -84,6 +84,9 @@ type Facts struct {
 	// #145) in bytes; 0 means checkDisk's built-in default.
 	DiskWarnBelow uint64
 
+	// SSHAgent is how `docker build --ssh default` would find an agent (#391).
+	SSHAgent SSHAgentInfo
+
 	// Session0 is advisory guidance about unattended (no-logon) operation; see
 	// checkSession0.
 	Session0 Session0Info
@@ -181,6 +184,16 @@ type DiskInfo struct {
 	Err        string `json:"err,omitempty"`
 }
 
+// SSHAgentInfo is how `docker build --ssh default` would find an SSH agent.
+// Err is set when the question could not be asked (a non-Windows host).
+type SSHAgentInfo struct {
+	// AuthSock is SSH_AUTH_SOCK when set; buildx prefers it over the pipe.
+	AuthSock string `json:"authSock,omitempty"`
+	// PipeExists is true when the Windows OpenSSH agent pipe is present.
+	PipeExists bool   `json:"pipeExists"`
+	Err        string `json:"err,omitempty"`
+}
+
 // Session0Info carries the advisory session-0 guidance. Verifying the account
 // right reliably needs elevation, so doctor explains it rather than asserting a
 // value it may not be able to read as a standard user.
@@ -254,6 +267,7 @@ func Gather(ctx context.Context, opts GatherOptions) Facts {
 
 	f.CredHelpers = discoverCredHelpers(dockerConfigPath(), execLookPath)
 	f.Disk = diskInfo(engineDataDir(stateDir))
+	f.SSHAgent = sshAgentInfo()
 
 	if c, err := config.Load(stateDir); err == nil {
 		f.Proxy = c.Proxy

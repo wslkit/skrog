@@ -81,6 +81,7 @@ func Registry() []Check {
 		checkWSLFastPath(),
 		checkDockerCLI(),
 		checkCredentialHelper(),
+		checkSSHAgent(),
 		checkEngine(),
 		checkContext(),
 		checkSupervisor(),
