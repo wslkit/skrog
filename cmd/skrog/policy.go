@@ -81,7 +81,7 @@ func runPolicyShow(args []string) int {
 	}
 	dir := stateDirFor(fs, *stateDir)
 
-	rules, err := policy.Load(dir)
+	rules, src, err := policy.LoadLayered(dir)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "skrog: %v\n", err)
 		return exitError
@@ -91,19 +91,45 @@ func runPolicyShow(args []string) int {
 			Path:     policy.Path(dir),
 			Active:   !rules.Empty(),
 			Rules:    rules,
+			Source:   src,
 			Exists:   fileExists(policy.Path(dir)),
 			Enforced: !rules.Empty(),
 		})
 		return exitOK
 	}
-	fmt.Printf("rules: %s\n", policy.Path(dir))
+
+	// Each layer separately before the effective set: someone reading this
+	// wants to know which file to go and argue with, and on a managed laptop
+	// that is not the one in their own state dir.
+	if src.MachinePath != "" {
+		fmt.Printf("machine rules: %s  (administrator-writable; you cannot loosen these)\n", src.MachinePath)
+		for _, line := range describe(src.Machine) {
+			fmt.Printf("  %s\n", line)
+		}
+	}
+	if src.MachinePath != "" {
+		fmt.Printf("\nyour rules: %s\n", policy.Path(dir))
+	} else {
+		fmt.Printf("rules: %s\n", policy.Path(dir))
+	}
+	if src.UserPath == "" || src.User.Empty() {
+		fmt.Println("  none")
+	} else {
+		for _, line := range describe(src.User) {
+			fmt.Printf("  %s\n", line)
+		}
+	}
+
 	if rules.Empty() {
-		fmt.Println("  no rules — every request is allowed")
-		fmt.Println("  (write the file to add some; `skrog policy --help` lists the keys)")
+		fmt.Println("\nno rules in effect — every request is allowed")
+		fmt.Println("(write the file to add some; `skrog policy --help` lists the keys)")
 		return exitOK
 	}
-	for _, line := range describe(rules) {
-		fmt.Printf("  %s\n", line)
+	if src.MachinePath != "" {
+		fmt.Println("\nin effect (machine rules, tightened by yours):")
+		for _, line := range describe(rules) {
+			fmt.Printf("  %s\n", line)
+		}
 	}
 	fmt.Println("\nedits take effect on the next container create")
 	return exitOK
@@ -189,7 +215,11 @@ Exit codes: 0 allowed, %d error, %d usage, %d denied.
 			rules, err = policy.Parse(b)
 		}
 	} else {
-		rules, err = policy.Load(stateDirFor(fs, *stateDir))
+		// Layered, because `policy test` answers "would this be refused on
+		// this machine" and on a managed one the answer is mostly the machine
+		// layer's. Testing only the user's file would tell people their
+		// request is fine and let the engine refuse it anyway (#386).
+		rules, _, err = policy.LoadLayered(stateDirFor(fs, *stateDir))
 	}
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "skrog: %v\n", err)
