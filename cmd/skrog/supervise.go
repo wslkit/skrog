@@ -476,13 +476,18 @@ running, and waits for the engine to answer.
 		}
 	}
 
+	// 250 ms rather than a second (#398): the engine coming up is the thing
+	// the user is waiting on, and a one-second poll added up to a second of
+	// pure latency to a start that was already too slow. Matches the interval
+	// StartEngine already uses to watch for the socket, and each probe is a
+	// wsl exec bounded by the deadline above.
 	deadline := time.Now().Add(*timeout)
 	for time.Now().Before(deadline) {
 		if engineUp(context.Background(), target, p, opts) {
 			fmt.Println("engine is running")
 			return exitOK
 		}
-		time.Sleep(time.Second)
+		time.Sleep(250 * time.Millisecond)
 	}
 	fmt.Fprintf(os.Stderr, "skrog: engine did not come up within %s; see supervisor.log in %s\n",
 		*timeout, opts.StateDir)
