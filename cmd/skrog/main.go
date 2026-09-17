@@ -30,6 +30,7 @@ func commands() []command {
 		{"audit", "print the container-affecting API audit log (`audit tail`)", runAudit},
 		{"autostart", "start the supervisor at logon: enable, disable, status", runAutostart},
 		{"bundle", "pack the engine into a .zip for an air-gapped `install --offline`", runBundle},
+		{"cache", "pull-through registry cache on the engine: enable, disable, status", runCache},
 		{"cli", "install the bundled docker CLI + compose + buildx (ditch Docker Desktop)", runCLI},
 		{"compact", "shrink the engine's virtual disk: fstrim + CompactVirtualDisk", runCompact},
 		{"config", "list, get, or set Skrog settings (idle-timeout)", runConfig},
@@ -144,6 +145,7 @@ type helpEntry struct {
 var subcommands = map[string][]string{
 	"audit":      {"tail", "trace"},
 	"autostart":  {"enable", "disable", "status"},
+	"cache":      {"enable", "disable", "status"},
 	"cli":        {"install", "status", "uninstall"},
 	"config":     {"get", "set", "export"},
 	"engine":     {"list", "upgrade", "rollback"},

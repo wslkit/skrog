@@ -11,6 +11,7 @@ Run `skrog <command> --help` for the same text in your terminal.
 - [`audit`](#audit) — print the container-affecting API audit log (`audit tail`)
 - [`autostart`](#autostart) — start the supervisor at logon: enable, disable, status
 - [`bundle`](#bundle) — pack the engine into a .zip for an air-gapped `install --offline`
+- [`cache`](#cache) — pull-through registry cache on the engine: enable, disable, status
 - [`cli`](#cli) — install the bundled docker CLI + compose + buildx (ditch Docker Desktop)
 - [`compact`](#compact) — shrink the engine's virtual disk: fstrim + CompactVirtualDisk
 - [`config`](#config) — list, get, or set Skrog settings (idle-timeout)
@@ -138,6 +139,55 @@ flags:
     	bundle path (default: skrog-bundle-<version>.zip)
   -state-dir string
     	override Skrog's state directory (rootfs download cache)
+```
+
+## cache
+
+pull-through registry cache on the engine: enable, disable, status
+
+```
+usage: skrog cache enable|disable|status
+
+Runs a pull-through registry cache on the engine, so a layer is pulled from
+the internet once and served locally after that.
+
+  skrog cache enable                    # cache Docker Hub
+  skrog cache enable --upstream https://ghcr.io
+  skrog cache status --json
+  skrog cache disable                   # also deletes the cached layers
+  skrog cache disable --keep-data       # ...unless you keep them
+
+Why you would: Docker Hub rate-limits anonymous pulls PER IP, so a corporate
+NAT or a runner fleet hits the limit as an organisation rather than as the
+developer who sees the error. A slow or TLS-inspecting corporate link pays for
+the same bytes every time. Both stop after the first pull.
+
+It is the upstream registry:2 image in proxy mode, pinned by digest, with its
+store in the skrog-cache-data volume — so `skrog prune`, `compact` and
+`relocate` already account for its disk. dockerd reaches it on loopback,
+which Docker treats as insecure-by-default, so nothing is exposed to the
+network and no insecure-registries entry is needed.
+
+It does not weaken `skrog policy`: a mirror changes where bytes come
+from, not which image was asked for, and the rules judge the reference.
+
+It does not hold the engine awake. The cache container is excluded from the
+idle-stop and scheduled-prune probes, because it is infrastructure rather than
+work.
+
+Exit codes: 0 ok, 1 error, 2 usage, 3 not installed.
+
+flags:
+  -json
+    	emit machine-readable JSON
+  -keep-data
+    	on disable, keep the cached layers
+  -port int
+    	loopback port inside the engine (default 5000)
+  -state-dir string
+    	override Skrog's state directory
+  -upstream string
+    	registry to cache (default: Docker Hub)
 ```
 
 ## cli

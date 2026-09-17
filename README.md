@@ -155,6 +155,11 @@ docker context. Nothing else on the system is touched.
   `skrog doctor` warns below a configurable free-space floor. `skrog config set
   prune.every 168h` hands the job to the supervisor — opt-in, age-guarded, and
   never volumes ([docs/housekeeping.md](docs/housekeeping.md))
+- **Pull-through registry cache**: `skrog cache enable` runs the upstream `registry:2`
+  on the engine so a layer is fetched from the internet once — the answer to Docker Hub's
+  per-IP rate limit behind a corporate NAT or across a runner fleet. Loopback only, pinned
+  by digest, and excluded from the idle-stop probe so it never holds the engine awake
+  ([docs/registry-cache.md](docs/registry-cache.md))
 - **`skrog wsl-integrate <distro>`**: use the engine from inside your own WSL distros
 - **`skrog migrate --from-desktop`**: copy images and volumes out of Docker Desktop,
   non-destructively and resumably (`--dry-run` first)
@@ -306,6 +311,7 @@ page is reachable from here.
 [Corporate networks](docs/corporate-network.md) ·
 [VPNs](docs/vpn.md) ·
 [Air-gapped installs](docs/air-gap.md) ·
+[Registry cache](docs/registry-cache.md) ·
 [Security and trust boundaries](docs/security.md) ·
 [Code signing policy](docs/code-signing.md) ·
 [Audit log](docs/audit.md) ·

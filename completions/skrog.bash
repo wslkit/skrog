@@ -15,7 +15,7 @@ _skrog() {
     cur="${COMP_WORDS[COMP_CWORD]}"
 
     local commands subs flags
-    commands="audit autostart bundle cli compact config doctor enable-gpu engine healthcheck install lock logs migrate prewarm policy profile proxy prune relocate remote reset restart runner serve snapshot start status stop supervise uninstall upgrade wsl-integrate wsl-config version"
+    commands="audit autostart bundle cache cli compact config doctor enable-gpu engine healthcheck install lock logs migrate prewarm policy profile proxy prune relocate remote reset restart runner serve snapshot start status stop supervise uninstall upgrade wsl-integrate wsl-config version"
 
     # First positional is the command; the second, if any, the subcommand.
     local command="" sub="" i seen=0
@@ -40,6 +40,7 @@ _skrog() {
         case "$command" in
             audit) flags="--json --n --raw --since --state-dir" ;;
             bundle) flags="--engine-version --o --output --state-dir" ;;
+            cache) flags="--json --keep-data --port --state-dir --upstream" ;;
             compact) flags="--distro --dry-run --json --no-trim --restart --state-dir --wait" ;;
             config) flags="--json --state-dir" ;;
             doctor) flags="--fix --json --report --state-dir" ;;
@@ -106,6 +107,7 @@ _skrog() {
         case "$command" in
             audit) subs="tail trace" ;;
             autostart) subs="enable disable status" ;;
+            cache) subs="enable disable status" ;;
             cli) subs="install status uninstall" ;;
             config) subs="get set export" ;;
             engine) subs="list upgrade rollback" ;;
