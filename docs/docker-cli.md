@@ -61,6 +61,37 @@ and says what will actually move it:
 Pass `--no-path` to install the tools without touching PATH (you add the directory
 yourself).
 
+## Building with a private dependency: `docker build --ssh`
+
+`docker build --ssh default` works against Skrog, and Skrog does nothing to make
+it work — which is the point. buildx dials the Windows OpenSSH agent
+(`\\.\pipe\openssh-ssh-agent`) itself, and the forwarding channel rides the
+ordinary API connection, so it crosses the bridge like every other request.
+Private Go modules, npm and pip dependencies pulled over git all behave as they
+do on a Linux engine.
+
+The one thing that trips people is host-side: **Windows ships the `ssh-agent`
+service disabled**, and the failure arrives at the end of a build rather than
+before it:
+
+```
+ERROR: failed to convert agent config {default [] false}: invalid empty ssh agent
+socket: Windows OpenSSH agent not available at \\.\pipe\openssh-ssh-agent.
+```
+
+`skrog doctor` warns about this before you spend a build on it. To fix it, in an
+**elevated** shell:
+
+```powershell
+Set-Service ssh-agent -StartupType Automatic
+Start-Service ssh-agent
+ssh-add                     # back in your own shell
+```
+
+No administrator? Two ways through without the service: point `SSH_AUTH_SOCK` at
+another agent, which buildx prefers over the pipe when it is set, or hand buildx
+the key directly with `docker build --ssh default=C:\path\to\key`.
+
 ## Licensing
 
 The bundled tools are open source and redistributable: the docker CLI, Compose,

@@ -186,7 +186,7 @@ The differentiator over DIY guides: turn the WSL2 quirk zoo — VPNs above all �
 - [ ] `skrog engine upgrade`: pinned, checksummed engine updates with rollback — engine security patches decoupled from app releases
 - [ ] `skrog stats`: vmmem attribution ("WSL VM total 12 GB — skrog-engine 3.1 GB, your Ubuntu 8.9 GB, reclaimable 4 GB") — defuses the most common WSL2 false alarm
 - [ ] `skrog enable-qemu`: register binfmt/QEMU handlers so `buildx --platform linux/arm64` works out of the box (Desktop parity for multi-arch builds)
-- [ ] SSH agent bridging: expose the Windows ssh-agent named pipe as a Unix socket in the engine and `wsl-integrate`'d distros, so `docker build --ssh default` and `SSH_AUTH_SOCK` mounts just work — Skrog already owns a pipe⇄socket relay, and nobody does this natively
+- [x] ~~SSH agent bridging~~ — **not needed, and not built (#391).** The premise was wrong: buildx dials `\\.\pipe\openssh-ssh-agent` itself and forwards the agent over the ordinary API connection, so `docker build --ssh default` already crosses the bridge unchanged. Verified end to end against a live engine. The only real gap was host-side — Windows ships the `ssh-agent` service disabled — which is now a `doctor` warning rather than a relay we own. `SSH_AUTH_SOCK` mounts into `wsl-integrate`'d distros remain unaddressed and unrequested.
 
 **Acceptance:** The doctor correctly diagnoses the five most common failure classes reported in v0.1/v0.2 issues, and a GlobalProtect-equipped test machine reaches a registry through the tunnel after `doctor --fix`.
 

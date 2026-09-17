@@ -113,7 +113,7 @@ docker context. Nothing else on the system is touched.
   measured at parity with Desktop), with an automatic fallback path
 - **Idle RAM answer**: `skrog config set idle-timeout 30m` stops a quiet engine and
   cold-starts it (~1 s engine start) on your next `docker` command
-- **`skrog doctor`**: diagnoses the WSL / PATH / credential-helper / supervisor quirk zoo,
+- **`skrog doctor`**: diagnoses the WSL / PATH / credential-helper / ssh-agent / supervisor quirk zoo,
   with `--json`, `--report` (paste straight into an issue), and `--fix` for the safe subset;
   recognizes corporate VPNs (GlobalProtect, AnyConnect, Zscaler…) and prints the MTU/DNS fix
   ([docs/vpn.md](docs/vpn.md))

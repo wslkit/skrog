@@ -95,7 +95,10 @@ Goal: turn the WSL2 quirk zoo into a diagnosable surface, make the engine work o
 - [ ] `engine upgrade` → deliberate break → `rollback` restores a working engine with data intact
 - [ ] a clean machine **without Docker Desktop** installs Skrog and `docker run hello-world` works using only bundled binaries
 - [ ] `skrog install --config skrog.yaml` on a fresh machine converges to the same state as the equivalent flags, and re-running is a no-op
-- [ ] `docker build --ssh default` works via the SSH-agent bridge
+- [x] `docker build --ssh default` works — **no bridge needed** (#391). buildx dials
+  `\\.\pipe\openssh-ssh-agent` itself and the forwarding channel rides the ordinary
+  API connection, so it crosses the bridge unchanged. Verified end to end; the only
+  gap was host-side (Windows ships `ssh-agent` disabled), now a `doctor` warning.
 
 **Deliberately staged to v0.5, not lost:** network-aware profiles (#73), engine lockfile (#74), verified air-gap install (#75) — they compose the S2/S4 plumbing rather than precede it.
 
