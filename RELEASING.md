@@ -85,6 +85,68 @@ pre-release"** so it does not become `latest`. Everything else behaves the same.
 Pre-releases are the right way to shake out the pipeline; the version stamp
 check means a preview that reports `dev` fails the build rather than shipping.
 
+## A normal release
+
+This section did not exist until v0.6.0, which is why **every release up to
+v0.5.1 — all sixteen, app and rootfs — was flagged as a pre-release**,
+including the plain `vX.Y.Z` ones. That was never a decision; it was the
+absence of one. The document described only the preview case, so the preview
+case is what happened every time.
+
+A normal release is the same pipeline with three differences:
+
+1. **Do not tick "Set as a pre-release."** It becomes `latest`, which is what
+   `scripts/install.ps1` prefers and what most people will get.
+2. **Write the CHANGELOG entry first**, in the same PR as the last code
+   change, not afterwards from the git log. See [CHANGELOG.md](CHANGELOG.md);
+   the release notes are that section, and nothing else has to be authored
+   twice.
+3. **Update the downstream channels**, which the tag does not touch:
+
+   | channel | what to do |
+   |---|---|
+   | [scoop-skrog](https://github.com/wslkit/scoop-skrog) | bump `version`, both URLs and both hashes in `bucket/skrog.json`. `checkver`/`autoupdate` are configured, so `scoop bucket` tooling can do it, but **nothing runs automatically** — cut a release and forget this and the bucket silently serves the previous version |
+   | [winget](#publishing-to-winget) | new manifest directory under `manifests/w/wslkit/skrog/<version>/` |
+   | [setup-skrog](https://github.com/wslkit/setup-skrog) | only if the action pins a version |
+   | [skrog-vscode](https://github.com/wslkit/skrog-vscode) | only if it pins one |
+
+### Before dropping the pre-release flag for the first time
+
+Dropping the flag is a claim that the front page is true, which is a different
+and larger claim than "the build works". Before a release that is not a
+preview:
+
+- **The README's measurable claims are measured.** Latency and cold-start
+  numbers must point at an issue with the measurement in it, or not be there.
+  This cost v0.6.0 two false numbers that had been on the front page for
+  months ([#326](https://github.com/wslkit/skrog/issues/326),
+  [#398](https://github.com/wslkit/skrog/issues/398)).
+- **Every advertised platform works, or says it does not.** An install that
+  downloads, verifies and imports before failing is worse than a refusal
+  ([#388](https://github.com/wslkit/skrog/issues/388)).
+- **`test/e2e` has run green** on this commit — `gh workflow run e2e.yml`.
+  It is not a per-PR gate because it provisions a real engine, so it is the
+  release manager's job to fire it and read it.
+- **Code scanning is clean**: no open CodeQL alerts, `govulncheck` green.
+
+### Semver, while we are pre-1.0
+
+`0.x` means the surface can still move. What each bump promises:
+
+- **Patch** (`0.6.1`) — fixes only. No new flags, no new config keys, no
+  change to what an existing command does on success.
+- **Minor** (`0.6.0`) — new commands, flags and config keys, and **behaviour
+  changes are allowed here**, including ones that turn a previously working
+  call into a refusal. v0.6.0 has several: policy now judges pull and push,
+  the machine layer can only be tightened, `upgrade --apply` refuses inside a
+  package-manager directory, and wslc refuses to serve with WSL plugins
+  registered. Each needs a CHANGELOG line under **Changed** or **Removed**,
+  not **Added**.
+- **Major** — reserved for 1.0, which additionally commits to a stable CLI
+  surface. [docs/cli-json.md](docs/cli-json.md) is the only compatibility
+  contract that exists today, and it covers the JSON and the exit codes, not
+  the flags or the on-disk state.
+
 ## Publishing to winget
 
 winget does **not** wait on code signing, which this file claimed for a long
