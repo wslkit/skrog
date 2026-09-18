@@ -76,8 +76,20 @@ an unverified rootfs.
 
 > **Releases through v0.3.1 were published as *Hawser*,** under
 > `hawserhq/hawser`, with assets named `hawser_<version>_windows_<arch>.zip`.
-> The old URLs redirect and those releases verify normally — pass the filename
-> they actually have, and `--owner hawserhq` for anything before the rename.
+> Every one of them still lives in **this** repository's release list — get
+> them from `wslkit/skrog` rather than from an old `hawserhq` URL.
+>
+> The `hawserhq` organisation was **deleted** on 2026-09-18, once the rename
+> had settled. GitHub still honours the old repository path as a redirect, but
+> the namespace is now free for anyone to register, so a `hawserhq/hawser`
+> link is no longer a name this project controls. Nothing signed is affected —
+> see below — but do not follow those URLs.
+>
+> Verification is unchanged and still works: pass the filename the asset
+> actually has, and **`--owner hawserhq`** for anything before the rename. That
+> flag is not a typo and does not need the organisation to exist: it names the
+> workflow identity recorded **in the certificate at signing time**, which is
+> a fact about the past that deleting an org cannot alter.
 >
 > **v0.3.0 and earlier predate this.** Cosign signing and SLSA provenance were
 > added two days after v0.3.0 was tagged, so it ships the two zips and
