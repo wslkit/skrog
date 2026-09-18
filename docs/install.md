@@ -17,9 +17,28 @@ clean machine you do need it, and `skrog install` now says so when it finishes.
 ## Requirements
 
 - **Windows 11**, or **Windows 10 22H2** (build 19045) — both tested.
+- **An x64 machine.** The engine rootfs is built amd64-only, so **Windows on
+  ARM cannot run the engine** — see below.
 - **WSL 2.x**, from the Microsoft Store or the MSI. `wsl --version` should
   print something; if it errors, run `wsl --update`.
 - Virtualization enabled in firmware.
+
+### Windows on ARM
+
+`skrog.exe` has an arm64 build and it runs natively — the CLI, the bridge and
+the supervisor are all fine. **The engine is not available.** Every rootfs in
+the version manifest is built x86-64, and WSL2 runs the guest on the host CPU,
+so an x86-64 `dockerd` cannot start inside an arm64 utility VM. There is no
+emulation route.
+
+`skrog install` **refuses on arm64** with exit code `4` rather than
+downloading 200 MB and failing obscurely afterwards. If you have built an
+arm64 rootfs yourself, `skrog install --rootfs-url <url> --rootfs-sha256 <sha>`
+still works — that path is deliberately open.
+
+Until a published arm64 rootfs exists
+([#388](https://github.com/wslkit/skrog/issues/388)), use Docker Desktop or
+Rancher Desktop on ARM; both ship an arm64 engine.
 
 Nothing else. Skrog does not need Docker Desktop, and coexists with it if you
 keep it.
@@ -57,7 +76,7 @@ steps below do not.
    | you have | download |
    |---|---|
    | 64-bit Intel/AMD (almost everyone) | `skrog_<version>_windows_amd64.zip` |
-   | Windows on ARM (Snapdragon, Surface Pro X) | `skrog_<version>_windows_arm64.zip` |
+   | Windows on ARM (Snapdragon, Surface Pro X) | `skrog_<version>_windows_arm64.zip` — **CLI only, [no engine](#windows-on-arm)** |
 
    Not sure? `$env:PROCESSOR_ARCHITECTURE` prints `AMD64` or `ARM64`.
 

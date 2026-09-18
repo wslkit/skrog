@@ -17,6 +17,12 @@ const (
 	exitError    = 1
 	exitUsage    = 2
 	exitNotFound = 3 // asked about something that is not installed
+	// exitUnsupported: this machine cannot run what was asked for, and no
+	// retry or repair will change that (#388: an arm64 host with an
+	// amd64-only engine rootfs). Distinct from exitError so a CI matrix can
+	// skip a platform rather than treat it as a broken build -- which is
+	// exactly the difference a runner needs and cannot infer from "1".
+	exitUnsupported = 4
 )
 
 type command struct {

@@ -460,7 +460,8 @@ The rootfs is always checksum-verified. Version pinning is a contract: this
 build installs exactly the components in its embedded manifest, and nothing is
 fetched as "latest".
 
-Exit codes: 0 ok, 1 error, 2 usage.
+Exit codes: 0 ok, 1 error, 2 usage, 4 unsupported platform (the engine
+rootfs is amd64-only; see issue #388).
 
 flags:
   -agent string

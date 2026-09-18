@@ -373,6 +373,12 @@ func resolveTarget(rollback bool, to, url, sha string, im *provision.Manifest, c
 		return engineupgrade.Engine{Ref: engineRef("", url), URL: url, SHA256: sha}, exitOK
 	}
 
+	// Same reason as `skrog install` (#388): every rootfs the manifest lists
+	// is amd64. An explicit --url above is exempt, as it is there.
+	if err := release.CheckHostArch(); err != nil {
+		fmt.Fprintf(os.Stderr, "skrog: %v\n", err)
+		return engineupgrade.Engine{}, exitUnsupported
+	}
 	m, err := release.Load()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "skrog: %v\n", err)
