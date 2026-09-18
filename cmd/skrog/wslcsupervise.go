@@ -162,6 +162,12 @@ func startWslcStack(ctx context.Context, agentPath, stateDir string, log *slog.L
 	if err != nil {
 		return nil, fmt.Errorf("cannot read the WSL container policy: %w", err)
 	}
+	// Plugin hooks cannot be stood in for the way the policy can (#406), so a
+	// machine with plugins registered gets a refusal rather than a backend
+	// that quietly does not call them.
+	if err := refuseIfPluginsPresent(stateDir, log); err != nil {
+		return nil, err
+	}
 	if policies.Restrictive() {
 		log.Info("enforcing the deployed WSL container policy",
 			"registry-allowlist", policies.RegistryAllowlist,

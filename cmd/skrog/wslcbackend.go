@@ -335,6 +335,11 @@ func runProxyWslc(agentPath, pipeName, sddl string, noContext bool, opts provisi
 		fmt.Fprintf(os.Stderr, "skrog: cannot read the WSL container policy: %v\n", err)
 		return exitError
 	}
+	// Plugin hooks cannot be stood in for the way the policy can (#406).
+	if err := refuseIfPluginsPresent(optsWithResolvedStateDir(opts).StateDir, log); err != nil {
+		fmt.Fprintf(os.Stderr, "skrog: %v\n", err)
+		return exitError
+	}
 	if policies.Restrictive() {
 		log.Info("enforcing the deployed WSL container policy",
 			"registry-allowlist", policies.RegistryAllowlist,
