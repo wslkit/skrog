@@ -7,12 +7,18 @@ import (
 
 // Fast is Local with a COM fast path for the calls that have a proven one.
 //
-// Today that is exactly one call: List. It is the one the supervisor makes on
-// every health tick, and it is the one spike/d established end to end —
-// 62-67 ms as a wsl.exe spawn against 0.66-0.81 ms over COM. Everything else is
-// Local, unchanged, including Exec and Start: CreateLxProcess carries handles
-// and a process lifecycle across the RPC boundary and nothing has established
-// it yet (#356).
+// Today that is List and Terminate. List is the one the supervisor makes on
+// every health tick, and the one spike/d established end to end — 62-67 ms as
+// a wsl.exe spawn against 0.66-0.81 ms over COM.
+//
+// Exec and Start stay on Local, and the reason is worth recording so nobody
+// re-opens it hopefully. They would need CreateLxProcess, and reading the
+// signature in wslservice.idl is enough to settle it: 24 parameters, four
+// returned sockets (stdin, stdout, stderr and a CommunicationChannel), a
+// separate InteropSocket, a process handle and a server handle. Driving it
+// means reimplementing the relay and the channel protocol wsl.exe already
+// implements, against an interface whose stability is disclaimed — for calls
+// that are not on a hot loop. The spawn is the better trade (#356).
 //
 // This is an optimisation with a fallback, not a replacement. Local stays the
 // reference implementation and keeps its tests, and any failure on the COM side
@@ -126,4 +132,33 @@ func (f *Fast) Close() {
 		f.com.Close()
 		f.com = nil
 	}
+}
+
+// Terminate stops a distro, over COM when that is available (#356).
+//
+// The supervisor calls this on `skrog stop` and on every engine restart, and
+// the CLI path is a spawn. It is not the hot path List is, but it is the other
+// call whose failure mode the CLI makes hard to read: "no such distro" arrives
+// from wsl.exe as a localised sentence and over COM as an HRESULT.
+func (f *Fast) Terminate(ctx context.Context, distro string) error {
+	s := f.session()
+	if s == nil {
+		return f.Local.Terminate(ctx, distro)
+	}
+	if err := s.terminate(ctx, distro); err != nil {
+		if ctx.Err() != nil {
+			return err
+		}
+		// An error the SERVICE returned is an answer, not a broken surface.
+		// Demoting on one would disable COM for the rest of the process
+		// because a distro did not exist, and re-running the same doomed
+		// operation through wsl.exe just to produce a second error. The live
+		// test caught exactly that.
+		if isServiceError(err) {
+			return err
+		}
+		f.demote(err)
+		return f.Local.Terminate(ctx, distro)
+	}
+	return nil
 }

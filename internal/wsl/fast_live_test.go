@@ -124,3 +124,179 @@ func TestLiveRepeatedSessionsClose(t *testing.T) {
 		f.Close()
 	}
 }
+
+// TestLiveTerminateOverCOM drives the new slots against the real service.
+//
+// Offline tests cannot catch a wrong vtable slot: they exercise the fallback
+// against a fake, and a bad slot number would call a DIFFERENT method on the
+// live object — which is the one failure mode this whole approach has to be
+// checked against. So this terminates a real distro and confirms the state
+// changed, rather than only confirming the call returned S_OK.
+func TestLiveTerminateOverCOM(t *testing.T) {
+	const distro = "skrog-engine"
+	ctx := context.Background()
+
+	f := NewFast()
+	defer f.Close()
+	if ok, why := f.Accelerated(); !ok {
+		t.Skipf("no COM fast path on this host: %s", why)
+	}
+	local := NewLocal()
+	if !registered(ctx, t, local, distro) {
+		t.Skipf("%s is not registered here", distro)
+	}
+
+	// Start it so there is something to stop.
+	if _, err := local.Exec(ctx, distro, "root", "/bin/true"); err != nil {
+		t.Skipf("could not start %s: %v", distro, err)
+	}
+	if !runningNow(ctx, t, f, distro) {
+		t.Fatalf("%s did not come up, so the terminate below would prove nothing", distro)
+	}
+
+	if err := f.Terminate(ctx, distro); err != nil {
+		t.Fatalf("Terminate over COM: %v", err)
+	}
+	// The state has to have actually changed. A call that returns S_OK while
+	// hitting the wrong slot would pass a weaker assertion than this.
+	deadline := time.Now().Add(15 * time.Second)
+	for time.Now().Before(deadline) {
+		if !runningNow(ctx, t, f, distro) {
+			return
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	t.Fatal("Terminate returned success but the distro is still running")
+}
+
+// TestLiveTerminateUnknownDistroIsAnError checks the error path resolves, which
+// is where GetDistributionId is actually exercised.
+func TestLiveTerminateUnknownDistroIsAnError(t *testing.T) {
+	f := NewFast()
+	defer f.Close()
+	if ok, why := f.Accelerated(); !ok {
+		t.Skipf("no COM fast path on this host: %s", why)
+	}
+	// A name nothing will have registered.
+	err := f.Terminate(context.Background(), "skrog-no-such-distro-8f3a1c")
+	if err == nil {
+		t.Fatal("terminating a distro that does not exist reported success")
+	}
+	t.Logf("unknown distro error: %v", err)
+}
+
+func registered(ctx context.Context, t *testing.T, w WSL, name string) bool {
+	t.Helper()
+	ds, err := w.List(ctx)
+	if err != nil {
+		return false
+	}
+	for _, d := range ds {
+		if d.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+func runningNow(ctx context.Context, t *testing.T, w WSL, name string) bool {
+	t.Helper()
+	ds, err := w.List(ctx)
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	for _, d := range ds {
+		if d.Name == name {
+			return d.Running()
+		}
+	}
+	return false
+}
+
+// TestLiveTerminateLatency records COM against the CLI on this host, which is
+// the measurement #356 asks for. Not an assertion -- a number in the log, the
+// same shape as the List figures in the package comment.
+func TestLiveTerminateLatency(t *testing.T) {
+	const distro = "skrog-engine"
+	ctx := context.Background()
+
+	f := NewFast()
+	defer f.Close()
+	if ok, why := f.Accelerated(); !ok {
+		t.Skipf("no COM fast path on this host: %s", why)
+	}
+	local := NewLocal()
+	if !registered(ctx, t, local, distro) {
+		t.Skipf("%s is not registered here", distro)
+	}
+
+	timeOne := func(stop func() error) time.Duration {
+		// Start it first so each measurement terminates something real.
+		if _, err := local.Exec(ctx, distro, "root", "/bin/true"); err != nil {
+			t.Skipf("could not start %s: %v", distro, err)
+		}
+		start := time.Now()
+		if err := stop(); err != nil {
+			t.Fatalf("terminate: %v", err)
+		}
+		return time.Since(start)
+	}
+
+	const n = 3
+	var com, cli time.Duration
+	for i := 0; i < n; i++ {
+		com += timeOne(func() error { return f.Terminate(ctx, distro) })
+		cli += timeOne(func() error { return local.Terminate(ctx, distro) })
+	}
+	t.Logf("Terminate over %d runs: COM %.1f ms, CLI %.1f ms",
+		n, float64(com.Microseconds())/float64(n)/1000, float64(cli.Microseconds())/float64(n)/1000)
+}
+
+// TestLiveTerminateSplit attributes the 10.5 ms: is it RPC overhead, which
+// caching the GUID would remove, or the service doing real work, which nothing
+// here can?
+func TestLiveTerminateSplit(t *testing.T) {
+	const distro = "skrog-engine"
+	ctx := context.Background()
+
+	f := NewFast()
+	defer f.Close()
+	if ok, why := f.Accelerated(); !ok {
+		t.Skipf("no COM fast path on this host: %s", why)
+	}
+	s := f.session()
+	if s == nil {
+		t.Skip("no COM session")
+	}
+
+	// GetDistributionId alone, repeated: a pure lookup, no side effect.
+	const n = 10
+	start := time.Now()
+	for i := 0; i < n; i++ {
+		var err error
+		if derr := s.do(ctx, func() {
+			_, err = s.distributionIDLocked(distro)
+		}); derr != nil {
+			t.Fatalf("do: %v", derr)
+		}
+		if err != nil {
+			t.Skipf("GetDistributionId: %v", err)
+		}
+	}
+	lookup := time.Since(start) / n
+
+	local := NewLocal()
+	if _, err := local.Exec(ctx, distro, "root", "/bin/true"); err != nil {
+		t.Skipf("could not start %s: %v", distro, err)
+	}
+	start = time.Now()
+	if err := f.Terminate(ctx, distro); err != nil {
+		t.Fatalf("Terminate: %v", err)
+	}
+	whole := time.Since(start)
+
+	t.Logf("GetDistributionId alone: %.2f ms (mean of %d)", float64(lookup.Microseconds())/1000, n)
+	t.Logf("Terminate (lookup + terminate): %.2f ms", float64(whole.Microseconds())/1000)
+	t.Logf("=> attributable to the terminate itself: %.2f ms",
+		float64((whole-lookup).Microseconds())/1000)
+}
