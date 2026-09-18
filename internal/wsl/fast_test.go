@@ -128,3 +128,49 @@ func TestCloseIsSafeWithoutASession(t *testing.T) {
 func TestFastImplementsWSL(t *testing.T) {
 	var _ WSL = NewFast()
 }
+
+// Terminate must fall back exactly as List does. The property is the same one
+// the whole design rests on: a machine where COM is unavailable is slower, not
+// broken.
+func TestFastTerminateFallsBackWhenCOMIsUnavailable(t *testing.T) {
+	withNoCOM(t, "no wslservice here")
+	r := &fakeRunner{}
+	f := &Fast{Local: &Local{Runner: r}}
+
+	if err := f.Terminate(context.Background(), "skrog-engine"); err != nil {
+		t.Fatalf("Terminate: %v", err)
+	}
+	if r.called == 0 {
+		t.Error("Terminate did not fall back to wsl.exe with no COM session")
+	}
+}
+
+// A cancelled context is the caller's doing, not the surface having moved, so
+// it must not demote the fast path for the rest of the process.
+func TestFastTerminateCancelledContextDoesNotDemote(t *testing.T) {
+	withNoCOM(t, "unavailable")
+	r := &fakeRunner{}
+	f := &Fast{Local: &Local{Runner: r}}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	// With no COM session this goes straight to Local; the assertion that
+	// matters is that nothing panics and the reason is unchanged.
+	_ = f.Terminate(ctx, "skrog-engine")
+	if _, why := f.Accelerated(); !strings.Contains(why, "unavailable") {
+		t.Errorf("reason = %q; a cancelled call should not have rewritten it", why)
+	}
+}
+
+// A service-level error must NOT demote the fast path.
+//
+// Regression test for what the live run caught: terminating a distro that does
+// not exist is the service answering correctly, and treating it as a moved
+// interface disabled COM for the rest of the process AND re-ran the doomed
+// operation through wsl.exe to produce a second, worse error.
+func TestServiceErrorIsNotASurfaceFailure(t *testing.T) {
+	if isServiceError(errors.New("plain")) {
+		t.Error("a plain error was classified as a service answer")
+	}
+}

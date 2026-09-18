@@ -261,3 +261,101 @@ func hresult(hr uintptr) error {
 	}
 	return fmt.Errorf("HRESULT 0x%08X", code)
 }
+
+// Further vtable slots, from the same wslservice.idl method ordering and
+// anchored on the one already proven: EnumerateDistributions is declaration 13,
+// three IUnknown methods ahead of it, so slot 15 — which is the constant above,
+// verified working against the live service. Counting from that anchor:
+//
+//	6  GetDistributionId       (declaration  4)
+//	7  TerminateDistribution   (declaration  5)
+//
+// The IID gate described above covers these the same way. A reshaped interface
+// is a new IID, so QueryInterface fails and none of this path runs.
+const (
+	slotGetDistributionID     = 6
+	slotTerminateDistribution = 7
+)
+
+// distributionID resolves a distro name to the GUID the GUID-taking methods
+// need. Callers hold the apartment thread already, so this does no do().
+func (s *comSession) distributionIDLocked(name string) (windows.GUID, error) {
+	var guid windows.GUID
+	n, err := windows.UTF16PtrFromString(name)
+	if err != nil {
+		return guid, err
+	}
+	var info lxssErrorInfo
+	hr, _, _ := syscall.SyscallN(vtable(s.sess)[slotGetDistributionID], uintptr(s.sess),
+		uintptr(unsafe.Pointer(n)),
+		0, // Flags
+		uintptr(unsafe.Pointer(&info)),
+		uintptr(unsafe.Pointer(&guid)))
+	if hr != 0 {
+		return guid, callError("GetDistributionId", hr, &info)
+	}
+	return guid, nil
+}
+
+// terminate stops a running distro over COM (wsl --terminate).
+//
+// Two round trips rather than one: the service addresses distros by GUID and
+// Skrog knows them by name. Still far cheaper than a spawn, and unlike the CLI
+// path the "no such distro" case arrives as an HRESULT rather than as a
+// localised sentence to match on.
+func (s *comSession) terminate(ctx context.Context, distro string) error {
+	var callErr error
+	if err := s.do(ctx, func() {
+		guid, err := s.distributionIDLocked(distro)
+		if err != nil {
+			callErr = err
+			return
+		}
+		var info lxssErrorInfo
+		hr, _, _ := syscall.SyscallN(vtable(s.sess)[slotTerminateDistribution], uintptr(s.sess),
+			uintptr(unsafe.Pointer(&guid)),
+			uintptr(unsafe.Pointer(&info)))
+		if hr != 0 {
+			callErr = callError("TerminateDistribution", hr, &info)
+		}
+	}); err != nil {
+		return err
+	}
+	return callErr
+}
+
+// ServiceError is an error the SERVICE returned, as opposed to a failure of
+// the COM plumbing around it.
+//
+// The distinction decides whether the fast path gets demoted. "There is no
+// distribution with the supplied name" is the service answering correctly; a
+// caller that treated it as the interface having moved would fall back to
+// wsl.exe, run the same doomed operation a second time, and disable COM for
+// the rest of the process -- all three of which the live test caught it doing.
+//
+// The IID gate already covers slot correctness, so a call that came back at
+// all is evidence the surface is intact, whatever it came back with.
+type ServiceError struct {
+	Method string
+	Err    error
+	Detail string
+}
+
+func (e *ServiceError) Error() string {
+	if e.Detail != "" {
+		return fmt.Sprintf("%s: %v: %s", e.Method, e.Err, e.Detail)
+	}
+	return fmt.Sprintf("%s: %v", e.Method, e.Err)
+}
+
+func (e *ServiceError) Unwrap() error { return e.Err }
+
+// callError is enumError generalised over the method name, now that more than
+// one call can fail.
+func callError(method string, hr uintptr, info *lxssErrorInfo) error {
+	e := &ServiceError{Method: method, Err: hresult(hr)}
+	if info.Message != nil {
+		e.Detail = windows.UTF16PtrToString(info.Message)
+	}
+	return e
+}
