@@ -286,5 +286,15 @@ func describe(r policy.Rules) []string {
 	if r.RequireDigest {
 		out = append(out, "images must be pinned by digest")
 	}
+	if r.DenyUnattributableBuilds {
+		// Says whether it is actually biting, because the rule is inert
+		// without an allowlist and a reader should not have to infer that
+		// from two lines further up.
+		if len(r.AllowRegistries) > 0 {
+			out = append(out, "deny `docker build` (unattributable while images are restricted)")
+		} else {
+			out = append(out, "deny unattributable builds — INERT: it needs allow-registries to bite")
+		}
+	}
 	return out
 }

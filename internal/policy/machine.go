@@ -100,6 +100,12 @@ func Merge(machine, user Rules) Rules {
 		DenyCapabilities:      unionCaps(machine.DenyCapabilities, user.DenyCapabilities),
 		DenyHostNamespaces:    machine.DenyHostNamespaces || user.DenyHostNamespaces,
 		RequireDigest:         machine.RequireDigest || user.RequireDigest,
+		// A deny rule, so it ORs like the rest (#376). Note the interaction
+		// worth thinking about once: the machine can set this while the USER
+		// supplies the allow-registries that makes it bite, and that is the
+		// correct outcome — the machine said "no unattributable builds where
+		// registries are restricted", and they are.
+		DenyUnattributableBuilds: machine.DenyUnattributableBuilds || user.DenyUnattributableBuilds,
 
 		AllowBindSources: intersectAllow(machine.AllowBindSources, user.AllowBindSources,
 			func(userEntry string, machineRoots []string) bool {
