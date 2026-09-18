@@ -58,10 +58,24 @@ func (g combinedGate) DenyPush(image string) (string, bool) {
 	return "", false
 }
 
-// DenyBuild consults only the WSL policy, because policy.yaml deliberately does
-// not refuse builds. See policy.Rules.DenyBuild for that decision, and #376 for
-// making it opt-in.
-func (g combinedGate) DenyBuild() (string, bool) { return g.wsl.DenyBuild() }
+// DenyBuild consults BOTH, like DenyCreate/DenyPull/DenyPush above.
+//
+// It consulted only the WSL policy while policy.yaml had nothing to say about
+// builds. #376 changed that — deny-unattributable-builds is opt-in, and an
+// operator who sets it on this backend means it — but this method was not
+// updated, so the rule was inert here while `policy show` reported it active.
+//
+// WSL's policy is still asked first, so when both would refuse, the message
+// names the one the user cannot simply edit.
+func (g combinedGate) DenyBuild() (string, bool) {
+	if reason, denied := g.wsl.DenyBuild(); denied {
+		return reason, true
+	}
+	if ig, ok := g.skrog.(pipeproxy.ImageGate); ok && g.skrog != nil {
+		return ig.DenyBuild()
+	}
+	return "", false
+}
 
 // Without these, dropping a method here would not fail the build — combinedGate
 // would quietly stop satisfying ImageGate and every pull, build and push on

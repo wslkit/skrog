@@ -26,9 +26,16 @@ func runProxy(args []string) int {
 		socketPath = fs.String("socket", provision.EngineSocket, "engine socket inside the distro")
 		noContext  = fs.Bool("no-context", false, "do not create or update the skrog docker context")
 		noRewrite  = fs.Bool("no-path-translation", false, "relay bytes verbatim, without translating Windows bind paths")
-		sddl       = fs.String("sddl", "", "security descriptor for the pipe (advanced; default restricts to SYSTEM, admins and interactive users)")
-		engine     = fs.String("engine", "distro", "engine backend: distro (a WSL2 distro Skrog owns) or wslc (a WSL container session) [experimental]")
-		agentPath  = fs.String("agent", "", "linux skrog-agent to place in the wslc session (default: the one shipped beside skrog.exe, else lifted from the engine distro)")
+		// "interactive users" here was the PRE-#79 behaviour. The default has
+		// granted the owning user, not IU, since v0.3 -- see defaultSDDL and
+		// the dacl test that asserts ";IU)" never appears. This string is
+		// published verbatim into docs/reference.md, so it was telling every
+		// reader of the command reference that the pipe is open to every
+		// interactive account on the machine: the exact vulnerability
+		// docs/security.md describes as fixed.
+		sddl      = fs.String("sddl", "", "security descriptor for the pipe (advanced; default restricts to SYSTEM, administrators and the owning user)")
+		engine    = fs.String("engine", "distro", "engine backend: distro (a WSL2 distro Skrog owns) or wslc (a WSL container session) [experimental]")
+		agentPath = fs.String("agent", "", "linux skrog-agent to place in the wslc session (default: the one shipped beside skrog.exe, else lifted from the engine distro)")
 	)
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, `usage: skrog proxy [flags]
