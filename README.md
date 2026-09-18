@@ -164,7 +164,8 @@ docker context. Nothing else on the system is touched.
 - **`skrog migrate`**: copy images and volumes out of **Docker Desktop**, **Rancher
   Desktop** (`--from-rancher`) or **Podman** (`--from-podman`) — non-destructively and
   resumably (`--dry-run` first), so trying Skrog never means starting from an empty engine
-- Optional status-light tray (`skrogtray.exe`) — six menu items, forever
+- Optional status-light tray (`skrogtray.exe`) — seven menu items: start/stop/restart,
+  open logs, run doctor, check for updates, quit. It never grows into a container manager
 - Headless CI installs (`--headless`, exit codes, `--json` on every state-reporting command —
   the contract in [docs/cli-json.md](docs/cli-json.md)), `skrog healthcheck --wait` as a
   runner readiness probe, `skrog logs --json` for log shippers, `skrog prewarm images.txt`

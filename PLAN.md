@@ -167,7 +167,7 @@ The "it just disappears" milestone: survives everything Windows throws at it wit
 - [ ] Sleep/resume and network-change recovery: re-verify socket health on power events, reconnect silently
 - [ ] `skrog wsl-integrate`: socket + CLI shared into the user's other distros via `/mnt/wsl` (Desktop parity)
 - [ ] `skrog migrate --from-desktop`: copy images, volumes, and build cache out of Docker Desktop's distro — turns "try Skrog" into a 10-minute reversible experiment instead of a fresh start; the single biggest adoption lever
-- [ ] Tray icon (6 items, forever): status dot, start/stop/restart, open logs, run doctor, quit
+- [x] Tray icon: status dot, start/stop/restart, open logs, run doctor, quit. Shipped with a seventh, "check for updates" (#191) — see the scope tripwire in ROADMAP.md, which now reads seven
 - [ ] Structured logging to the Windows Event Log and a rotating file
 
 **Acceptance:** Kill `wsl.exe`, reboot, or sleep/resume — the next `docker ps` works with no user action. On a machine with auto-logon configured, a reboot brings the engine back and a container job runs with nobody physically present.

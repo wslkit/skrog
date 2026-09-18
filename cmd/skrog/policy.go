@@ -102,7 +102,11 @@ func runPolicyShow(args []string) int {
 	// wants to know which file to go and argue with, and on a managed laptop
 	// that is not the one in their own state dir.
 	if src.MachinePath != "" {
-		fmt.Printf("machine rules: %s  (administrator-writable; you cannot loosen these)\n", src.MachinePath)
+		// "administrator-writable" is what this said until #418, and it is not
+		// something skrog checks — the default ProgramData ACL lets a standard
+		// user create the directory and own it. Claiming a property the code
+		// never verifies is the wrong thing to print next to a file path.
+		fmt.Printf("machine rules: %s  (deployed machine-wide; you cannot loosen these)\n", src.MachinePath)
 		for _, line := range describe(src.Machine) {
 			fmt.Printf("  %s\n", line)
 		}

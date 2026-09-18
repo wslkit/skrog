@@ -179,6 +179,7 @@ Ideas that could raise the project's ceiling, held here until a milestone earns 
 - **Every milestone tags a release** — even v0.1 — with the locked version manifest. No "install from main."
 - **Determinism is the brand:** nothing auto-updates, nothing fetches "latest," ever. Break this once in CI and the sharpest wedge market is gone.
 - **Issue tracker feeds doctor:** every v0.1/v0.2 support issue gets a `doctor-candidate` label; W7 starts by triaging that list.
-- **Scope tripwire:** any proposed tray item beyond six, or any container-management feature, is answered with the Portainer one-liner.
+- **Scope tripwire:** any proposed tray item beyond seven, or any container-management feature, is answered with the Portainer one-liner.
+  - *Crossed once, recorded here rather than quietly:* "Check for updates" (#191) was added as a seventh item and the tripwire was never invoked. It stays — an update check is the one thing a tray is genuinely better at than a CLI, because it needs no one to remember to ask — but the number is now seven and the next item has to argue against this line, not against a count the product already exceeded.
 
 *owner: zcsizmadia · created 2026-08-31 · re-baseline dates if any milestone slips by more than two weekends*
