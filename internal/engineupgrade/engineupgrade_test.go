@@ -417,3 +417,68 @@ func TestStagingIsNotLeftBehind(t *testing.T) {
 		t.Errorf("the cached rootfs was removed: %v", err)
 	}
 }
+
+// The zip side has had this test since #248; the tar side never did, and a
+// rootfs tarball is the more plausible carrier of a hostile entry -- it comes
+// from a registry, not from our own release page.
+//
+// Two shapes, both of which used to reach filepath.Join with a name the
+// archive chose. They resolve differently, and both outcomes are correct:
+//
+//   - "usr/local/bin/../../../../dockerd" cleans to "/dockerd", whose
+//     directory is not the engine's bin dir, so it is skipped entirely.
+//   - "../../../../../../usr/local/bin/containerd" cleans to
+//     "/usr/local/bin/containerd" -- collapsing a leading ".." against root
+//     is exactly what path.Clean is for -- so it IS taken, and lands at
+//     dest/containerd by its base name. Same answer the zip side gives in
+//     TestStageIgnoresPathTraversalInZipEntries.
+//
+// What must never happen either way is a write outside dest.
+func TestExtractBinariesIgnoresPathTraversal(t *testing.T) {
+	dir := t.TempDir()
+	root := filepath.Join(dir, "root")
+	dest := filepath.Join(root, "staging")
+
+	p := filepath.Join(dir, "r.tar.gz")
+	f, err := os.Create(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gz := gzip.NewWriter(f)
+	tw := tar.NewWriter(gz)
+	for _, name := range []string{
+		"usr/local/bin/../../../../dockerd",
+		"../../../../../../usr/local/bin/containerd",
+		"usr/local/bin/runc",
+	} {
+		body := "x"
+		if err := tw.WriteHeader(&tar.Header{Name: name, Mode: 0o755,
+			Size: int64(len(body)), Typeflag: tar.TypeReg}); err != nil {
+			t.Fatal(err)
+		}
+		tw.Write([]byte(body))
+	}
+	tw.Close()
+	gz.Close()
+	f.Close()
+
+	got, err := engineupgrade.ExtractBinaries(p, dest)
+	if err != nil {
+		t.Fatalf("ExtractBinaries: %v", err)
+	}
+	if strings.Join(got, ",") != "containerd,runc" {
+		t.Errorf("got %v, want [containerd runc]", got)
+	}
+	if _, err := os.Stat(filepath.Join(dest, "containerd")); err != nil {
+		t.Errorf("the cleaned entry should have landed inside dest: %v", err)
+	}
+	for _, escaped := range []string{
+		filepath.Join(dir, "dockerd"),
+		filepath.Join(root, "dockerd"),
+		filepath.Join(dir, "containerd"),
+	} {
+		if _, err := os.Stat(escaped); err == nil {
+			t.Errorf("an entry escaped the staging directory: %s", escaped)
+		}
+	}
+}

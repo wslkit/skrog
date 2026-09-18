@@ -242,12 +242,20 @@ func orDash(s string) string {
 }
 
 // humanBytes formats a byte count with a binary unit suffix.
-func humanBytes(b int64) string {
+//
+// Generic over both widths deliberately. The engine reports sizes as uint64
+// and prune reports them as int64, and every call site used to bridge that
+// with humanBytes(int64(x)) -- which wraps to a negative number for anything
+// above 2^63 and prints it as "-8.0 EiB". Those values come out of the
+// engine's own JSON, so the bound is not ours to assume (CodeQL
+// go/incorrect-integer-conversion). Taking the width the caller already has
+// removes the conversion rather than range-checking it.
+func humanBytes[T int64 | uint64](b T) string {
 	const unit = 1024
 	if b < unit {
 		return fmt.Sprintf("%d B", b)
 	}
-	div, exp := int64(unit), 0
+	div, exp := T(unit), 0
 	for n := b / unit; n >= unit; n /= unit {
 		div *= unit
 		exp++

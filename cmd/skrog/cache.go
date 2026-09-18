@@ -193,7 +193,7 @@ func cacheStatus(ctx context.Context, r prune.DockerRunner, opts provision.Optio
 		return exitOK
 	}
 	fmt.Printf("cache      %s\nupstream   %s\nmirror     %s\ndata       %s\n",
-		runningWord(st.Running), st.Upstream, st.MirrorURL, humanBytes(int64(st.DataBytes)))
+		runningWord(st.Running), st.Upstream, st.MirrorURL, humanBytes(st.DataBytes))
 	// The one state worth calling out: a cache that is up and that nothing is
 	// pointed at looks healthy and does nothing.
 	if !st.Wired {

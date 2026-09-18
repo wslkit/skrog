@@ -122,6 +122,17 @@ func sumFor(body, name string) (string, bool) {
 	return "", false
 }
 
+// matchBinary returns the entry of Binaries equal to base, or false. The
+// returned string is the constant, not the caller's: that is the point.
+func matchBinary(base string) (string, bool) {
+	for _, b := range Binaries {
+		if b == base {
+			return b, true
+		}
+	}
+	return "", false
+}
+
 // extractBinaries pulls just the executables out of the release zip. The zip
 // also carries LICENSE and README, which an upgrade has no business writing
 // over the installed copies.
@@ -132,15 +143,18 @@ func extractBinaries(zipPath, dir string) error {
 	}
 	defer zr.Close()
 
-	wanted := map[string]bool{}
-	for _, b := range Binaries {
-		wanted[b] = true
-	}
 	found := 0
 	for _, entry := range zr.File {
-		// Base only: a zip entry naming ../ must never escape the directory.
-		name := filepath.Base(entry.Name)
-		if !wanted[name] {
+		// The archive's own string is used to CHOOSE a binary and never to
+		// build the path we write. filepath.Base plus the allowlist already
+		// stopped a "../" entry escaping dir, but the name still flowed from
+		// the zip into filepath.Join, so nothing in the code said so -- not to
+		// a reader, and not to CodeQL (go/zipslip).
+		//
+		// Resolving to the constant from Binaries makes the destination
+		// provably ours: entry.Name reaches a comparison and stops there.
+		name, ok := matchBinary(filepath.Base(entry.Name))
+		if !ok {
 			continue
 		}
 		rc, err := entry.Open()

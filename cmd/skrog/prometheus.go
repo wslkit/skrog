@@ -3,7 +3,9 @@ package main
 import (
 	"fmt"
 	"io"
+	"math"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -91,9 +93,26 @@ func escapeLabel(v string) string {
 
 // formatValue prints a float without a trailing ".0" for whole numbers, since
 // nearly every metric here is a count.
+//
+// The old form was `if f == float64(int64(f))`, which decided whether int64(f)
+// was safe by evaluating int64(f) -- undefined in Go out of range, and the
+// narrowing CodeQL flags (go/incorrect-integer-conversion) on the values that
+// reach here from a strconv.ParseUint of /proc inside the distro.
+//
+// Bounds-checking that conversion was the obvious repair and the wrong one: it
+// still narrows, and a guard in the float domain is not something the analysis
+// can tie back to the uint64 it came from. There is no need to narrow at all.
+// math.Trunc answers "is this whole?" without leaving float64, and FormatFloat
+// prints the integer without an int64 ever existing.
+//
+// The 2^53 ceiling is where float64 stops representing consecutive integers.
+// Past it the trailing digits would be invented, so %g's exponent form is the
+// more honest answer, not merely the safe one. NaN and the infinities fail one
+// test or the other and land there too, spelled the way the exposition format
+// spells them.
 func formatValue(f float64) string {
-	if f == float64(int64(f)) {
-		return fmt.Sprintf("%d", int64(f))
+	if f == math.Trunc(f) && math.Abs(f) < 1<<53 {
+		return strconv.FormatFloat(f, 'f', -1, 64)
 	}
 	return fmt.Sprintf("%g", f)
 }

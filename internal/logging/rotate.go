@@ -7,6 +7,7 @@
 package logging
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -52,8 +53,11 @@ func (w *RotatingWriter) open() error {
 	}
 	st, err := f.Stat()
 	if err != nil {
-		f.Close()
-		return fmt.Errorf("stat log: %w", err)
+		// Joined rather than dropped. Nothing has been written to this handle
+		// yet, so Close should never have anything to report -- which is the
+		// argument for surfacing it if it ever does, not for discarding it on
+		// a writable file (CodeQL go/unhandled-writable-file-close).
+		return errors.Join(fmt.Errorf("stat log: %w", err), f.Close())
 	}
 	w.f = f
 	w.size = st.Size()
