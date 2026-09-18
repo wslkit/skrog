@@ -140,7 +140,13 @@ The project shipped v0.1.0–v0.3.1 as **Hawser**, after the mooring line, with 
 
 ## 05 · Roadmap
 
-Milestone summaries below; the detailed execution roadmap — task breakdown, dependencies, calendar targets, decision gates — lives in [ROADMAP.md](ROADMAP.md).
+Milestone summaries below; the detailed execution roadmap — task breakdown, dependencies, decision gates — lives in [ROADMAP.md](ROADMAP.md).
+
+> **The checkboxes here are a plan, not a status board.** 44 unchecked against 2 ticked, across six shipped releases — they were written once and not maintained, so an empty box means "this was planned", never "this has not shipped". v0.1 through v0.5 are all tagged and public.
+>
+> Some items shipped under a different name than the one below: `skrog update` → **`skrog upgrade`**, `skrog expose --tcp` → **`skrog serve`** plus **`skrog remote`**, `skrog stats` → **`skrog status --stats`**. A handful genuinely have not shipped, `skrog enable-qemu` and `skrog create` among them.
+>
+> **For what actually shipped and when, read [CHANGELOG.md](CHANGELOG.md) and the [releases](https://github.com/wslkit/skrog/releases).** Ticking these retroactively was considered and not done: a box ticked from memory months later is a worse record than an honest note saying the record is elsewhere.
 
 ### v0.1 — Plumbing (~3 weekends)
 
@@ -194,7 +200,8 @@ The differentiator over DIY guides: turn the WSL2 quirk zoo — VPNs above all �
 
 Distribution and trust — the difference between a repo and a tool people install at work.
 
-- [ ] winget, scoop, and chocolatey manifests; WiX MSI for Intune/Ansible fleet deployment
+- [x] **scoop** — [scoop-skrog](https://github.com/wslkit/scoop-skrog) is live and serving. It does not need code signing, which this plan assumed it did
+- [ ] winget (#412 — also not blocked on signing) and chocolatey manifests; WiX MSI for Intune/Ansible fleet deployment (#77 — this one *is* blocked on signing)
 - [ ] Windows ARM64 builds alongside x64 (Go cross-compiles; WSL2 and the engine run natively on ARM64 — Snapdragon dev laptops are a growing, underserved slice)
 - [ ] `skrog update [--check]`: self-update from the signed release manifest — explicit invocation only, never automatic (determinism is the CI contract)
 - [ ] Code signing -- route undecided (#77): the SignPath Foundation declined for now pending visibility, paying is the alternative. Published checksums, SLSA provenance and cosign are in place; SmartScreen reputation only starts accruing once signed

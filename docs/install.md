@@ -59,7 +59,7 @@ elevation). It provisions nothing — that is step 2.
 Options come from the environment, because `irm | iex` cannot take arguments:
 
 ```powershell
-$env:SKROG_VERSION = '0.4.2'            # default: newest release
+$env:SKROG_VERSION = '0.6.0'            # default: newest release
 $env:SKROG_DIR     = 'C:\tools\skrog'   # default: %LOCALAPPDATA%\Programs\skrog
 $env:SKROG_NO_PATH = '1'                # do not touch PATH
 ```
@@ -67,6 +67,26 @@ $env:SKROG_NO_PATH = '1'                # do not touch PATH
 [Read the script first](https://github.com/wslkit/skrog/blob/main/scripts/install.ps1)
 if you would rather not pipe a URL into your shell. It does nothing the manual
 steps below do not.
+
+It installs the newest **stable** release. `skrog upgrade --check` deliberately
+counts pre-releases too, so it can tell you a preview exists on a machine this
+script put on the stable build — first contact should be stable, an explicit
+"what is new?" should be complete.
+
+### Or with scoop
+
+```powershell
+scoop bucket add skrog https://github.com/wslkit/scoop-skrog
+scoop install skrog
+```
+
+Then `scoop update skrog` keeps it current. Skrog notices it is managed —
+`skrog upgrade --apply` refuses inside a package-manager directory and tells
+you to use scoop instead, rather than fighting it for the same files.
+
+A winget package is [#412](https://github.com/wslkit/skrog/issues/412). Neither
+is blocked on code signing, which this project believed for longer than it
+should have; only the MSI is.
 
 ### Or by hand
 
@@ -83,7 +103,7 @@ steps below do not.
 3. Check it, and compare the line for your zip:
 
    ```powershell
-   Get-FileHash .\skrog_0.4.2_windows_amd64.zip -Algorithm SHA256
+   Get-FileHash .\skrog_<version>_windows_amd64.zip -Algorithm SHA256
    Get-Content .\SHA256SUMS
    ```
 
@@ -91,7 +111,7 @@ steps below do not.
    the script uses:
 
    ```powershell
-   Expand-Archive .\skrog_0.4.2_windows_amd64.zip -DestinationPath "$env:LOCALAPPDATA\Programs\skrog"
+   Expand-Archive .\skrog_<version>_windows_amd64.zip -DestinationPath "$env:LOCALAPPDATA\Programs\skrog"
    ```
 
 The zip contains `skrog.exe`, `skrogw.exe` (the windowless logon launcher —

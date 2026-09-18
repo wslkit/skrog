@@ -55,8 +55,28 @@ type release struct {
 // far higher, so taking the newest release of any kind would report that
 // skrog 0.3.0 should upgrade to 29.8.0.
 //
-// Pre-releases count. Every release so far is one, and a check that ignored
-// them would tell every user they are current forever.
+// Pre-releases count, and that is now a deliberate divergence rather than an
+// accident of history.
+//
+// It was written when every release was flagged pre-release, so a check that
+// ignored them would have told every user they were current forever. From
+// v0.6.0 that premise is gone: stable releases exist. scripts/install.ps1
+// makes the opposite choice — it prefers the newest NON-prerelease — because
+// a one-liner that pipes a URL into a shell should land people on the stable
+// build.
+//
+// Both are right for what they do, and the split is the policy:
+//
+//	install.ps1  -> stable by default. First contact; least surprise.
+//	upgrade      -> reports everything, including previews.
+//
+// So `skrog upgrade --check` can report a preview as available on a machine
+// install.ps1 put on the stable build. That is intended: someone who has the
+// tool installed and asks what is newer should be told what is newer. What
+// `--apply` then installs is their choice, not the checker's.
+//
+// Written down in RELEASING.md under "A normal release" so the next person to
+// touch either side finds the reasoning before changing one of them.
 func (g *GitHubReleases) LatestApp(ctx context.Context) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, g.url(), nil)
 	if err != nil {

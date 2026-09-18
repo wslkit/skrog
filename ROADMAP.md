@@ -1,6 +1,25 @@
 # Skrog · Execution Roadmap
 
-Companion to [PLAN.md](PLAN.md) §05 — that file says *what* each milestone contains and why; this one says *in what order, by when, gated on what*. Assumptions: one developer, weekend cadence (~2 focused days/weekend), calendar anchored to a start the week of **2026-09-07**. Dates are targets, not promises — the gates are the contract, the dates are the pace check.
+Companion to [PLAN.md](PLAN.md) §05 — that file says *what* each milestone contains and why; this one says *in what order, gated on what*.
+
+> ## Read the dates below as history, not as a schedule
+>
+> This file was written the week of 2026-09-07 assuming one developer at a weekend cadence. **The project ran roughly five months ahead of it.** Every original target and what actually happened:
+>
+> | milestone | targeted | shipped |
+> |---|---|---|
+> | v0.1 | Sun Oct 4, 2026 | **2026-09-01** |
+> | v0.2 | Sun Nov 8, 2026 | **2026-09-02** |
+> | v0.3 | staged, no date | **2026-09-08** |
+> | v0.4 | Sun Jan 24, 2027 | **2026-09-12** |
+> | v0.5 | Sun Feb 21, 2027 | **2026-09-15** |
+> | v0.6 | not planned | in progress |
+>
+> So a reader arriving today would conclude v0.5 is four months away when it shipped in September, and **"v1.0 — spring 2027" is anchored to the same broken calendar** — it is not a forecast, it is arithmetic from a start date that no longer describes anything. No new dates are put here to replace them: the gates are the contract, and inventing a second set of numbers that will also be wrong helps nobody.
+>
+> **What shipped, and when, is [CHANGELOG.md](CHANGELOG.md) and the [releases](https://github.com/wslkit/skrog/releases).** Treat those as authoritative and this file as the reasoning behind the ordering.
+>
+> The checkboxes below are also unmaintained — 22 unchecked against 1 ticked, across six shipped releases. They record what was *planned*, not what was *done*. Do not read an empty box as "not shipped"; `skrog doctor`, `skrog migrate` and the supervisor are all unticked and all shipped. Some items shipped under different names (`skrog update` → `skrog upgrade`, `skrog expose --tcp` → `skrog serve` + `skrog remote`, `skrog stats` → `skrog status --stats`).
 
 **Strategic clock:** Microsoft targets wslc GA for **fall 2026**. wslc ships a real Moby engine but no Docker endpoint to reach it (#317), so it is not a substitute, and its GA press cycle is a free marketing wave. **v0.1 must be public and installable before that wave** so every "wslc can't run compose/Testcontainers" thread has a link-able answer. That makes early October a real deadline, not an aspiration.
 
@@ -122,7 +141,11 @@ Goal: the difference between a repo and a tool people install at work. Holiday g
 
 **Lead-time items to start early:** winget package review queue (can take 1-2 weeks); SmartScreen reputation begins accruing only after signing, so sign *pre-release* builds as soon as a certificate exists.
 
-**Code signing status (Sep 2026):** the SignPath Foundation application was declined for now -- the free programme wants an established user base -- with an invitation to reapply as visibility grows. Paying for a certificate is the other route and needs nobody's approval. That makes signing a decision rather than a scheduled item, so it has been lifted out of the weekend plan above and lives in [#77](https://github.com/wslkit/skrog/issues/77). Everything downstream of it -- MSI, winget, scoop, SmartScreen reputation -- moves with it.
+**Code signing status (Sep 2026):** the SignPath Foundation application was declined for now -- the free programme wants an established user base -- with an invitation to reapply as visibility grows. Paying for a certificate is the other route and needs nobody's approval. That makes signing a decision rather than a scheduled item, so it has been lifted out of the weekend plan above and lives in [#77](https://github.com/wslkit/skrog/issues/77).
+
+What actually moves with it is **the MSI and SmartScreen reputation** — an installer that asks for elevation unsigned is worse than a zip, and reputation is earned by signed downloads.
+
+**winget and scoop do not, and that sentence used to say they did.** It was wrong, and the cost was real: it held the scoop bucket empty for no reason. Both ship unsigned binaries routinely — winget's `portable` type unpacks per-user with no elevation and no Authenticode, and ripgrep and fzf are distributed exactly that way. [scoop-skrog](https://github.com/wslkit/scoop-skrog) is live and serving 0.5.1 today; winget is [#412](https://github.com/wslkit/skrog/issues/412). `RELEASING.md` corrected this for winget some time ago; this line is the same correction arriving where it should have arrived at the same moment.
 
 ---
 
@@ -139,9 +162,20 @@ Kept out of v0.4 so the ship-it release stays tight.
 
 ---
 
-## v1.0 — Stable (spring 2027, ongoing)
+## v1.0 — Stable (no date; see the note at the top)
 
-Reliability guarantees, not features: self-hosted e2e runner with nested virtualization, Windows compatibility matrix (Win11 23H2/24H2+/Insider; Win10 22H2-ESU best-effort), semver + upgrade guarantees, published pipe threat model. **Acceptance:** two consecutive Windows feature updates absorbed with zero breaking issues filed.
+Reliability guarantees, not features. **Acceptance:** two consecutive Windows feature updates absorbed with zero breaking issues filed.
+
+Scored honestly as of 0.6.0, because "spring 2027" was never a forecast and the criteria are the only thing that means anything:
+
+| criterion | state |
+|---|---|
+| e2e runner with nested virtualization | **Not done.** The suite exists (45 stages) and is wired into a workflow as of 0.6.0, but manual/nightly, not a gate. Self-hosted turned out unnecessary — hosted `windows-latest` has nested virtualization |
+| Windows compatibility matrix (Win11 23H2/24H2+/Insider; Win10 22H2-ESU) | **Does not exist.** Every measured note in the repo is from Windows 10 22H2. There is no Windows 11 test evidence at all, which is worth knowing given the README calls it the primary target |
+| semver + upgrade guarantees | **Partial.** [RELEASING.md](RELEASING.md#semver-while-we-are-pre-10) now says what each bump promises, and [docs/cli-json.md](docs/cli-json.md) is a real contract for the JSON and exit codes. Nothing covers the CLI flags, config keys or on-disk state |
+| published pipe threat model | **~70%.** [docs/security.md](docs/security.md) is substantive and states its limitations, but it is not framed as a threat model — no asset or adversary enumeration |
+
+Three of four are open, which is the answer to "is 1.0 close?": no. Dropping the pre-release flag at 0.6.0 is a much smaller and cheaper claim — "this works, use it, the surface can still move" — and is deliberately not the same promise.
 
 ---
 

@@ -705,8 +705,15 @@ usage: skrog proxy [flags]
 Serves the Windows named pipe that stock docker.exe connects to, relaying it to
 the engine inside the WSL2 distro. Runs in the foreground until interrupted.
 
-This is the v0.1 way to run the bridge. A Windows service that supervises it
-without a logged-in session is v0.2 work (issue #3).
+This is the debug bridge. For everyday use, "skrog supervise" is the always-on
+layer: it serves the same pipe and also keeps the engine alive across crashes,
+"wsl --shutdown" and sleep/resume. "skrog install" registers it to start at
+logon.
+
+A Windows service that needs no logged-on session is not coming: issue #3
+spiked it and the answer was no. WSL2 cannot start from session 0, so the
+supervisor runs as you. For an unattended machine, configure auto-logon —
+docs/auto-logon-runner.md.
 
 Exit codes: 0 clean shutdown, 1 error, 2 usage, 3 no engine installed.
 
