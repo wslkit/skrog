@@ -99,6 +99,7 @@ allow-registries:                     # images may only come from here
   - registry.example.com
   - "*.internal"
 require-digest: true                  # images must be pinned by digest
+deny-unattributable-builds: true      # refuse `docker build` while the above is set
 ```
 
 Changing the file takes effect on the **next container create** — no
@@ -161,14 +162,41 @@ the pipe a BuildKit build is an opaque gRPC stream, so a build cannot be
 attributed to a registry in advance. `policy.yaml` lets builds through rather
 than refusing them.
 
-That is a deliberate choice, not an oversight. Skrog's
+That is a deliberate default, not an oversight. Skrog's
 [wslc backend](wslc-backend.md) *does* refuse builds while the administrator's
 `WSLContainerRegistryAllowlist` is active — but that policy is deployed by GPO
 against a user who cannot edit it, where failing closed is the only coherent
 answer. `policy.yaml` is your own file: refusing every build on a machine that
 merely lists its registries would break working setups to close a hole its
-author can walk around by editing one line. Making it opt-in is
-[#376](https://github.com/wslkit/skrog/issues/376).
+author can walk around by editing one line.
+
+**If you want the strict reading, ask for it:**
+
+```yaml
+allow-registries:
+  - registry.example.com
+deny-unattributable-builds: true
+```
+
+`docker build` is then refused outright, with the same reasoning the wslc gate
+applies by default — reached here because you chose it rather than because we
+assumed it.
+
+The rule is **inert without `allow-registries`**, and `skrog policy show` says
+so rather than letting you believe otherwise:
+
+```
+deny unattributable builds — INERT: it needs allow-registries to bite
+```
+
+Refusing every build on a machine with no registry restriction would be closing
+a hole that is not open.
+
+Worth knowing if you deploy a [machine layer](#two-layers-and-only-one-of-them-is-yours):
+the machine can set `deny-unattributable-builds` while a user's own file
+supplies the `allow-registries` that makes it bite. That is the intended
+outcome — the administrator said "no unattributable builds where images are
+restricted", and they are.
 
 **The network.** This is admission control at the Docker API. A running
 container can reach any registry it likes, and `docker load` plus `docker tag`

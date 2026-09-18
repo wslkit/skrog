@@ -86,6 +86,21 @@ type Rules struct {
 	// RequireDigest refuses an image reference that is not pinned by digest,
 	// which is the only reference that cannot change under you.
 	RequireDigest bool `yaml:"require-digest,omitempty" json:"requireDigest,omitempty"`
+
+	// DenyUnattributableBuilds refuses `docker build` while AllowRegistries is
+	// in force (#376).
+	//
+	// Opt-in, and the name says what it does rather than how: a build cannot
+	// be attributed to a registry in advance, because a Dockerfile's FROM and
+	// any RUN can reach anywhere and at the pipe a BuildKit build is an opaque
+	// gRPC stream. So the only two honest positions are refuse, or allow and
+	// say so. See DenyBuild for why "allow and say so" is the default here and
+	// "refuse" is the default on the wslc gate.
+	//
+	// It does nothing on its own: with no AllowRegistries there is no rule for
+	// a build to get around, and refusing every build on a machine with no
+	// registry restriction would be superstition rather than policy.
+	DenyUnattributableBuilds bool `yaml:"deny-unattributable-builds,omitempty" json:"denyUnattributableBuilds,omitempty"`
 }
 
 // Empty reports whether the rule set forbids nothing, so callers can skip the
@@ -93,7 +108,11 @@ type Rules struct {
 func (r Rules) Empty() bool {
 	return !r.DenyPrivileged && !r.DenyAddedCapabilities && len(r.DenyCapabilities) == 0 &&
 		!r.DenyHostNamespaces && len(r.AllowBindSources) == 0 &&
-		len(r.AllowRegistries) == 0 && !r.RequireDigest
+		len(r.AllowRegistries) == 0 && !r.RequireDigest &&
+		// Counted even though it only bites alongside allow-registries: a file
+		// that sets it is a configured file, and reporting "no policy" for it
+		// would be a lie of the kind this package exists to avoid.
+		!r.DenyUnattributableBuilds
 }
 
 // Load reads the rule set for an install. A missing file is an empty rule set,
@@ -483,9 +502,24 @@ func (r Rules) DenyPull(image string) (reason string, denied bool) {
 // lists its registries would break working setups today to close a hole its own
 // author can walk around by editing one line.
 //
-// So it stays open and documented rather than closed and surprising. Making it
-// opt-in (a `deny-unattributable-builds` rule) is #376.
-func (r Rules) DenyBuild() (reason string, denied bool) { return "", false }
+// So it stays open and documented rather than closed and surprising — unless
+// the rule set asks for the strict reading with deny-unattributable-builds
+// (#376), which is the same verdict the wslc gate reaches by default, reached
+// here only because someone chose it.
+//
+// The rule needs an allowlist to bite. Refusing builds on a machine with no
+// registry restriction would close a hole that is not open.
+func (r Rules) DenyBuild() (reason string, denied bool) {
+	if !r.DenyUnattributableBuilds || len(r.AllowRegistries) == 0 {
+		return "", false
+	}
+	return fmt.Sprintf(
+		"a build cannot be attributed to a registry (its FROM and any RUN may reach "+
+			"anywhere), and deny-unattributable-builds is set with allow-registries "+
+			"active: %s. Pull the image you need instead, or unset "+
+			"deny-unattributable-builds to allow builds through",
+		strings.Join(r.AllowRegistries, ", ")), true
+}
 
 // DenyPush applies the registry allowlist to `docker push`, matching what the
 // WSL gate does (#353): an allowlist that governs only inbound says nothing
