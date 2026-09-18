@@ -166,7 +166,7 @@ func printStats(s statsJSON) {
 		fmt.Println("\nbridge")
 		fmt.Printf("  connections       %d (%d open)\n", b.Connections, b.ActiveConns)
 		fmt.Printf("  relayed           %s in, %s out\n",
-			humanBytes(int64(b.BytesToEngine)), humanBytes(int64(b.BytesToClient)))
+			humanBytes(b.BytesToEngine), humanBytes(b.BytesToClient))
 		// The one line that explains a slow docker with a healthy engine, so
 		// each transport says what it costs rather than just naming itself.
 		switch b.Transport {
@@ -195,34 +195,34 @@ func printStats(s statsJSON) {
 			fmt.Printf(", %d paused", e.Paused)
 		}
 		fmt.Println(")")
-		fmt.Printf("  images            %d (%s)\n", e.Images, humanBytes(int64(e.ImagesBytes)))
+		fmt.Printf("  images            %d (%s)\n", e.Images, humanBytes(e.ImagesBytes))
 		if e.Volumes > 0 {
-			fmt.Printf("  volumes           %d (%s)\n", e.Volumes, humanBytes(int64(e.VolumesBytes)))
+			fmt.Printf("  volumes           %d (%s)\n", e.Volumes, humanBytes(e.VolumesBytes))
 		}
-		fmt.Printf("  build cache       %s\n", humanBytes(int64(e.BuildCacheBytes)))
+		fmt.Printf("  build cache       %s\n", humanBytes(e.BuildCacheBytes))
 		if e.ReclaimableBytes > 0 {
-			fmt.Printf("  reclaimable       %s  (`skrog prune`)\n", humanBytes(int64(e.ReclaimableBytes)))
+			fmt.Printf("  reclaimable       %s  (`skrog prune`)\n", humanBytes(e.ReclaimableBytes))
 		}
 	}
 	if d := s.Disk; d != nil && d.SizeOnDiskBytes > 0 {
 		fmt.Println("\ndisk")
-		fmt.Printf("  virtual disk      %s on disk", humanBytes(int64(d.SizeOnDiskBytes)))
+		fmt.Printf("  virtual disk      %s on disk", humanBytes(d.SizeOnDiskBytes))
 		if d.GuestUsedBytes > 0 {
-			fmt.Printf(", %s used inside", humanBytes(int64(d.GuestUsedBytes)))
+			fmt.Printf(", %s used inside", humanBytes(d.GuestUsedBytes))
 		}
 		fmt.Println()
 		if d.ReclaimableBytes > 0 {
-			fmt.Printf("  reclaimable       ~%s  (`skrog compact`)\n", humanBytes(int64(d.ReclaimableBytes)))
+			fmt.Printf("  reclaimable       ~%s  (`skrog compact`)\n", humanBytes(d.ReclaimableBytes))
 		}
 		if d.HostFreeBytes > 0 {
-			fmt.Printf("  host free         %s\n", humanBytes(int64(d.HostFreeBytes)))
+			fmt.Printf("  host free         %s\n", humanBytes(d.HostFreeBytes))
 		}
 	}
 	if v := s.VM; v != nil && v.MemTotalBytes > 0 {
 		fmt.Println("\nvm")
-		fmt.Printf("  memory            %s total", humanBytes(int64(v.MemTotalBytes)))
+		fmt.Printf("  memory            %s total", humanBytes(v.MemTotalBytes))
 		if v.MemAvailableBytes > 0 {
-			fmt.Printf(", %s available", humanBytes(int64(v.MemAvailableBytes)))
+			fmt.Printf(", %s available", humanBytes(v.MemAvailableBytes))
 		}
 		if v.ConfiguredMemory != "" {
 			fmt.Printf("  (configured: %s)", v.ConfiguredMemory)

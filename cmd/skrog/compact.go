@@ -205,7 +205,7 @@ func reportCompactError(err error, rep compact.Report, asJSON, leftDown bool) in
 
 func printCompactReport(rep compact.Report) {
 	if rep.DryRun {
-		fmt.Printf("would compact %s (%s on disk):\n", rep.Distro, humanBytes(int64(rep.BeforeBytes)))
+		fmt.Printf("would compact %s (%s on disk):\n", rep.Distro, humanBytes(rep.BeforeBytes))
 		for _, s := range rep.Steps {
 			fmt.Printf("  %s\n", s)
 		}
@@ -219,17 +219,17 @@ func printCompactReport(rep compact.Report) {
 		return
 	}
 	if rep.ReclaimedBytes == 0 {
-		fmt.Printf("%s: nothing to reclaim (%s on disk)\n", rep.Distro, humanBytes(int64(rep.AfterBytes)))
+		fmt.Printf("%s: nothing to reclaim (%s on disk)\n", rep.Distro, humanBytes(rep.AfterBytes))
 	} else {
 		fmt.Printf("%s: %s reclaimed (%s to %s)\n", rep.Distro,
-			humanBytes(int64(rep.ReclaimedBytes)), humanBytes(int64(rep.BeforeBytes)),
-			humanBytes(int64(rep.AfterBytes)))
+			humanBytes(rep.ReclaimedBytes), humanBytes(rep.BeforeBytes),
+			humanBytes(rep.AfterBytes))
 	}
 	if rep.Trimmed && rep.OfferedBytes > 0 {
 		// Always labeled: fstrim reports the disk's whole free extent, which on
 		// a 1 TB default disk is three orders of magnitude off from reality.
 		fmt.Printf("  fstrim offered %s — that is the disk's free extent, not space reclaimed\n",
-			humanBytes(int64(rep.OfferedBytes)))
+			humanBytes(rep.OfferedBytes))
 	}
 	if !rep.Restarted {
 		fmt.Println("  the engine is stopped; `skrog start` brings it back")

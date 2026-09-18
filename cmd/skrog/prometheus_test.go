@@ -1,6 +1,7 @@
 package main
 
 import (
+	"math"
 	"strings"
 	"testing"
 )
@@ -142,5 +143,56 @@ func TestPrometheusFormatsWholeNumbersPlainly(t *testing.T) {
 		if got := formatValue(tc.in); got != tc.want {
 			t.Errorf("formatValue(%v) = %s, want %s", tc.in, got, tc.want)
 		}
+	}
+}
+
+// int64(f) is undefined in Go when f does not fit, and the old guard
+// (`f == float64(int64(f))`) performed that very conversion to decide whether
+// it was safe.
+//
+// Measured: on amd64 the overflow saturates to MinInt64, the round-trip
+// comparison fails, and every case below happened to come out right. The old
+// code was not wrong here -- it was lucky, on one ISA.
+//
+// arm64 saturates the other way, to MaxInt64, and that is a shipped target
+// since #389. float64(MaxInt64) rounds back up to 2^63, so for an input of
+// exactly 2^63 the round-trip *succeeds* there and the old guard would print
+// 9223372036854775807 -- a wrong number, silently, for a value the caller
+// handed over intact. That case is in the table; the arm64 CI job is what
+// actually checks it.
+//
+// What must hold on both: no positive input renders negative, and nothing
+// renders as an integer it is not.
+func TestPrometheusFormatsOutOfRangeValuesWithoutOverflowing(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		in   float64
+		want string
+	}{
+		{"above maxint64", 1e30, "1e+30"},
+		{"exactly 2^63", 9223372036854775808, "9.223372036854776e+18"},
+		{"below minint64", -1e30, "-1e+30"},
+		{"not a number", math.NaN(), "NaN"},
+		{"positive infinity", math.Inf(1), "+Inf"},
+		{"negative infinity", math.Inf(-1), "-Inf"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := formatValue(tc.in)
+			if got != tc.want {
+				t.Errorf("formatValue(%v) = %s, want %s", tc.in, got, tc.want)
+			}
+			if strings.HasPrefix(got, "-") != (tc.in < 0) {
+				t.Errorf("formatValue(%v) = %s: the sign flipped", tc.in, got)
+			}
+		})
+	}
+}
+
+// The largest value that still fits must keep printing as a whole number --
+// the range check is meant to exclude what overflows, nothing more.
+func TestPrometheusStillFormatsTheLargestWholeNumberThatFits(t *testing.T) {
+	// 2^62 is exact in float64 and well inside int64.
+	if got, want := formatValue(1<<62), "4611686018427387904"; got != want {
+		t.Errorf("formatValue(2^62) = %s, want %s", got, want)
 	}
 }

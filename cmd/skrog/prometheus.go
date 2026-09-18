@@ -3,7 +3,9 @@ package main
 import (
 	"fmt"
 	"io"
+	"math"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -91,9 +93,20 @@ func escapeLabel(v string) string {
 
 // formatValue prints a float without a trailing ".0" for whole numbers, since
 // nearly every metric here is a count.
+//
+// The range check is not decoration: Go leaves int64(f) *undefined* when f
+// does not fit, so the old `f == float64(int64(f))` test asked the question by
+// performing the very conversion it was meant to guard (CodeQL
+// go/incorrect-integer-conversion). Byte counts reach here as float64, and
+// 2^63 bytes is not a number a gauge should be trusted never to produce.
+//
+// The bounds are exact in float64: math.MinInt64 is -2^63, and math.MaxInt64
+// rounds up to 2^63, so `< math.MaxInt64` is the strict "it fits" test. NaN
+// and the infinities fail every comparison and fall through to %g, which
+// spells them the way the exposition format does.
 func formatValue(f float64) string {
-	if f == float64(int64(f)) {
-		return fmt.Sprintf("%d", int64(f))
+	if f >= math.MinInt64 && f < math.MaxInt64 && f == math.Trunc(f) {
+		return strconv.FormatInt(int64(f), 10)
 	}
 	return fmt.Sprintf("%g", f)
 }

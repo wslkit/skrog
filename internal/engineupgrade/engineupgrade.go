@@ -314,14 +314,21 @@ func (r *Runner) engineVersion(ctx context.Context, opts Options) (string, error
 	return strings.TrimSpace(out), nil
 }
 
+// matchEngineBinary returns the entry of EngineBinaries equal to base, or
+// false. The returned string is the constant, not the archive's.
+func matchEngineBinary(base string) (string, bool) {
+	for _, n := range EngineBinaries {
+		if n == base {
+			return n, true
+		}
+	}
+	return "", false
+}
+
 // ExtractBinaries pulls the engine binaries out of a rootfs tarball into dest,
 // returning the names it found, sorted. Everything else in the archive is
 // skipped: this is an engine upgrade, not a distro upgrade.
 func ExtractBinaries(tarball, dest string) ([]string, error) {
-	want := map[string]bool{}
-	for _, n := range EngineBinaries {
-		want[n] = true
-	}
 	if err := os.MkdirAll(dest, 0o755); err != nil {
 		return nil, err
 	}
@@ -355,8 +362,13 @@ func ExtractBinaries(tarball, dest string) ([]string, error) {
 		if path.Dir(clean) != strings.TrimPrefix(distroBinDir, "/") {
 			continue
 		}
-		name := path.Base(clean)
-		if !want[name] {
+		// As in internal/upgrade: resolve to the constant from EngineBinaries
+		// rather than reusing the tar header's string, so the path we write is
+		// provably ours. path.Clean, the exact-directory check above and
+		// path.Base already prevented an escape; this stops the tainted name
+		// reaching filepath.Join at all (CodeQL go/zipslip).
+		name, ok := matchEngineBinary(path.Base(clean))
+		if !ok {
 			continue
 		}
 		if err := writeFile(filepath.Join(dest, name), tr); err != nil {
