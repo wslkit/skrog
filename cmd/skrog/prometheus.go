@@ -94,19 +94,25 @@ func escapeLabel(v string) string {
 // formatValue prints a float without a trailing ".0" for whole numbers, since
 // nearly every metric here is a count.
 //
-// The range check is not decoration: Go leaves int64(f) *undefined* when f
-// does not fit, so the old `f == float64(int64(f))` test asked the question by
-// performing the very conversion it was meant to guard (CodeQL
-// go/incorrect-integer-conversion). Byte counts reach here as float64, and
-// 2^63 bytes is not a number a gauge should be trusted never to produce.
+// The old form was `if f == float64(int64(f))`, which decided whether int64(f)
+// was safe by evaluating int64(f) -- undefined in Go out of range, and the
+// narrowing CodeQL flags (go/incorrect-integer-conversion) on the values that
+// reach here from a strconv.ParseUint of /proc inside the distro.
 //
-// The bounds are exact in float64: math.MinInt64 is -2^63, and math.MaxInt64
-// rounds up to 2^63, so `< math.MaxInt64` is the strict "it fits" test. NaN
-// and the infinities fail every comparison and fall through to %g, which
-// spells them the way the exposition format does.
+// Bounds-checking that conversion was the obvious repair and the wrong one: it
+// still narrows, and a guard in the float domain is not something the analysis
+// can tie back to the uint64 it came from. There is no need to narrow at all.
+// math.Trunc answers "is this whole?" without leaving float64, and FormatFloat
+// prints the integer without an int64 ever existing.
+//
+// The 2^53 ceiling is where float64 stops representing consecutive integers.
+// Past it the trailing digits would be invented, so %g's exponent form is the
+// more honest answer, not merely the safe one. NaN and the infinities fail one
+// test or the other and land there too, spelled the way the exposition format
+// spells them.
 func formatValue(f float64) string {
-	if f >= math.MinInt64 && f < math.MaxInt64 && f == math.Trunc(f) {
-		return strconv.FormatInt(int64(f), 10)
+	if f == math.Trunc(f) && math.Abs(f) < 1<<53 {
+		return strconv.FormatFloat(f, 'f', -1, 64)
 	}
 	return fmt.Sprintf("%g", f)
 }

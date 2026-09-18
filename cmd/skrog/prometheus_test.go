@@ -158,8 +158,8 @@ func TestPrometheusFormatsWholeNumbersPlainly(t *testing.T) {
 // since #389. float64(MaxInt64) rounds back up to 2^63, so for an input of
 // exactly 2^63 the round-trip *succeeds* there and the old guard would print
 // 9223372036854775807 -- a wrong number, silently, for a value the caller
-// handed over intact. That case is in the table; the arm64 CI job is what
-// actually checks it.
+// handed over intact. That case is in the table. Reasoned from the ISA, not
+// measured: this suite only ever runs the new code on arm64.
 //
 // What must hold on both: no positive input renders negative, and nothing
 // renders as an integer it is not.
@@ -188,11 +188,29 @@ func TestPrometheusFormatsOutOfRangeValuesWithoutOverflowing(t *testing.T) {
 	}
 }
 
-// The largest value that still fits must keep printing as a whole number --
-// the range check is meant to exclude what overflows, nothing more.
-func TestPrometheusStillFormatsTheLargestWholeNumberThatFits(t *testing.T) {
-	// 2^62 is exact in float64 and well inside int64.
-	if got, want := formatValue(1<<62), "4611686018427387904"; got != want {
-		t.Errorf("formatValue(2^62) = %s, want %s", got, want)
+// The boundary is 2^53, where float64 stops holding consecutive integers --
+// not 2^63, where int64 stops. Everything below prints as a plain integer;
+// at and above it, the digits after the 53rd bit are not information the
+// float carries, so printing them would be making them up.
+//
+// 2^53 bytes is 9 PiB. Nothing this tool measures comes near it, which is the
+// point: the plain form covers every real value and the exponent form is
+// reserved for numbers that have already lost precision before we saw them.
+func TestPrometheusIntegerBoundaryIsFloat64Precision(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		in   float64
+		want string
+	}{
+		{"one below 2^53", (1 << 53) - 1, "9007199254740991"},
+		{"1 TiB, a real disk", 1 << 40, "1099511627776"},
+		{"at 2^53", 1 << 53, "9.007199254740992e+15"},
+		{"2^62", 1 << 62, "4.611686018427388e+18"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := formatValue(tc.in); got != tc.want {
+				t.Errorf("formatValue(%v) = %s, want %s", tc.in, got, tc.want)
+			}
+		})
 	}
 }
