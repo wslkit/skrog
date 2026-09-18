@@ -378,6 +378,44 @@ A policy that cannot be read **at startup** is treated as a failure, not as "no
 policy" — the bridge refuses to start. Guessing in the permissive direction is
 how a bypass ships.
 
+### Plugin hooks: Skrog refuses rather than silencing them
+
+WSL also loads host-side **plugin DLLs** and calls them on container and
+session events — `WSLPluginAPI_ContainerStarted` (whose return value can
+*refuse* the container), `ContainerStopping`, `ImageCreated`, `ImageDeleted`,
+`OnSessionCreated`. That is the integration point Defender-style tooling uses.
+
+Those hooks fire from `wslcsession`, which this backend's socket relay skips.
+And unlike the registry policy, **they cannot be stood in for**: the policy is
+declarative, so Skrog can read the same keys and reach the same verdict, while
+a plugin is third-party code with a veto. There is no substituting for code we
+do not have.
+
+So if any plugin is registered under
+`HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Lxss\Plugins`, **Skrog refuses
+to serve the wslc backend** and names it:
+
+```
+skrog: this machine has WSL plugin(s) registered (defender-wsl), and they do NOT
+fire through Skrog's docker.sock relay on the wslc backend (#406). A plugin can
+refuse a container from WSLPluginAPI_ContainerStarted; through this pipe it is
+never asked. Refusing to serve rather than silently disabling it.
+```
+
+Serving anyway is a legitimate choice — the plugin may be irrelevant to you, or
+you may be the administrator who deployed it — but it should be one someone
+made:
+
+```powershell
+skrog config set wslc.ignore-plugins on
+```
+
+The bridge then starts and logs a warning naming the plugins whose hooks will
+not run.
+
+**The distro backend is unaffected.** WSL plugins are a wslc mechanism; nothing
+about `skrog-engine` involves them.
+
 After that it is re-read on **every judged request**, so a policy deployed or
 tightened while the bridge is running is honoured without a restart. That
 matters more here than it sounds: the supervisor starts at logon and survives

@@ -275,6 +275,10 @@ itself land when the engine next starts, which `skrog restart` asks for.
                  the key to restore the default.
   prune.build-cache also drop the BuildKit cache on an automatic prune; on/off
                  ("off" by default, because the cache is expensive to rebuild).
+  wslc.ignore-plugins serve the wslc backend even though WSL plugins are registered
+                 on this machine; on/off ("off" by default). Their hooks do NOT
+                 fire through the relay, so the default is to refuse rather
+                 than silently disable an administrator's tooling. wslc only.
 
 Engine settings (engine.<key>) are written into the engine's daemon.json,
 validated with `dockerd --validate` before they replace the live file, and
