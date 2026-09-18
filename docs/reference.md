@@ -723,7 +723,7 @@ flags:
   -pipe string
     	pipe to serve (default: \\.\pipe\docker_engine, or Skrog's own if that is taken)
   -sddl string
-    	security descriptor for the pipe (advanced; default restricts to SYSTEM, admins and interactive users)
+    	security descriptor for the pipe (advanced; default restricts to SYSTEM, administrators and the owning user)
   -socket string
     	engine socket inside the distro (default "/var/run/docker.sock")
   -state-dir string
