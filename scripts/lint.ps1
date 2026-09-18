@@ -1,5 +1,10 @@
 # Run the same checks CI runs, before committing. No arguments: lints everything.
 #
+# One CI check is deliberately NOT here: CodeQL. It needs the CodeQL CLI and a
+# built database, which is minutes rather than seconds, so it stays a
+# PR-and-weekly job (.github/workflows/codeql.yml) and this file does not
+# pretend to cover it. Everything else CI runs, runs here.
+#
 # shellcheck is found in whichever of these exists first — native install, the
 # user's WSL distro, or the official container image — so nobody has to install
 # anything to get the same answer CI gives.
@@ -84,6 +89,21 @@ try {
             go build ./... ; if ($LASTEXITCODE -ne 0) { $failed += 'go build' }
             go test ./...  ; if ($LASTEXITCODE -ne 0) { $failed += 'go test' }
             if ($failed.Count -eq 0) { Write-Host "  ok" -ForegroundColor Green }
+
+            # govulncheck, because CI fails on it and this file exists so that
+            # does not happen after you push. Skipped rather than installed
+            # silently: `go install` reaching the network is not something a
+            # lint script should do behind your back.
+            Write-Host "== govulncheck" -ForegroundColor Cyan
+            $vuln = Get-Command govulncheck -ErrorAction SilentlyContinue
+            if (-not $vuln) {
+                $vuln = Get-Item (Join-Path $env:USERPROFILE 'go\bin\govulncheck.exe') -ErrorAction SilentlyContinue
+            }
+            if ($vuln) {
+                & $vuln.Source ./... ; if ($LASTEXITCODE -ne 0) { $failed += 'govulncheck' }
+            } else {
+                Write-Warning "govulncheck not installed - SKIPPED (go install golang.org/x/vuln/cmd/govulncheck@latest)"
+            }
         } else {
             Write-Warning "go not installed - Go checks SKIPPED (winget install GoLang.Go)"
         }
