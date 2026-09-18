@@ -57,6 +57,24 @@ jobs:
       - name: go vet
         run: go vet ./...
 
+      # govulncheck reports only vulnerabilities on code paths this module
+      # actually REACHES, so it does not turn every advisory in the dependency
+      # tree into noise. It covers the Go toolchain as well as the four direct
+      # dependencies, which matters here: go-winio and x/sys are both in the
+      # data path.
+      #
+      # Deliberately not continue-on-error. A reachable vulnerability in the
+      # named-pipe implementation or the Win32 layer is worth stopping for, and
+      # a check nobody must act on is a check nobody reads. Dependabot raises
+      # the upgrade PR; this is what notices in between.
+      #
+      # Only in this job: the vulnerability database does not differ by
+      # architecture, so running it again on arm64 would buy nothing.
+      - name: govulncheck
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./...
+
       - name: go build
         run: go build ./...
 

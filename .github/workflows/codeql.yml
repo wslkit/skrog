@@ -1,0 +1,74 @@
+name: CodeQL
+
+# Static analysis for the two shapes this codebase actually has a lot of, and
+# that a reviewer cannot hold in their head:
+#
+#   - unsafe.Pointer, in five files. The COM vtable calls (internal/wsl), VHDX
+#     geometry, the registry reads and the power-management interop all hand
+#     raw pointers to Win32. A mistake there is memory corruption, and #166 is
+#     the reminder that this project has already had one crash of that class.
+#   - exec of wsl.exe and docker with names the user supplied. Distro names are
+#     validated deliberately (TestValidateDistroNameRejectsShellDangerousNames),
+#     and image references now go through Docker's own parser (#374) — CodeQL
+#     is the thing that notices when a NEW call site forgets.
+#
+# It is not a substitute for the tests. The defects this project actually ships
+# are semantic, and they get caught by driving a real engine. This catches the
+# other kind.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Weekly, because a query pack update can find something in code that has
+    # not changed. Tuesday morning UTC: after the week's dependabot PRs land,
+    # so a finding arrives with its likely cause nearby.
+    - cron: '17 6 * * 2'
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: analyze (go)
+    # Ubuntu on purpose. CodeQL has to BUILD the module to analyse it, and the
+    # Windows-only files are the interesting ones — so the build is steered
+    # with GOOS below rather than by picking a Windows runner, which would cost
+    # minutes for no extra coverage.
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      security-events: write
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version: stable
+
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: go
+          # security-and-quality over the default security-extended: the
+          # quality queries are where the unsafe-pointer and error-handling
+          # rules live, and this repo is small enough that the extra findings
+          # are readable rather than a wall.
+          queries: security-and-quality
+
+      # Explicit build, because the default autobuild would compile the
+      # non-Windows files and skip precisely the code worth analysing. GOOS
+      # selects the windows build tags; CGO stays off as it is everywhere else.
+      - name: build (windows target)
+        env:
+          GOOS: windows
+          GOARCH: amd64
+          CGO_ENABLED: '0'
+        run: go build ./...
+
+      - uses: github/codeql-action/analyze@v3
+        with:
+          category: /language:go
