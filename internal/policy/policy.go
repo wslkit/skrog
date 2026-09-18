@@ -584,6 +584,13 @@ type Watcher struct {
 	machineModTime time.Time
 	machineSize    int64
 	machineLoaded  bool
+	// machineUnknown mirrors `unknown` for the machine layer: a file exists
+	// and has never parsed, so what the administrator asked for is not known.
+	// Separate lastErr too -- sharing one field let two layers erroring
+	// alternately defeat the once-only OnError dedupe, and leaked a machine
+	// error into the user-file message.
+	machineUnknown bool
+	machineLastErr string
 	// unknown is set when a rule file exists but has never parsed. The rules
 	// are then neither "empty" nor known, and requests are refused.
 	unknown bool
@@ -635,14 +642,30 @@ func (w *Watcher) refreshMachineLocked() {
 	}
 	rules, err := LoadMachine()
 	if err != nil {
-		if w.OnError != nil && err.Error() != w.lastErr {
+		// FAIL CLOSED, exactly as the user layer does (#254) — and this half
+		// did not, which was worse. A machine file exists, so an administrator
+		// deployed something; if it has never parsed we do not know what, and
+		// judging requests as though no fleet policy existed is the one
+		// outcome the layer was built to prevent.
+		//
+		// `Parse` uses KnownFields(true), so a misspelled rule is a hard error
+		// rather than an ignored key: one typo in an Intune deployment used to
+		// mean every machine that received it ran unenforced, with a single
+		// log line, while `skrog policy show` reported the file as broken.
+		// The two disagreeing in that direction is the worst possible pair of
+		// answers.
+		if !w.machineLoaded {
+			w.machineUnknown = true
+		}
+		if w.OnError != nil && err.Error() != w.machineLastErr {
 			w.OnError(err)
 		}
-		w.lastErr = err.Error()
+		w.machineLastErr = err.Error()
 		w.machineModTime, w.machineSize = fi.ModTime(), fi.Size()
 		return
 	}
-	w.machineRules, w.machineLoaded = rules, true
+	w.machineRules, w.machineLoaded, w.machineUnknown = rules, true, false
+	w.machineLastErr = ""
 	w.machineModTime, w.machineSize = fi.ModTime(), fi.Size()
 }
 
@@ -706,6 +729,15 @@ func (w *Watcher) Unavailable() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	w.refreshLocked()
+	w.refreshMachineLocked()
+
+	// The machine layer first: it is an administrator's rule set, so "we
+	// cannot read what the administrator deployed" is the more serious of the
+	// two and should be the message the user sees.
+	if w.machineUnknown {
+		return fmt.Errorf("the machine-wide policy at %s could not be read: %s",
+			MachinePath(), w.machineLastErr)
+	}
 	if !w.unknown {
 		return nil
 	}
@@ -740,10 +772,18 @@ func (w *Watcher) DenyPull(image string) (string, bool) {
 }
 
 func (w *Watcher) DenyBuild() (string, bool) {
-	// Not gated -- see Rules.DenyBuild for why. The unreadable-file check is
-	// still skipped deliberately: refusing builds on an unparseable file would
-	// impose the very behaviour that method declines to impose.
-	return "", false
+	// This returned a hardcoded ("", false) until #376 gave Rules.DenyBuild
+	// something to say, and the comment explaining the hardcode outlived the
+	// reason for it -- so the rule shipped, was documented, reported active by
+	// `policy show`, and did nothing. Consult the rules.
+	//
+	// The unreadable-file refusal still does NOT apply here, and that part was
+	// always deliberate: builds are allowed by default, so refusing them
+	// because a file will not parse would impose the strict reading on people
+	// who never asked for it. An operator who wants builds refused sets
+	// deny-unattributable-builds, and then a broken file leaves the previous
+	// rules in force like every other rule.
+	return w.Rules().DenyBuild()
 }
 
 func (w *Watcher) DenyPush(image string) (string, bool) {

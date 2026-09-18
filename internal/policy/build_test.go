@@ -1,6 +1,7 @@
 package policy
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -79,5 +80,61 @@ func TestDenyUnattributableBuildsParses(t *testing.T) {
 	}
 	if _, denied := r.DenyBuild(); !denied {
 		t.Error("parsed rules did not refuse a build")
+	}
+}
+
+// The Watcher is what the bridge installs as its gate -- Rules is not. This
+// whole rule shipped as a no-op because every test called Rules.DenyBuild()
+// and nothing called the method the product actually reaches.
+func TestWatcherDenyBuildConsultsTheRules(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv(MachineDirEnv, t.TempDir())
+	write(t, filepath.Join(dir, FileName),
+		"allow-registries:\n  - registry.example.com\ndeny-unattributable-builds: true\n")
+
+	w := NewWatcher(dir)
+	reason, denied := w.DenyBuild()
+	if !denied {
+		t.Fatal("Watcher.DenyBuild allowed a build with the rule set; the gate is a no-op")
+	}
+	if !strings.Contains(reason, "registry.example.com") {
+		t.Errorf("reason does not name the allowlist in force: %q", reason)
+	}
+}
+
+// ...and still allows by default, which is the shipped behaviour #334 chose.
+func TestWatcherDenyBuildAllowsByDefault(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv(MachineDirEnv, t.TempDir())
+	write(t, filepath.Join(dir, FileName), "allow-registries:\n  - registry.example.com\n")
+
+	if _, denied := NewWatcher(dir).DenyBuild(); denied {
+		t.Error("Watcher.DenyBuild refused without deny-unattributable-builds")
+	}
+}
+
+// A machine file that has never parsed must REFUSE, not fall through to the
+// user's rules. The user layer already did this (#254); the machine half did
+// not, which is worse -- a typo in an Intune deployment meant every machine
+// that received it ran unenforced.
+func TestWatcherFailsClosedOnAnUnreadableMachineFile(t *testing.T) {
+	machineDir := t.TempDir()
+	t.Setenv(MachineDirEnv, machineDir)
+	// KnownFields(true) makes a misspelled rule a hard parse error, which is
+	// the realistic deployment typo.
+	write(t, filepath.Join(machineDir, FileName), "deny-priviledged: true\n")
+
+	w := NewWatcher(t.TempDir())
+	body := map[string]any{"HostConfig": map[string]any{"Privileged": true}}
+
+	reason, denied := w.DenyCreate(body)
+	if !denied {
+		t.Fatal("a broken machine policy allowed --privileged; the fleet layer failed OPEN")
+	}
+	if !strings.Contains(reason, "machine-wide") {
+		t.Errorf("the refusal does not say which layer is broken: %q", reason)
+	}
+	if err := w.Unavailable(); err == nil {
+		t.Error("Unavailable() reported healthy with an unparseable machine file")
 	}
 }
