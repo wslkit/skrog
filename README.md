@@ -30,8 +30,11 @@ rather than a Docker-*compatible* API. [How it compares](#how-it-compares) is th
 version, including where each of them wins.
 
 **Status: pre-release.** Installable and working as a daily driver: install once and
-the engine starts at every logon, heals itself, and answers `docker` at the same speed as
-Docker Desktop. Read [PLAN.md](PLAN.md) for the strategy and [ROADMAP.md](ROADMAP.md) for
+the engine starts at every logon, heals itself, and answers `docker` from a resident
+bridge whose own cost is tens of milliseconds
+([measured](https://github.com/wslkit/skrog/issues/326); most of what you wait for is
+`docker.exe` starting up, which every Windows Docker CLI pays).
+Read [PLAN.md](PLAN.md) for the strategy and [ROADMAP.md](ROADMAP.md) for
 the schedule; the [issue tracker](https://github.com/wslkit/skrog/issues) is the live state.
 
 One maintainer, young, and not yet code-signed — so SmartScreen warns on first run. If that
@@ -109,10 +112,20 @@ docker context. Nothing else on the system is touched.
   sleep/resume; `skrog start/stop/restart/status --json`. Settings apply live — the
   supervisor follows the file, so nothing here needs a restart; `skrog restart
   --supervisor` replaces the supervisor process itself on the rare occasion that helps
-- **Docker Desktop speed**: a vsock transport to the engine (~80 ms `docker version`,
-  measured at parity with Desktop), with an automatic fallback path
-- **Idle RAM answer**: `skrog config set idle-timeout 30m` stops a quiet engine and
-  cold-starts it (~1 s engine start) on your next `docker` command
+- **Low-overhead transport**: a vsock path to the engine, with an automatic fallback.
+  Measured on the reference host (Win10 22H2, n=10,
+  [#326](https://github.com/wslkit/skrog/issues/326)): `docker version` **226 ms**,
+  `docker ps` **209 ms**. Most of that is `docker.exe` starting — the client-only spawn
+  floor on the same machine is ~165 ms — so the bridge costs tens of milliseconds, not
+  hundreds. **Docker Desktop has not been benchmarked on this host**, so there is no
+  parity claim; this line used to assert "~80 ms, at parity with Desktop" and neither
+  half had a measurement behind it
+- **Idle RAM answer**: `skrog config set idle-timeout 30m` stops a quiet engine and wakes
+  it on your next `docker` command. **The wake is not yet measured**
+  ([#398](https://github.com/wslkit/skrog/issues/398)) — what is measured is a full
+  `skrog stop` then `start` to a running container, 6.6–9.4 s. Idle-wake should be well
+  under that, because the distro stays registered and only dockerd has to come back; but
+  "should be" is not a number, and the "~1 s" this line used to quote was a guess
 - **`skrog doctor`**: diagnoses the WSL / PATH / credential-helper / ssh-agent / supervisor quirk zoo,
   with `--json`, `--report` (paste straight into an issue), and `--fix` for the safe subset;
   recognizes corporate VPNs (GlobalProtect, AnyConnect, Zscaler…) and prints the MTU/DNS fix
