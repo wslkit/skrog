@@ -19,35 +19,42 @@ Windows:
 | **Features** (anything needing the network at build time) | ok | **no — see below** |
 | docker-outside-of-docker, and `docker run` from inside the dev container | ok | blocked by the row above |
 
-### Features do not install on the wslc backend
+### Features on the wslc backend: fixed in WSL 2.9, broken in 2.7
 
-A dev container whose Features — or whose Dockerfile — reach the network during
-the **build** fails there, because containers in a wslc session are handed the
-Windows host's LAN router as their nameserver and it answers `SERVFAIL` from
-inside the session VM:
+This page used to say Features do not install on the wslc backend. **On WSL
+2.9.11 they do**, and the section is kept because the failure is real on older
+WSL and the symptom is baffling if you meet it.
+
+**What went wrong on WSL 2.7.x.** Containers in a session were handed the
+Windows host's LAN router as their nameserver, and it answered `SERVFAIL` from
+inside the session VM — so anything reaching the network during a **build**
+failed:
 
 ```
 curl: (6) Could not resolve host: packages.microsoft.com
 ```
 
-Routing itself is fine (a TCP connect to `1.1.1.1:443` succeeds), and the
-daemon resolves normally — it pulls images by name. It is specifically the
-resolver propagated into containers.
+Routing was fine and the daemon resolved normally; it was specifically the
+resolver propagated into containers. `--dns=1.1.1.1` fixed run time and could
+not fix build time, because Features install during the build and `runArgs`
+applies afterwards.
 
-At **run** time you can work around it with an explicit resolver, which fixes
-both DNS and outbound HTTPS:
+**Re-tested on WSL 2.9.11** — the same LAN-router resolver, now answering:
 
-```jsonc
-"runArgs": ["--dns=1.1.1.1"]
+```
+$ wslc run --rm alpine cat /etc/resolv.conf
+nameserver 192.168.1.1
+$ wslc build .          # RUN apk add --no-cache curl && curl -sI https://example.com
+HTTP/2 200
 ```
 
-That does not help a Feature, because Features install during the build and
-`runArgs` applies only afterwards. Build-time DNS is the session daemon's
-configuration, which Microsoft ships and Skrog does not edit. Tracked in
-[#351](https://github.com/wslkit/skrog/issues/351).
+So a Dockerfile or a Feature that reaches the network during a build works.
 
-So: on the wslc backend use a base image that already contains what you need,
-and keep Features for the distro backend.
+**If you hit it anyway, check your WSL version first** (`wsl --version`). Below
+2.9 the workaround is unchanged: use a base image that already contains what
+you need and keep Features for the distro backend. See
+[#351](https://github.com/wslkit/skrog/issues/351) for the measurements on both
+versions.
 
 ## Point them at Skrog
 
