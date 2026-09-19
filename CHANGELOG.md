@@ -12,7 +12,7 @@ useful than saying where the real one is.
 
 ## [Unreleased]
 
-## [0.6.0] — unreleased
+## [0.6.0] — 2026-09-18
 
 **The first release not flagged as a pre-release.** Every earlier tag,
 including the plain `vX.Y.Z` ones, was marked pre-release because
