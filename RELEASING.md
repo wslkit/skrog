@@ -124,9 +124,23 @@ preview:
 - **Every advertised platform works, or says it does not.** An install that
   downloads, verifies and imports before failing is worse than a refusal
   ([#388](https://github.com/wslkit/skrog/issues/388)).
-- **`test/e2e` has run green** on this commit — `gh workflow run e2e.yml`.
-  It is not a per-PR gate because it provisions a real engine, so it is the
-  release manager's job to fire it and read it.
+- **`test/e2e` has run on this commit** — `gh workflow run e2e.yml` — and
+  **every failure is triaged**, with none of them a regression introduced by
+  this release. It is not a per-PR gate because it provisions a real engine,
+  so it is the release manager's job to fire it and read it.
+
+  "Green" is the goal and not the bar, and the distinction is deliberate
+  rather than a loophole. The suite drives 45 stages against real Windows,
+  real WSL2 and the public internet; some stages skip when an optional tool is
+  absent, and a pre-existing bug in a rarely-used path should not hold a
+  release hostage. **What is not acceptable is a red run nobody looked at.**
+  Each failure gets an issue, a provenance call — regression or pre-existing —
+  and a line in the changelog's Known issues. 0.6.0 shipped that way for
+  [#429](https://github.com/wslkit/skrog/issues/429), and the reasoning is
+  written in that issue so the next person can judge whether it was right.
+
+  A failure the release *did* introduce blocks, with no judgement call
+  available.
 - **Code scanning is clean**: no open CodeQL alerts, `govulncheck` green.
 
 ### Semver, while we are pre-1.0
