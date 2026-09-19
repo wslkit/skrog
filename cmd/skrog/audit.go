@@ -59,6 +59,21 @@ flags:
 	if sub == "" && len(rest) > 0 {
 		// `skrog audit --json tail`, the older spelling, still works.
 		sub, rest = rest[0], rest[1:]
+
+		// ...and so does a flag on BOTH sides of the subcommand, which is
+		// what `skrog audit --state-dir X tail -n 5` is. Parse stopped at the
+		// subcommand, so everything after it was still unparsed: `-n 5`
+		// arrived here as leftover arguments, tripped the len(rest)==0 guard
+		// below, and the command printed its own usage and exited 2 -- for a
+		// spelling that usage line advertises.
+		//
+		// Re-parsing is safe for trace too: its arguments are behind `--`,
+		// which terminates flag parsing, so `--state-dir X trace -- act -j
+		// build` still hands `act -j build` through intact.
+		if err := fs.Parse(rest); err != nil {
+			return exitUsage
+		}
+		rest = fs.Args()
 	}
 	opts := optsWithResolvedStateDir(provision.Options{StateDir: *stateDir})
 	switch {
