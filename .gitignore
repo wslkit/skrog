@@ -22,3 +22,6 @@ engine-bin/
 
 # the linux guest agent, built for the wslc backend and shipped in releases
 skrog-agent
+
+# the e2e workflow writes this on the runner
+test/e2e/e2e.log
