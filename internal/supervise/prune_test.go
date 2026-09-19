@@ -237,6 +237,30 @@ func TestPruneAppliesTheAgeGuardToWhatItRuns(t *testing.T) {
 			case <-time.After(5 * time.Second):
 				t.Fatal("Prune was never called; the test proves nothing")
 			}
+
+			// Wait for runPrune to finish before the test returns.
+			//
+			// maybePrune launches it on a goroutine that outlives this
+			// function, and it writes last-prune into dir on its way out. Let
+			// the test return first and t.TempDir()'s cleanup races that
+			// write: on Windows the RemoveAll fails with "directory is not
+			// empty" and the goroutine's rename fails with "cannot find the
+			// path". CI caught exactly that; this machine did not.
+			//
+			// s.pruning is the right thing to wait on because its
+			// `defer s.pruning.Store(false)` is registered FIRST in runPrune,
+			// so it clears after WriteLastPrune rather than before.
+			//
+			// That the supervisor itself has no way to wait for this
+			// goroutine -- Run returns on ctx.Done() without joining it -- is
+			// a real gap, not just a test problem. Tracked in #423.
+			deadline := time.Now().Add(10 * time.Second)
+			for s.pruning.Load() {
+				if time.Now().After(deadline) {
+					t.Fatal("runPrune never finished")
+				}
+				time.Sleep(5 * time.Millisecond)
+			}
 		})
 	}
 }
