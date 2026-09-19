@@ -167,7 +167,7 @@ cannot do:
 | | why |
 |---|---|
 | **UDP published ports** | the relay is a stream transport |
-| **DNS inside containers** | **Fixed in WSL 2.9.** On 2.7.x a session handed containers the Windows host's LAN router as their nameserver and it answered `SERVFAIL` from inside the session VM, so any build reaching the network failed. Re-tested on 2.9.11: the same resolver now answers, and a build that runs `apk add` and `curl` succeeds. Below 2.9 the old behaviour stands and `--dns=1.1.1.1` fixes run time only ([#351](https://github.com/wslkit/skrog/issues/351)) |
+| **DNS inside containers** | **Broken again on WSL 2.9.12** — see below. Fixed in 2.9, working on 2.9.11, `SERVFAIL` again on 2.9.12 ([#424](https://github.com/wslkit/skrog/issues/424)). `--dns=1.1.1.1` is the workaround and it works ([#351](https://github.com/wslkit/skrog/issues/351)) |
 | **Engine pinning** | Microsoft ships the engine; `skrog lock` has nothing to record |
 | **A dedicated session** | the shipped CLI cannot create a named session, so Skrog shares the default one |
 | `compact`, `snapshot`, `relocate`, `wsl-integrate`, `gpu`, `engine upgrade` | these operate on Skrog's own distro and have no meaning here |
@@ -260,20 +260,77 @@ netstat -an | findstr 18411
 Reachable from the host's LAN address, not just loopback. TCP only — see
 [What does not work](#what-does-not-work).
 
-### Bind-mount metadata is virtiofs-flavoured
+### Bind-mount metadata: broken below WSL 2.9.12, fixed at 2.9.12
 
-Files under a Windows share present as `-rwxrwxrwx root root`, and `chmod` is
-silently a no-op:
+**Fixed in WSL 2.9.12** ([microsoft/WSL#40719](https://github.com/microsoft/WSL/issues/40719),
+PR 40733). Measured on the same host, before and after the update:
+
+| | 2.9.11 | **2.9.12** |
+|---|---|---|
+| file created from Windows | `-rwxrwxrwx 1 0 0` | `-rwxrwxrwx 1 0 0` |
+| `chmod 600` on it | silent no-op | **`-rw-------`** |
+| file created by a container's `uid=1000` | `-rwxrwxrwx 1 0 0` | **`-rw-r--r-- 1 1000 100`** |
+| `chmod` by that owner | no-op | **works** |
+
+The fix adds the `metadata` option to the virtiofs shares
+`HcsVirtualMachine::AddShare` creates — the WSLC container path, which had
+never passed it, so the device host could not persist per-file uid/gid in NTFS
+extended attributes and everything defaulted to `0:0`.
+
+**On 2.9.11 and older this still bites**, and it is the shape of surprise that
+breaks an `ssh` key or any tool that refuses a world-writable config. A
+container running as a non-root user could not own the files it created.
+
+> The **distro** backend was never affected: the regular mount path already
+> passed metadata, which is why `skrog config set wsl.virtiofs true` has always
+> kept `chmod` working ([vm-sizing.md](vm-sizing.md#wslvirtiofs-a-faster-mntc-and-the-one-key-here-that-is-not-about-size)).
+> The issue title reads as though it covers both; it does not.
+
+The fix costs nothing measurable. Re-running the file benchmark below on
+2.9.12: create 1000 files 1.14 / 1.25 / 1.31 s across three runs against the
+1.12 s recorded on 2.9.11, with reads, listings and deletes unchanged.
+
+### Container DNS regressed in WSL 2.9.12
+
+A container in a session is handed the **Windows host's LAN router** as its
+nameserver, and on 2.9.12 that resolver answers `SERVFAIL`. Anything resolving
+a name inside a container fails — `apk add`, `curl`, a build's `RUN` step.
+
+This is the 2.7.x behaviour returning. `docs` recorded it fixed in 2.9 and
+re-tested working on 2.9.11; it fails on 2.9.12 on the same machine and the
+same network.
+
+Measured at one moment, on one host, so that the environment is ruled out
+rather than assumed:
+
+| where | resolver it gets | result |
+|---|---|---|
+| Windows host | `192.168.1.1` | ✅ resolves |
+| Skrog's **distro** backend | `172.20.240.1` (WSL's NAT resolver) | ✅ resolves |
+| **wslc** container | `192.168.1.1` | ❌ `SERVFAIL` |
+
+The router is healthy and the distro backend is unaffected. Inside the session
+VM — which is bridged straight onto the LAN at `192.168.1.121/24`, default via
+`192.168.1.1` — the router **pings fine** (0% loss, 0.4 ms) but `SERVFAIL`s
+every query. So it is not connectivity; the router will not recurse for that
+client.
+
+**Workaround, verified:**
 
 ```
--rwxrwxrwx  1 root root  3 /m/f.txt
-chmod 600 /m/f.txt
--rwxrwxrwx  1 root root  3 /m/f.txt
+docker run --dns=1.1.1.1 ...
 ```
 
-Same class of surprise as `drvfs` on a distro, and it breaks anything that
-insists on strict permissions — an `ssh` key, or a tool that refuses a
-world-writable config.
+or set `dns` in the engine's config. `docker pull` is unaffected, because
+dockerd resolves on the session VM's behalf rather than the container's, which
+is why an image pull succeeding tells you nothing about this.
+
+Tracked as [#424](https://github.com/wslkit/skrog/issues/424). The suspected
+cause is 2.9.12's
+[gateway-collision fix](https://github.com/microsoft/WSL/pull/41547), which
+changed how a session picks its gateway — but that is a hypothesis from the
+changelog, not something this measurement establishes, and it needs
+confirmation on a second network before anyone reports it upstream as such.
 
 ### Registry credentials
 

@@ -135,5 +135,28 @@ category.
   default allowlist (#420), and `cache --upstream` is unchecked against it
   (#421).
 
+### Known issues
+
+Not ours, but you will hit them.
+
+- **Container DNS fails on the wslc backend with WSL 2.9.12**
+  ([#424](https://github.com/wslkit/skrog/issues/424)). A container is handed
+  the Windows host's LAN router as its nameserver and it answers `SERVFAIL`,
+  so `apk add`, `curl` and any build step reaching the network fail. Working
+  on 2.9.11, broken on 2.9.12. **Workaround: `docker run --dns=1.1.1.1`**, or
+  set `dns` in the engine config. Note `docker pull` still works — dockerd
+  resolves on the session VM's behalf, not the container's — so a successful
+  pull does not mean DNS is fine. The distro backend is unaffected.
+
+### Upstream fixes worth knowing
+
+- **WSL 2.9.12 fixes bind-mount file ownership on the wslc backend**
+  ([microsoft/WSL#40719](https://github.com/microsoft/WSL/issues/40719)).
+  Below 2.9.12, every file under a Windows share reported as `root:root` mode
+  `0777` and `chmod` was a silent no-op, so a container running as a non-root
+  user could not own the files it created. On 2.9.12 ownership and mode are
+  both preserved. If you use the wslc backend with non-root containers, this
+  is a reason to update WSL. The distro backend was never affected.
+
 [Unreleased]: https://github.com/wslkit/skrog/compare/v0.6.0...HEAD
 [0.6.0]: https://github.com/wslkit/skrog/compare/v0.5.1...v0.6.0
