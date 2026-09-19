@@ -200,6 +200,19 @@ func rewriteBinds(client net.Conn, engine io.ReadWriteCloser, audit AuditSink, g
 			}
 		}
 
+		if isVolumeCreate(req) && gate != nil {
+			denied, err := judgeVolumeCreate(req, gate)
+			switch {
+			case denied != nil:
+				observe(audit, reqStart, req, http.StatusForbidden, denied)
+				trace("DENY %s %s: %v", req.Method, req.URL.Path, denied)
+				return writeError(client, http.StatusForbidden, denied)
+			case err != nil:
+				observe(audit, reqStart, req, http.StatusBadRequest, err)
+				return writeError(client, http.StatusBadRequest, err)
+			}
+		}
+
 		if isContainerCreate(req) {
 			denied, err := rewriteCreateBody(req, gate, translate)
 			switch {
@@ -440,6 +453,68 @@ var containerCreatePath = regexp.MustCompile(`^(/v[0-9.]+)?/containers/create$`)
 
 func isContainerCreate(req *http.Request) bool {
 	return req.Method == http.MethodPost && containerCreatePath.MatchString(req.URL.Path)
+}
+
+// volumeCreatePath matches POST /volumes/create (#419).
+var volumeCreatePath = regexp.MustCompile(`^(/v[0-9.]+)?/volumes/create$`)
+
+func isVolumeCreate(req *http.Request) bool {
+	return req.Method == http.MethodPost && volumeCreatePath.MatchString(req.URL.Path)
+}
+
+// VolumeGate judges volume creation.
+//
+// Separate from Gate because the body is a different shape and only one rule
+// applies -- a volume carries no image, capabilities or namespaces. A gate
+// that does not implement it leaves volumes unjudged, which is what every gate
+// did before #419.
+type VolumeGate interface {
+	// DenyVolumeCreate judges a POST /volumes/create body. A local-driver
+	// volume can name a host path through DriverOpts (type=none, o=bind,
+	// device=...), which allow-bind-sources must reach: the container create
+	// that follows carries only the volume's name, and a name is not a path.
+	DenyVolumeCreate(body map[string]any) (reason string, denied bool)
+}
+
+// judgeVolumeCreate reads the body, asks the gate, and restores it either way.
+//
+// Read-only: unlike a container create there is nothing to rewrite. The device
+// is a GUEST path, because dockerd is what will open it -- so it must not be
+// translated, and the gate maps it back to Windows form itself for comparison
+// against the allowlist.
+func judgeVolumeCreate(req *http.Request, gate Gate) (denied, err error) {
+	vg, ok := gate.(VolumeGate)
+	if !ok || req.Body == nil {
+		return nil, nil
+	}
+	raw, err := io.ReadAll(req.Body)
+	req.Body.Close()
+	if err != nil {
+		return nil, fmt.Errorf("read volume create body: %w", err)
+	}
+	req.Body = io.NopCloser(bytes.NewReader(raw))
+	if len(raw) == 0 {
+		return nil, nil
+	}
+
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	var body map[string]any
+	if err := dec.Decode(&body); err != nil {
+		// Not JSON we understand. Pass it to the engine, which will reject it
+		// far more precisely than a guess here would.
+		return nil, nil
+	}
+	// Same reasoning as container create: a body that spells a guarded field
+	// two ways would have the gate judge one and the daemon act on the other.
+	if field, bad := apibody.Ambiguous(raw); bad {
+		return errors.New("request body spells " + field +
+			" more than one way; refusing rather than guessing which the engine would use"), nil
+	}
+	if reason, no := vg.DenyVolumeCreate(body); no {
+		return errors.New(reason), nil
+	}
+	return nil, nil
 }
 
 // isHijack reports whether the connection stops being HTTP after this response.
