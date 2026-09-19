@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"sync"
 	"syscall"
+	"time"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -108,6 +109,11 @@ type comSession struct {
 	stop  chan struct{}
 	once  sync.Once
 	sess  unsafe.Pointer
+
+	// callTimeout bounds one call; zero means comCallTimeout. A field rather
+	// than a mutable package global so a test can shorten it without other
+	// tests in the same binary seeing the change.
+	callTimeout time.Duration
 }
 
 // newCOMSession brings up the apartment and the object, or reports why it could
@@ -157,11 +163,54 @@ func newCOMSession() (*comSession, error) {
 	return s, nil
 }
 
-// do runs fn on the apartment thread and waits for it.
+// comCallTimeout bounds one call on the apartment thread (#437).
+//
+// Every COM caller used to inherit whatever context it was handed, and the
+// supervisor hands down its PROCESS-LIFETIME context — which never fires. So
+// a wslservice that stopped answering (a service restart, `wsl --update`, a
+// wedged VM) parked the health tick forever, and the tick holds the
+// reconciler's mutex: every Demand() blocked, so every docker command HUNG
+// rather than failing, and the stats file froze so the tray could not even
+// show that the supervisor was stuck.
+//
+// The COM rewrite (#380) made that worse rather than better. Callers used to
+// be separate processes shelling out to wsl.exe and could not affect each
+// other; now List, Terminate and doctor all queue behind one unbuffered
+// channel and one OS thread, so one hung call stalls all of them.
+//
+// A ceiling well above any healthy call — the measurement that motivated this
+// path was ~65 ms — so this only ever fires on a service that has stopped
+// answering, and never on one that is merely slow.
+const comCallTimeout = 20 * time.Second
+
+// do runs fn on the apartment thread and waits for it, bounded.
 func (s *comSession) do(ctx context.Context, fn func()) error {
+	// Derived, so the caller's own cancellation still wins when it is sooner.
+	// Callers distinguish the two: Fast.List checks the OUTER ctx, so a
+	// deadline of ours reads as "the backend is unresponsive" and falls back
+	// to wsl.exe, while the caller's own cancellation is passed straight
+	// through and does not demote the fast path.
+	timeout := s.callTimeout
+	if timeout == 0 {
+		timeout = comCallTimeout
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
 	done := make(chan struct{})
+	var panicked any
+	call := func() {
+		// Ordered deliberately. close(done) is registered FIRST so it runs
+		// LAST: the recover has already stored its value by the time any
+		// waiter is released, which is what makes reading `panicked` after
+		// <-done race-free.
+		defer close(done)
+		defer func() { panicked = recover() }()
+		fn()
+	}
+
 	select {
-	case s.calls <- func() { defer close(done); fn() }:
+	case s.calls <- call:
 	case <-s.stop:
 		return fmt.Errorf("wsl: COM session is closed")
 	case <-ctx.Done():
@@ -169,10 +218,29 @@ func (s *comSession) do(ctx context.Context, fn func()) error {
 	}
 	select {
 	case <-done:
+		if panicked != nil {
+			// Recovering keeps the apartment loop alive — without it a panic
+			// here takes down the whole supervisor, bridge included. But a
+			// recovered panic must not read as success: `list` would return
+			// an empty slice and a nil error, and a machine with distros
+			// would report having none. unsafe.Slice(arr, count) panics if
+			// the service ever returns count > 0 with a nil array, and hr==0
+			// is the only thing standing between us and that.
+			return fmt.Errorf("wsl: COM call panicked: %v", panicked)
+		}
 		return nil
 	case <-ctx.Done():
-		// The call is still running on the apartment thread; abandoning the
-		// wait is safe because fn owns everything it touches.
+		// The call is still running on the apartment thread and keeps writing
+		// the variables fn captured. That is safe ONLY because every caller
+		// returns without reading them on the error path -- list returns
+		// `nil, err` and never touches `out`. Now that this deadline can
+		// actually fire, that is a live constraint rather than a theoretical
+		// one: a future caller that salvages a partial result after a timeout
+		// gets a real data race on a slice header.
+		//
+		// The abandoned call also keeps the single apartment thread busy, so
+		// the next do() waits behind it and times out too. Bounded and
+		// degraded beats unbounded.
 		return ctx.Err()
 	}
 }
