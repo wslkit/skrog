@@ -188,3 +188,79 @@ func TestPolicyGuardIsNeverZero(t *testing.T) {
 		t.Errorf("guard = %v, want the configured 3h", got)
 	}
 }
+
+// Rule 3 has to hold at the CALL SITE, not just in the log line.
+//
+// TestPolicyGuardIsNeverZero below checks guard() in isolation, which is the
+// assertion that let this ship: guard() was correct and was used in exactly
+// three places, all of them slog calls. The value handed to s.Prune was the
+// raw KeepSince, so cmd/skrog's autoPrune ran `docker image prune -a` with no
+// `--filter until=` and the log said "keepSince: 168h" while it deleted
+// everything unused, regardless of age.
+//
+// Three tests in this file build PrunePolicy{Every: time.Hour} with KeepSince
+// zero and never look at what Prune received. This is the one that looks.
+func TestPruneAppliesTheAgeGuardToWhatItRuns(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		keepSince time.Duration
+		want      time.Duration
+	}{
+		{"unset by a hand-built policy", 0, 168 * time.Hour},
+		{"negative, which config cannot express but a caller can", -time.Hour, 168 * time.Hour},
+		{"an explicit window is passed through", 24 * time.Hour, 24 * time.Hour},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			if err := WriteLastPrune(dir, time.Now().Add(-336*time.Hour)); err != nil {
+				t.Fatal(err)
+			}
+			got := make(chan time.Duration, 1)
+			s := &Supervisor{
+				Config: Config{StateDir: dir},
+				PrunePolicy: func() PrunePolicy {
+					return PrunePolicy{Every: time.Hour, KeepSince: tc.keepSince}
+				},
+				Busy: func(context.Context) (bool, error) { return false, nil },
+				Prune: func(_ context.Context, p PrunePolicy) (uint64, error) {
+					got <- p.KeepSince
+					return 0, nil
+				},
+			}
+			s.maybePrune(context.Background())
+
+			select {
+			case k := <-got:
+				if k != tc.want {
+					t.Errorf("Prune received KeepSince %v, want %v — an unguarded sweep deletes every unused image", k, tc.want)
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("Prune was never called; the test proves nothing")
+			}
+
+			// Wait for runPrune to finish before the test returns.
+			//
+			// maybePrune launches it on a goroutine that outlives this
+			// function, and it writes last-prune into dir on its way out. Let
+			// the test return first and t.TempDir()'s cleanup races that
+			// write: on Windows the RemoveAll fails with "directory is not
+			// empty" and the goroutine's rename fails with "cannot find the
+			// path". CI caught exactly that; this machine did not.
+			//
+			// s.pruning is the right thing to wait on because its
+			// `defer s.pruning.Store(false)` is registered FIRST in runPrune,
+			// so it clears after WriteLastPrune rather than before.
+			//
+			// That the supervisor itself has no way to wait for this
+			// goroutine -- Run returns on ctx.Done() without joining it -- is
+			// a real gap, not just a test problem. Tracked in #423.
+			deadline := time.Now().Add(10 * time.Second)
+			for s.pruning.Load() {
+				if time.Now().After(deadline) {
+					t.Fatal("runPrune never finished")
+				}
+				time.Sleep(5 * time.Millisecond)
+			}
+		})
+	}
+}

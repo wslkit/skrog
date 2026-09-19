@@ -8,7 +8,10 @@ fleet health checks — so it is governed by three rules:
 1. **Additive only.** Fields are added, never renamed or removed. A consumer
    that ignores unknown fields keeps working across Skrog versions.
 2. **Exit codes mean the same thing as the human output** — `0` ok, `1` error,
-   `2` usage, `3` not installed / not found — and a non-zero exit still emits
+   `2` usage, `3` not installed / not found, `4` unsupported platform (this
+   machine cannot run what was asked for and no retry will change that; today
+   that means an arm64 host and an amd64-only engine rootfs,
+   [#388](https://github.com/wslkit/skrog/issues/388)) — and a non-zero exit still emits
    the JSON when there is something to say (e.g. `version --json` exits 3 with
    no engine, `cli status --json` exits 3 with tools missing).
 3. **Arrays are arrays.** An empty list is `[]`, never `null`. Where `null` is

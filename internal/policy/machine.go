@@ -17,8 +17,8 @@ import (
 // developer nicely".
 //
 // So rules now come in two layers. The machine layer lives under ProgramData,
-// which is administrator-writable and standard-user-readable by default, and
-// the user layer stays where it was. They merge with one rule:
+// the documented home for machine-wide application data, and the user layer
+// stays where it was. They merge with one rule:
 //
 //	THE USER LAYER MAY ONLY TIGHTEN.
 //
@@ -29,16 +29,30 @@ import (
 //
 // # What this does and does not buy
 //
-// It is still not a boundary against a local ADMINISTRATOR: they can edit the
-// machine file, or uninstall Skrog. It IS a boundary against a standard user,
-// which is the actual configuration of a managed corporate laptop, and it is
-// deployable and auditable. docs/policy.md keeps its disclaimer and
-// distinguishes the two cases rather than overclaiming.
+// It is not a boundary against a local ADMINISTRATOR: they can edit the
+// machine file, or uninstall Skrog.
+//
+// It is NOT a boundary against a standard user either, which this comment and
+// docs/policy.md both claimed until #418. What it is: tamper-evident fleet
+// configuration, enforced at the pipe. It stops the realistic accident -- a
+// developer loosening their own policy.yaml -- and `skrog policy show` reports
+// what is in force. It does not stop someone who sets out to get around it,
+// for three independent reasons, none of which the merge algebra can fix:
+// MachineDirEnv below, the default ProgramData ACL, and the fact that the
+// pipe is not the only route to the engine (`wsl -d <distro> -u root`,
+// `proxy --no-path-translation`, `wsl-integrate`). #418 tracks closing them.
 
 // MachineDirEnv overrides where the machine layer is read from. It exists for
-// tests and for a fleet that keeps ProgramData somewhere unusual; it is read
-// from the environment rather than from config on purpose, because a setting a
-// user could edit would defeat the layer entirely.
+// tests and for a fleet that keeps ProgramData somewhere unusual.
+//
+// It is read from the environment rather than from config, on the reasoning
+// that "a setting a user could edit would defeat the layer entirely" -- which
+// is true, and which this variable is. The supervisor runs as the ordinary
+// user (docs/security.md), so the user owns its whole environment block and
+// `setx SKROG_MACHINE_POLICY_DIR <empty dir>` retires the machine layer for
+// every later logon. Config would have been no worse. See #418: the fix is a
+// trusted location that cannot be redirected at all, not a different place to
+// read the redirection from.
 const MachineDirEnv = "SKROG_MACHINE_POLICY_DIR"
 
 // MachineDir is the directory holding the machine-wide rule file.
@@ -47,8 +61,15 @@ func MachineDir() string {
 		return v
 	}
 	// ProgramData, not Program Files: it is the documented home for
-	// machine-wide application data, administrator-writable and readable by
-	// every user, which is exactly the ACL shape this layer wants.
+	// machine-wide application data.
+	//
+	// It is NOT administrator-writable-only, which this comment used to say.
+	// The default ACL carries BUILTIN\Users:(CI)(WD,AD) plus CREATOR
+	// OWNER:(OI)(CI)(IO)(F), so a standard user can create ProgramData\skrog
+	// first and own it -- and LoadMachine checks neither owner nor DACL
+	// before reading. On a machine where an administrator created the
+	// directory first the shape is right; skrog just never verifies that it
+	// was. #418.
 	if pd := os.Getenv("ProgramData"); pd != "" {
 		return filepath.Join(pd, "skrog")
 	}

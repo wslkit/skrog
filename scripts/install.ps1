@@ -43,8 +43,18 @@ if (-not $Version) {
     # The repository publishes app releases (v0.3.0) and rootfs releases
     # (rootfs-v29.8.0-1) into one tag namespace, and /releases/latest can
     # return either. "Newest" here means the newest published app release: a
-    # v<semver> tag that is not a draft. Every pre-1.0 release is flagged
-    # prerelease, so a stable one wins when it exists without excluding one.
+    # v<semver> tag that is not a draft.
+    #
+    # Stable wins when one exists; the fallback covers the case where none
+    # does. That fallback was load-bearing until v0.6.0 -- every release
+    # before it was flagged prerelease -- and is now the ordinary path only
+    # for someone pointing this at a fork with no stable release.
+    #
+    # `skrog upgrade --check` deliberately does the OPPOSITE and counts
+    # pre-releases, so it can report a preview as available on a machine this
+    # script put on the stable build. See internal/upgrade/releases.go and
+    # RELEASING.md: first contact should be stable, an explicit "what's new?"
+    # should be complete.
     $rels = Invoke-RestMethod -Headers @{ 'User-Agent' = 'skrog-install' } `
         "https://api.github.com/repos/$repo/releases?per_page=50"
     $apps = @($rels | Where-Object { $_.tag_name -match '^v\d+\.\d+\.\d+$' -and -not $_.draft } |

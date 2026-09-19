@@ -68,10 +68,11 @@ The rootfs is always checksum-verified. Version pinning is a contract: this
 build installs exactly the components in its embedded manifest, and nothing is
 fetched as "latest".
 
-Exit codes: 0 ok, %d error, %d usage.
+Exit codes: 0 ok, %d error, %d usage, %d unsupported platform (the engine
+rootfs is amd64-only; see issue #388).
 
 flags:
-`, exitError, exitUsage)
+`, exitError, exitUsage, exitUnsupported)
 		fs.PrintDefaults()
 	}
 	if err := fs.Parse(args); err != nil {
@@ -170,6 +171,16 @@ flags:
 		log.Warn("using an overridden rootfs; this is a development path, not a release install",
 			"url", *rootfsURL)
 	default:
+		// The manifest is amd64-only (#388). Refuse here rather than after a
+		// 200 MB download, a passing SHA-256 and a successful `wsl --import`
+		// that leaves the user with a distro whose every binary is the wrong
+		// ISA. Only this branch checks: --rootfs-url, --offline and --locked
+		// all carry bytes the caller chose, and skrog does not second-guess
+		// those.
+		if err := release.CheckHostArch(); err != nil {
+			fmt.Fprintf(os.Stderr, "skrog: %v\n", err)
+			return exitUnsupported
+		}
 		m, err := release.Load()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "skrog: %v\n", err)

@@ -57,8 +57,7 @@ func onReady() {
 	systray.AddSeparator()
 
 	openLogs := systray.AddMenuItem("Open logs", "Open the supervisor log")
-	doctor := systray.AddMenuItem("Run doctor (v0.3)", "Diagnostics arrive in v0.3")
-	doctor.Disable() // honest stub: `skrog doctor` is not built yet
+	doctor := systray.AddMenuItem("Run doctor", "Run the diagnostics and open the report")
 	updates := systray.AddMenuItem("Check for updates", "Check skrog, the engine and the docker CLI")
 	systray.AddSeparator()
 	quit := systray.AddMenuItem("Quit Skrog tray", "Close this tray (the engine keeps running)")
@@ -75,6 +74,11 @@ func onReady() {
 	go func() {
 		for range openLogs.ClickedCh {
 			go openLog(cli)
+		}
+	}()
+	go func() {
+		for range doctor.ClickedCh {
+			go runDoctor(cli, doctor)
 		}
 	}()
 	go func() {
@@ -177,6 +181,28 @@ func openLog(cli tray.CLI) {
 func browse(target string) {
 	// rundll32 avoids a shell and handles both URLs and file paths.
 	exec.Command("rundll32", "url.dll,FileProtocolHandler", target).Start()
+}
+
+// runDoctor makes the "Run doctor" item do what it says.
+//
+// It said it for six releases without doing it: the item shipped disabled,
+// labelled "Run doctor (v0.3)" with the tooltip "Diagnostics arrive in v0.3",
+// from v0.3 -- the release that shipped `skrog doctor` -- onward. The tray is
+// in every release zip, so the most user-visible thing in the product was a
+// greyed-out claim that a README headline feature did not exist.
+//
+// Same shape as checkUpdates: the tooltip carries the answer, and a window
+// only opens when there is something to read.
+func runDoctor(cli tray.CLI, item *systray.MenuItem) {
+	item.SetTooltip("Running diagnostics…")
+
+	rep, err := cli.Doctor(context.Background())
+	if err != nil {
+		item.SetTooltip("Could not run doctor — try `skrog doctor` in a terminal")
+		return
+	}
+	item.SetTooltip(rep.Summary)
+	browse(rep.Path)
 }
 
 // releasesPage is where an upgrade is actually obtained. The tray only ever

@@ -17,9 +17,28 @@ clean machine you do need it, and `skrog install` now says so when it finishes.
 ## Requirements
 
 - **Windows 11**, or **Windows 10 22H2** (build 19045) — both tested.
+- **An x64 machine.** The engine rootfs is built amd64-only, so **Windows on
+  ARM cannot run the engine** — see below.
 - **WSL 2.x**, from the Microsoft Store or the MSI. `wsl --version` should
   print something; if it errors, run `wsl --update`.
 - Virtualization enabled in firmware.
+
+### Windows on ARM
+
+`skrog.exe` has an arm64 build and it runs natively — the CLI, the bridge and
+the supervisor are all fine. **The engine is not available.** Every rootfs in
+the version manifest is built x86-64, and WSL2 runs the guest on the host CPU,
+so an x86-64 `dockerd` cannot start inside an arm64 utility VM. There is no
+emulation route.
+
+`skrog install` **refuses on arm64** with exit code `4` rather than
+downloading 200 MB and failing obscurely afterwards. If you have built an
+arm64 rootfs yourself, `skrog install --rootfs-url <url> --rootfs-sha256 <sha>`
+still works — that path is deliberately open.
+
+Until a published arm64 rootfs exists
+([#388](https://github.com/wslkit/skrog/issues/388)), use Docker Desktop or
+Rancher Desktop on ARM; both ship an arm64 engine.
 
 Nothing else. Skrog does not need Docker Desktop, and coexists with it if you
 keep it.
@@ -40,7 +59,7 @@ elevation). It provisions nothing — that is step 2.
 Options come from the environment, because `irm | iex` cannot take arguments:
 
 ```powershell
-$env:SKROG_VERSION = '0.4.2'            # default: newest release
+$env:SKROG_VERSION = '0.6.0'            # default: newest release
 $env:SKROG_DIR     = 'C:\tools\skrog'   # default: %LOCALAPPDATA%\Programs\skrog
 $env:SKROG_NO_PATH = '1'                # do not touch PATH
 ```
@@ -48,6 +67,26 @@ $env:SKROG_NO_PATH = '1'                # do not touch PATH
 [Read the script first](https://github.com/wslkit/skrog/blob/main/scripts/install.ps1)
 if you would rather not pipe a URL into your shell. It does nothing the manual
 steps below do not.
+
+It installs the newest **stable** release. `skrog upgrade --check` deliberately
+counts pre-releases too, so it can tell you a preview exists on a machine this
+script put on the stable build — first contact should be stable, an explicit
+"what is new?" should be complete.
+
+### Or with scoop
+
+```powershell
+scoop bucket add skrog https://github.com/wslkit/scoop-skrog
+scoop install skrog
+```
+
+Then `scoop update skrog` keeps it current. Skrog notices it is managed —
+`skrog upgrade --apply` refuses inside a package-manager directory and tells
+you to use scoop instead, rather than fighting it for the same files.
+
+A winget package is [#412](https://github.com/wslkit/skrog/issues/412). Neither
+is blocked on code signing, which this project believed for longer than it
+should have; only the MSI is.
 
 ### Or by hand
 
@@ -57,14 +96,14 @@ steps below do not.
    | you have | download |
    |---|---|
    | 64-bit Intel/AMD (almost everyone) | `skrog_<version>_windows_amd64.zip` |
-   | Windows on ARM (Snapdragon, Surface Pro X) | `skrog_<version>_windows_arm64.zip` |
+   | Windows on ARM (Snapdragon, Surface Pro X) | `skrog_<version>_windows_arm64.zip` — **CLI only, [no engine](#windows-on-arm)** |
 
    Not sure? `$env:PROCESSOR_ARCHITECTURE` prints `AMD64` or `ARM64`.
 
 3. Check it, and compare the line for your zip:
 
    ```powershell
-   Get-FileHash .\skrog_0.4.2_windows_amd64.zip -Algorithm SHA256
+   Get-FileHash .\skrog_<version>_windows_amd64.zip -Algorithm SHA256
    Get-Content .\SHA256SUMS
    ```
 
@@ -72,7 +111,7 @@ steps below do not.
    the script uses:
 
    ```powershell
-   Expand-Archive .\skrog_0.4.2_windows_amd64.zip -DestinationPath "$env:LOCALAPPDATA\Programs\skrog"
+   Expand-Archive .\skrog_<version>_windows_amd64.zip -DestinationPath "$env:LOCALAPPDATA\Programs\skrog"
    ```
 
 The zip contains `skrog.exe`, `skrogw.exe` (the windowless logon launcher —

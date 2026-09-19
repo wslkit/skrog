@@ -286,7 +286,7 @@ not read it, and logging in with one does not log you in on the other.
 
 The guest daemon has CDI enabled, so `--gpus` maps to `DeviceRequests` → CDI
 inside dockerd 25. The runtime list is `runc` and `io.containerd.runc.v2` only —
-there is no `nvidia` runtime, and there does not need to be. **`skrog gpu` is
+there is no `nvidia` runtime, and there does not need to be. **`skrog enable-gpu` is
 for Skrog's own distro and will not help here**; the CDI spec comes from the
 WSLC guest image.
 

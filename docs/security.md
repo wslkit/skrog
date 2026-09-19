@@ -104,7 +104,7 @@ different questions:
 
 ```
 # 1. Did GitHub Actions build this, from this repository, at a known commit?
-gh attestation verify skrog_0.4.2_windows_amd64.zip --owner wslkit
+gh attestation verify skrog_<version>_windows_amd64.zip --owner wslkit
 
 # 2. Is the checksum list itself authentic? (offline against the Sigstore log)
 cosign verify-blob \
@@ -205,5 +205,13 @@ substitutes for the other.
 - **The sibling-distro vsock boundary** is authenticated only by a handshake,
   not a secret, today; see #81.
 
-Found a security issue? Please open an issue, or for anything sensitive,
-contact the maintainer privately rather than filing publicly.
+Found a security issue?
+**[Report it privately](https://github.com/wslkit/skrog/security/advisories/new)** —
+GitHub's private vulnerability reporting is the channel, and
+[SECURITY.md](../SECURITY.md) says what is in scope, what is already known,
+and what to expect.
+
+This line used to say "contact the maintainer privately" and name no way to do
+it, while private reporting was switched off in the repository settings: a
+closed door with a sign on it. Anything not sensitive is still welcome as a
+normal issue.

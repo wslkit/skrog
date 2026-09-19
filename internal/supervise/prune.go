@@ -157,6 +157,25 @@ func (s *Supervisor) maybePrune(ctx context.Context) {
 func (s *Supervisor) runPrune(policy PrunePolicy) {
 	defer s.pruning.Store(false)
 
+	// Rule 3 (ALWAYS AN AGE GUARD) is applied HERE, to the value that leaves
+	// this package, and not only to the log lines.
+	//
+	// It used to be applied only to the log lines. guard() appeared in three
+	// places, all of them slog calls, while `s.Prune` received the raw policy
+	// -- so cmd/skrog's autoPrune passed `Until: p.KeepSince` straight to
+	// `docker image prune -a`. A PrunePolicy with KeepSince unset logged
+	// "keepSince: 168h" and then ran with NO `--filter until=`: every unused
+	// image, regardless of age. Exactly the "image someone pulled an hour ago
+	// for tomorrow's demo" that rule 3 exists to protect.
+	//
+	// The shipped wiring never hit it, because cmd/skrog/supervise.go passes
+	// c.KeepSince(), which defaults. But guard() is unexported, so autoPrune
+	// *could not* have called it, and KeepSince's own doc comment promises
+	// that a zero "gets the conservative answer rather than an unguarded
+	// sweep" -- a promise nothing kept. Normalising at the boundary makes the
+	// promise structural: no caller of s.Prune can be handed a zero.
+	policy.KeepSince = policy.guard()
+
 	// Bounded so a wedged engine cannot leave the guard set forever, which
 	// would silently disable automatic pruning until the next restart.
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
