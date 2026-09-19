@@ -34,16 +34,88 @@ import (
 // brand is the slate mark color, matching the SVG masters.
 var brand = color.RGBA{0x2F, 0x3B, 0x45, 0xFF}
 
+// ground is the off-white the social card and the avatar sit on. Shared so the
+// two cannot drift into two different whites.
+var ground = color.RGBA{0xF7, 0xF6, 0xF3, 0xFF}
+
 // writeSocial renders a 1280x640 GitHub social-preview card: the mark centered
 // on the off-white brand ground. Uploaded via the repo's settings, not embedded.
 func writeSocial(path string) {
 	const w, h, markPx = 1280, 640, 440
 	dst := image.NewRGBA(image.Rect(0, 0, w, h))
-	draw.Draw(dst, dst.Bounds(), &image.Uniform{color.RGBA{0xF7, 0xF6, 0xF3, 0xFF}}, image.Point{}, draw.Src)
+	draw.Draw(dst, dst.Bounds(), &image.Uniform{ground}, image.Point{}, draw.Src)
 	m := mark.Raster(markPx, brand)
 	ox, oy := (w-markPx)/2, (h-markPx)/2
 	draw.Draw(dst, image.Rect(ox, oy, ox+markPx, oy+markPx), m, image.Point{}, draw.Over)
 	writePNG(path, dst)
+}
+
+// writeAvatar renders the square org/user avatar GitHub shows beside
+// "wslkit / skrog", and anywhere else an account is named.
+//
+// It is NOT skrog-512.png, which is the bare mark on a transparent ground.
+// That file is right for a docs page that supplies its own background and
+// wrong here: the mark is #2F3B45, GitHub's dark theme is #0d1117, and a
+// transparent avatar would put one on the other and very nearly disappear.
+// An avatar has no styling hook to fix that with — it is an <img> on whatever
+// background the viewer's theme picked.
+//
+// So it gets the same treatment as the social card: an opaque off-white
+// ground, which reads on both themes because it carries its own contrast.
+//
+// GitHub downscales to 460px and then to ~40px in the repo header, so the
+// mark is inset rather than bled to the edge — at header size a full-bleed
+// mark loses its outline to the crop.
+func writeAvatar(path string) {
+	const size, markPx = 512, 360
+	dst := image.NewRGBA(image.Rect(0, 0, size, size))
+	draw.Draw(dst, dst.Bounds(), &image.Uniform{ground}, image.Point{}, draw.Src)
+
+	m := mark.Raster(markPx, brand)
+
+	// Centre the INK, not the raster box. The mark's drawing does not fill its
+	// own square evenly -- a hull body plan is wider than it is tall and sits
+	// low in the frame -- so centring the box left the glyph 13px low at this
+	// size, which reads as a misaligned logo rather than as the shape's own
+	// proportions.
+	//
+	// Measured rather than corrected by a constant, so this stays true if the
+	// geometry in tools/internal/mark ever changes.
+	b := inkBounds(m)
+	ox := (size - b.Dx()) / 2
+	oy := (size - b.Dy()) / 2
+	draw.Draw(dst,
+		image.Rect(ox-b.Min.X, oy-b.Min.Y, ox-b.Min.X+markPx, oy-b.Min.Y+markPx),
+		m, image.Point{}, draw.Over)
+	writePNG(path, dst)
+}
+
+// inkBounds is the tight box around everything non-transparent in img.
+func inkBounds(img image.Image) image.Rectangle {
+	b := img.Bounds()
+	minX, minY, maxX, maxY := b.Max.X, b.Max.Y, b.Min.X-1, b.Min.Y-1
+	for y := b.Min.Y; y < b.Max.Y; y++ {
+		for x := b.Min.X; x < b.Max.X; x++ {
+			if _, _, _, a := img.At(x, y).RGBA(); a > 0 {
+				if x < minX {
+					minX = x
+				}
+				if y < minY {
+					minY = y
+				}
+				if x > maxX {
+					maxX = x
+				}
+				if y > maxY {
+					maxY = y
+				}
+			}
+		}
+	}
+	if maxX < minX || maxY < minY {
+		return b // nothing drawn; centre the box and let the caller see it
+	}
+	return image.Rect(minX, minY, maxX+1, maxY+1)
 }
 
 func writePNG(path string, img image.Image) {
@@ -66,6 +138,7 @@ func main() {
 	writePNG("assets/icons/skrog-512.png", mark.Raster(512, brand))
 	writePNG("assets/icons/favicon-32.png", mark.Raster(32, brand))
 	writeSocial("assets/icons/social-preview.png")
+	writeAvatar("assets/icons/avatar-512.png")
 
 	// Windows .ico with the sizes Explorer, the taskbar and the tray use.
 	writeICO("assets/icons/skrog.ico", []int{16, 24, 32, 48, 64, 128, 256}, brand)
