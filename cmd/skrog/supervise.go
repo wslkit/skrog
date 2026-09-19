@@ -40,8 +40,11 @@ type engineAdapter struct {
 	caRead bool
 }
 
-func (e *engineAdapter) Running(ctx context.Context) bool {
-	return e.p.EngineRunning(ctx, e.opts)
+func (e *engineAdapter) Running(ctx context.Context) (bool, error) {
+	// The error half matters here and only here (#437): the reconciler starts
+	// the engine when this says false, so a probe that merely failed must not
+	// be reported as a stopped engine.
+	return e.p.EngineRunningErr(ctx, e.opts)
 }
 
 // Start brings the engine up with the settings as they are now, not as they

@@ -942,6 +942,20 @@ func (p *Provisioner) EngineRunning(ctx context.Context, opts Options) bool {
 	return running
 }
 
+// EngineRunningErr is EngineRunning without the lie that a failed probe means
+// a stopped engine (#437).
+//
+// Collapsing the error into false is right for a `waitFor` poll, which is what
+// most callers are: they are asking "is it up YET", and "cannot tell" and "not
+// yet" both mean keep waiting. It is wrong for the supervisor, whose next move
+// after seeing false is to START the engine — so a probe that merely failed
+// would have it start one that is probably already running.
+//
+// Same probe, both answers kept. Use this where the difference matters.
+func (p *Provisioner) EngineRunningErr(ctx context.Context, opts Options) (bool, error) {
+	return p.engineRunning(ctx, opts.withDefaults())
+}
+
 // StopEngine terminates the engine's own distro — and nothing else. This is
 // the only stop primitive Skrog has on purpose: `wsl --shutdown` stops every
 // distro on the machine, including Docker Desktop's and the user's own, and is

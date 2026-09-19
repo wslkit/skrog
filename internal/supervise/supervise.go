@@ -14,7 +14,18 @@ import (
 // and wsl packages already offer, and lets the loop be tested without WSL.
 type Engine interface {
 	// Running reports whether the engine socket answers.
-	Running(ctx context.Context) bool
+	//
+	// The error is the third answer, and it is load-bearing (#437). Before it
+	// existed, both implementations collapsed a failed probe into false — and
+	// the reconciler's next move after false is to START the engine. So a
+	// wedged wslservice, a WSL update mid-flight, or any transient probe
+	// failure read as "the engine is down" and provoked a start of an engine
+	// that was probably running fine.
+	//
+	// Return (false, nil) only for "definitely not running". Anything you
+	// could not determine is an error, and the reconciler will do nothing at
+	// all that tick rather than guess.
+	Running(ctx context.Context) (bool, error)
 	// Start brings the engine up (idempotent; provisioner.StartEngine).
 	Start(ctx context.Context) error
 	// Stop terminates the engine's own distro — and only that distro. Stopping
@@ -107,6 +118,11 @@ type Supervisor struct {
 	// mu serializes tick and Demand: a cold start must not race the
 	// reconciler's own view of why the engine is down.
 	mu sync.Mutex
+	// startGen counts engine starts. tick probes OUTSIDE mu (#437), so a
+	// Demand can cold-start the engine in the window between the probe and
+	// the decision; the counter is how tick notices its reading went stale
+	// and defers to the next one. Guarded by mu.
+	startGen uint64
 	// idleStopped mirrors the engine-state file; kept in memory so the tick
 	// can tell "down because I idled it" from "down unexpectedly" without
 	// re-reading, and re-adopted from the file after a supervisor restart.
@@ -240,12 +256,51 @@ func (s *Supervisor) readIntent() intent {
 	}
 }
 
+// probeTimeout bounds one health probe. Generous: a cold `wsl.exe --list` on a
+// loaded machine is not fast, and this is a ceiling for a probe that has
+// stopped answering, not a latency target.
+const probeTimeout = 60 * time.Second
+
 func (s *Supervisor) tick(ctx context.Context) {
+	// The probe runs OUTSIDE mu, and bounded (#437).
+	//
+	// It used to run under the lock with the supervisor's process-lifetime
+	// context, so a wslservice that stopped answering parked the reconciler
+	// forever WHILE HOLDING mu: every Demand() blocked, so every docker
+	// command hung instead of failing, LifecycleSnapshot froze so the tray
+	// could not even show the supervisor was stuck, and the poke loop never
+	// ran again. The COM funnel made it worse, since every COM caller now
+	// queues behind one thread.
+	s.mu.Lock()
+	gen := s.startGen
+	s.mu.Unlock()
+
+	probeCtx, cancel := context.WithTimeout(ctx, probeTimeout)
+	up, probeErr := s.Engine.Running(probeCtx)
+	cancel()
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	if probeErr != nil {
+		// "Cannot tell" is not "down". Doing nothing leaves lastUp at the
+		// last reading we trust, and the next tick asks again — which is
+		// right, because the alternative is starting an engine that is
+		// probably running.
+		s.log().Warn("engine health probe failed; skipping this tick", "error", probeErr)
+		return
+	}
+	if s.startGen != gen {
+		// A Demand cold-started the engine while we were probing, so `up` is
+		// describing a machine that no longer exists. Acting on it would log
+		// "engine is down" about an engine somebody just started, and call
+		// Start a second time. Start is idempotent, so this is a tidiness fix
+		// rather than a correctness one -- but a spurious start in the log is
+		// how an operator loses trust in the log.
+		return
+	}
+
 	desired := ReadDesired(s.Config.StateDir)
-	up := s.Engine.Running(ctx)
 	s.lastUp.Store(up)
 
 	switch {
@@ -279,6 +334,7 @@ func (s *Supervisor) tick(ctx context.Context) {
 		}
 		s.failures = 0
 		s.nextTry = time.Time{}
+		s.startGen++ // #437: a concurrent probe's reading is now stale
 		s.upSince = time.Now()
 		s.lifecycle.EngineStarts++
 		if s.lifecycle.IdleStops > 0 && s.lifecycle.LastWakeAt.Before(s.lifecycle.LastIdleStopAt) {
@@ -444,6 +500,7 @@ func (s *Supervisor) Demand(ctx context.Context) error {
 	}
 	s.failures = 0
 	s.nextTry = time.Time{}
+	s.startGen++ // #437: a tick probing right now is holding a stale reading
 	// Cleared only after a successful start, so a second connection arriving
 	// mid-start blocks on the mutex and then sees a running engine, rather
 	// than racing ahead to dial an engine that is not up yet.
