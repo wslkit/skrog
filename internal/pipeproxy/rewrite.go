@@ -299,6 +299,34 @@ func rewriteBinds(client net.Conn, engine io.ReadWriteCloser, audit AuditSink, g
 			len(resp.TransferEncoding) > 0, isHijack(resp), req.URL.Path)
 
 		if isHijack(resp) {
+			// Refuse the upgrade if the body writer is still live (#436).
+			//
+			// relayBuffered does clientR.Buffered()/Peek()/Discard(), and the
+			// abandoned body writer is still inside req.Body reading the SAME
+			// bufio.Reader -- two goroutines on one bufio.Reader, which has no
+			// internal synchronisation. Corrupted buffer indices and a read
+			// past the slice: the heap-corruption class of #166, which this
+			// package already diagnosed and fixed once. The invariant that fix
+			// established is stated a dozen lines below, and this path broke
+			// it. It would also write to the engine concurrently with
+			// req.Write, interleaving bytes on the hijacked stream.
+			//
+			// The teardown cannot save us here: it is deferred until AFTER
+			// relayBuffered returns, so the overlap would last the whole
+			// session -- an exec or attach, so potentially hours.
+			//
+			// Refusing is the conservative answer, and the asymmetry is what
+			// decides it: a failed `docker exec` is visible, local and
+			// retryable, while a corrupted heap is none of those. It is also
+			// rare -- exec and attach carry little or no request body, so
+			// reaching the grace at all means something is already wrong.
+			if !bodyDone {
+				resp.Body.Close()
+				return fmt.Errorf("refusing to hijack %s: the request body is still "+
+					"streaming after %s, and relaying now would share the client reader "+
+					"with the body writer (#436)", req.URL.Path, bodyGrace)
+			}
+
 			// From here the connection carries a raw multiplexed stream, so
 			// hand back the headers verbatim and stop parsing entirely.
 			if err := writeResponseHead(client, resp); err != nil {
