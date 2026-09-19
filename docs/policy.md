@@ -241,14 +241,26 @@ supplies the `allow-registries` that makes it bite. That is the intended
 outcome — the administrator said "no unattributable builds where images are
 restricted", and they are.
 
-**Plugins and swarm services.** `POST /plugins/pull` and the swarm/service
-endpoints carry no attributable image reference either, and they are refused
-only when `deny-unattributable-builds` is on — which is off by default. So with
-a plain `allow-registries`, `docker plugin install evil.example.com/p` is
-allowed, and a Docker plugin gets host device and mount access: a worse outcome
-than the build hole the default was chosen to tolerate. Tracked as
-[#420](https://github.com/wslkit/skrog/issues/420); set
-`deny-unattributable-builds` if this matters to you today.
+**Swarm services.** `POST /services/create` and `/swarm/init` run an image
+from a TaskSpec this gate does not parse, so they cannot be attributed to a
+registry. They are refused only when `deny-unattributable-builds` is on — which
+is off by default. Refusing beats parsing a TaskSpec and getting it subtly
+wrong, which is how two earlier bypasses happened.
+
+> **Plugins used to be in this list, and should not have been**
+> ([#420](https://github.com/wslkit/skrog/issues/420)). `docker plugin install`
+> names its registry in the request, so it *is* attributable — and because it
+> was lumped in with swarm it inherited the permissive **build** default, so a
+> plain `allow-registries` let `docker plugin install evil.example.com/p`
+> through. A plugin gets host device and mount access where an image gets a
+> container, which made it a worse hole than the build one the default was
+> chosen to tolerate.
+>
+> **`allow-registries` now applies to plugins**, with no opt-in, exactly as it
+> does to `docker pull` — including `require-digest` if you have set it. A
+> plugin from a listed registry installs as before. A plugin pull that somehow
+> names no registry keeps the old conservative treatment rather than passing
+> unjudged.
 
 **A registry mirror.** `skrog cache enable --upstream <url>` wires
 `registry-mirrors` into the engine, and the upstream is not checked against
@@ -387,10 +399,13 @@ Also judged: `POST /volumes/create`, when `allow-bind-sources` is set — a
 container create that follows carries only the volume's name
 ([#419](https://github.com/wslkit/skrog/issues/419)).
 
-Not judged: `POST /plugins/pull` and the swarm/service endpoints, which are
-refused only when `deny-unattributable-builds` is on — and that is off by
-default ([#420](https://github.com/wslkit/skrog/issues/420)). A Docker plugin
-gets host device and mount access, so this is the gap worth knowing about.
+Also judged: `POST /plugins/pull` and `/plugins/{name}/upgrade`, against
+`allow-registries`, because a plugin names the registry it comes from
+([#420](https://github.com/wslkit/skrog/issues/420)).
+
+Not judged: the swarm and service endpoints, which run an image from a
+TaskSpec this gate does not parse and so are refused only when
+`deny-unattributable-builds` is on.
 
 Resource caps on an unset container — the one *mutating* rule in the original
 proposal — are deliberately not implemented: mutating a user's request

