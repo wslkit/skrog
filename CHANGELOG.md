@@ -12,6 +12,41 @@ useful than saying where the real one is.
 
 ## [Unreleased]
 
+### Fixed
+
+The concurrency findings from the pre-0.6.0 review, which were filed but not
+fixed in time for it, plus the first of the policy gaps.
+
+- **A stalled upload could wedge the bridge and permanently disable
+  idle-stop** ([#435](https://github.com/wslkit/skrog/issues/435)). The
+  teardown for an abandoned request body closed the engine and then waited
+  forever — which frees a writer blocked *writing*, and does nothing for one
+  blocked *reading* a client that went quiet. `ActiveConns` then never dropped,
+  so `maybeIdleStop` vetoed for the life of the process, silently, and shutdown
+  hung holding the single-instance lock. A sleeping laptop mid-`docker build`
+  was enough.
+- **A 101 upgrade with a still-streaming body shared one `bufio.Reader`
+  between two goroutines** ([#436](https://github.com/wslkit/skrog/issues/436))
+  — the heap-corruption class of #166, which this package had already fixed
+  once. The upgrade is now refused in that state: a failed `docker exec` is
+  visible and retryable, a corrupted heap is neither.
+- **A wedged `wslservice` could hang every docker command**
+  ([#437](https://github.com/wslkit/skrog/issues/437)). The health probe ran
+  under the reconciler's mutex with a context that never fires. Three parts:
+  the COM call is bounded, `Engine.Running` gained an error so a *failed* probe
+  is no longer read as a *stopped engine* (which used to provoke starting an
+  engine that was already running), and the probe no longer holds the lock.
+  A panicking COM call is also recovered and reported rather than taking the
+  supervisor down.
+- **`docker volume create` could reach a path `allow-bind-sources` forbids**
+  ([#419](https://github.com/wslkit/skrog/issues/419)). `POST /volumes/create`
+  was judged by nothing, and a `local`-driver volume can name a host path
+  through `-o type=none -o o=bind -o device=...`. The container that mounted it
+  afterwards carried only the volume's *name*, so nothing downstream caught it
+  either. Now judged, including `device=/`. See
+  [docs/policy.md](docs/policy.md) for what this means for third-party volume
+  drivers.
+
 ## [0.6.0] — 2026-09-18
 
 **The first release not flagged as a pre-release.** Every earlier tag,
