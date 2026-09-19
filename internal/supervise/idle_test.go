@@ -128,14 +128,14 @@ func TestIdleRespectsRecentTraffic(t *testing.T) {
 func TestDemandColdStartsIdleEngine(t *testing.T) {
 	s, e, _, dir := idleSup(t)
 	runTicks(s, 3, 60*time.Millisecond) // idle it
-	if e.Running(context.Background()) {
+	if engineUp(e) {
 		t.Fatal("precondition: engine should be idle-stopped")
 	}
 
 	if err := s.Demand(context.Background()); err != nil {
 		t.Fatalf("Demand: %v", err)
 	}
-	if !e.Running(context.Background()) {
+	if !engineUp(e) {
 		t.Error("Demand did not start the engine")
 	}
 	if supervise.ReadEngineState(dir) != supervise.EngineActive {
@@ -160,7 +160,7 @@ func TestPokeWakesIdleEngine(t *testing.T) {
 		t.Fatal(err)
 	}
 	runTicks(s, 1, 0)
-	if !e.Running(context.Background()) {
+	if !engineUp(e) {
 		t.Error("deleting the idle marker did not wake the engine")
 	}
 }
@@ -215,7 +215,7 @@ func TestDemandRefusesWhenDesiredStopped(t *testing.T) {
 	// down: the stop clears the file but not this process's memory.
 	s, e, _, dir := idleSup(t)
 	runTicks(s, 3, 60*time.Millisecond) // idle-stop it
-	if e.Running(context.Background()) {
+	if engineUp(e) {
 		t.Fatal("precondition: engine should be idle-stopped")
 	}
 
@@ -231,7 +231,7 @@ func TestDemandRefusesWhenDesiredStopped(t *testing.T) {
 	if err := s.Demand(context.Background()); err == nil {
 		t.Fatal("Demand woke an explicitly stopped engine")
 	}
-	if e.Running(context.Background()) {
+	if engineUp(e) {
 		t.Fatal("engine started despite desired=stopped")
 	}
 	if starts, _ := e.counts(); starts != 0 {
@@ -249,7 +249,7 @@ func TestDemandRefusesWhenDesiredStopped(t *testing.T) {
 		t.Fatal(err)
 	}
 	runTicks(s, 1, 0)
-	if !e.Running(context.Background()) {
+	if !engineUp(e) {
 		t.Error("engine did not start after skrog start's desired=running")
 	}
 }
@@ -266,7 +266,7 @@ func TestTickClearsIdleFlagOnStoppedAndDown(t *testing.T) {
 	// Demand) must bring the engine up.
 	supervise.WriteDesired(dir, supervise.DesiredRunning)
 	runTicks(s, 1, 0)
-	if !e.Running(context.Background()) {
+	if !engineUp(e) {
 		t.Error("stale idleStopped flag still suppressing the reconciler")
 	}
 }
@@ -310,4 +310,12 @@ func TestIdleVetoedByBusySignal(t *testing.T) {
 	if _, stops := e.counts(); stops != 0 {
 		t.Error("engine idled while Busy reported in-flight work (shared socket / containers)")
 	}
+}
+
+// engineUp is the boolean half of Engine.Running, for assertions that only
+// care whether the engine ended up running. The error half is exercised
+// directly in the probe tests (#437).
+func engineUp(e supervise.Engine) bool {
+	up, _ := e.Running(context.Background())
+	return up
 }

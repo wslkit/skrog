@@ -17,14 +17,38 @@ type fakeEngine struct {
 	mu       sync.Mutex
 	running  bool
 	startErr error
-	starts   int
-	stops    int
+	// probeErr makes the health probe fail rather than answer -- the "cannot
+	// tell" case the reconciler must not read as "down" (#437).
+	probeErr error
+	// probeEntered is signalled when Running starts, and probeGate blocks it
+	// there -- together they let a test hold a probe in flight and check what
+	// else can still make progress (#437).
+	probeEntered chan struct{}
+	probeGate    chan struct{}
+	starts       int
+	stops        int
+	probes       int
 }
 
-func (f *fakeEngine) Running(context.Context) bool {
+func (f *fakeEngine) Running(context.Context) (bool, error) {
 	f.mu.Lock()
-	defer f.mu.Unlock()
-	return f.running
+	f.probes++
+	entered, gate, running, perr := f.probeEntered, f.probeGate, f.running, f.probeErr
+	f.mu.Unlock()
+
+	if entered != nil {
+		select {
+		case entered <- struct{}{}:
+		default:
+		}
+	}
+	if gate != nil {
+		<-gate
+	}
+	if perr != nil {
+		return false, perr
+	}
+	return running, nil
 }
 
 func (f *fakeEngine) Start(context.Context) error {
@@ -91,7 +115,7 @@ func TestStartsDownEngine(t *testing.T) {
 	defer cancel()
 	go sup.Run(ctx)
 
-	waitFor(t, 3*time.Second, func() bool { s, _ := e.counts(); return s >= 1 && e.Running(ctx) },
+	waitFor(t, 3*time.Second, func() bool { s, _ := e.counts(); return s >= 1 && engineUp(e) },
 		"engine was never started")
 }
 
@@ -108,7 +132,7 @@ func TestRestartsAfterCrash(t *testing.T) {
 	time.Sleep(100 * time.Millisecond) // a few healthy ticks
 	e.setRunning(false)                // crash
 
-	waitFor(t, 3*time.Second, func() bool { return e.Running(ctx) },
+	waitFor(t, 3*time.Second, func() bool { return engineUp(e) },
 		"engine was not restarted after a crash")
 }
 
@@ -125,7 +149,7 @@ func TestHonorsDesiredStopped(t *testing.T) {
 	defer cancel()
 	go sup.Run(ctx)
 
-	waitFor(t, 3*time.Second, func() bool { return !e.Running(ctx) },
+	waitFor(t, 3*time.Second, func() bool { return !engineUp(e) },
 		"engine was not stopped despite desired=stopped")
 
 	// And it must STAY stopped across many ticks.
@@ -146,12 +170,12 @@ func TestStopThenStartRoundTrip(t *testing.T) {
 	if err := supervise.WriteDesired(dir, supervise.DesiredStopped); err != nil {
 		t.Fatal(err)
 	}
-	waitFor(t, 3*time.Second, func() bool { return !e.Running(ctx) }, "did not stop")
+	waitFor(t, 3*time.Second, func() bool { return !engineUp(e) }, "did not stop")
 
 	if err := supervise.WriteDesired(dir, supervise.DesiredRunning); err != nil {
 		t.Fatal(err)
 	}
-	waitFor(t, 3*time.Second, func() bool { return e.Running(ctx) }, "did not start again")
+	waitFor(t, 3*time.Second, func() bool { return engineUp(e) }, "did not start again")
 }
 
 func TestBackoffLimitsStartAttempts(t *testing.T) {
@@ -195,7 +219,7 @@ func TestBackoffResetsOnRecovery(t *testing.T) {
 	time.Sleep(100 * time.Millisecond) // healthy ticks observe it
 
 	e.setRunning(false) // fresh crash
-	waitFor(t, 3*time.Second, func() bool { return e.Running(ctx) },
+	waitFor(t, 3*time.Second, func() bool { return engineUp(e) },
 		"fresh crash after recovery was not repaired promptly")
 }
 
@@ -227,4 +251,130 @@ func TestGarbageDesiredStateReadsAsRunning(t *testing.T) {
 	if got := supervise.ReadDesired(dir); got != supervise.DesiredRunning {
 		t.Errorf("garbage state read as %q, want running", got)
 	}
+}
+
+// A probe that FAILS must not be read as a stopped engine (#437).
+//
+// Before Running grew an error, both real implementations collapsed a failed
+// probe into false — and the reconciler's response to false is Engine.Start.
+// So a wedged wslservice, a WSL update mid-flight, or any transient probe
+// failure provoked a start of an engine that was very likely running.
+//
+// This is also why the bounded probe could not be added first: bounding a
+// two-valued Running converts "slow" into "down", which is the same bug with
+// a timer attached.
+func TestProbeFailureIsNotTreatedAsAStoppedEngine(t *testing.T) {
+	dir := t.TempDir()
+	if err := supervise.WriteDesired(dir, supervise.DesiredRunning); err != nil {
+		t.Fatal(err)
+	}
+	e := &fakeEngine{running: true, probeErr: errors.New("wslservice is not answering")}
+	s := &supervise.Supervisor{
+		Engine: e,
+		Config: supervise.Config{StateDir: dir, Interval: 10 * time.Millisecond},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 400*time.Millisecond)
+	defer cancel()
+	s.Run(ctx)
+
+	e.mu.Lock()
+	probes, starts, stops := e.probes, e.starts, e.stops
+	e.mu.Unlock()
+
+	if probes == 0 {
+		t.Fatal("the engine was never probed; the test proves nothing")
+	}
+	if starts != 0 {
+		t.Errorf("Start called %d time(s) after a FAILED probe: a probe that could not "+
+			"answer was read as a stopped engine", starts)
+	}
+	if stops != 0 {
+		t.Errorf("Stop called %d time(s) on an unknown reading", stops)
+	}
+}
+
+// ...and a probe that genuinely reports "down" must still start the engine, or
+// the fix above would have bought safety by disabling the supervisor.
+func TestDefiniteDownStillStartsTheEngine(t *testing.T) {
+	dir := t.TempDir()
+	if err := supervise.WriteDesired(dir, supervise.DesiredRunning); err != nil {
+		t.Fatal(err)
+	}
+	e := &fakeEngine{running: false} // definite: (false, nil)
+	s := &supervise.Supervisor{
+		Engine: e,
+		Config: supervise.Config{StateDir: dir, Interval: 10 * time.Millisecond},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 400*time.Millisecond)
+	defer cancel()
+	s.Run(ctx)
+
+	e.mu.Lock()
+	starts := e.starts
+	e.mu.Unlock()
+	if starts == 0 {
+		t.Error("a definite (false, nil) did not start the engine")
+	}
+}
+
+// A probe in flight must not block Demand (#437).
+//
+// tick used to hold s.mu across Engine.Running with the supervisor's
+// process-lifetime context. A wslservice that stopped answering therefore
+// parked the reconciler INSIDE the lock, and Demand takes the same lock — so
+// every docker connection through demandDialer hung rather than failing,
+// LifecycleSnapshot froze so the tray could not show the supervisor was stuck,
+// and the poke loop never ran again.
+//
+// The probe now runs outside the lock. This holds one in flight and checks
+// that Demand still gets the mutex.
+func TestDemandIsNotBlockedByAProbeInFlight(t *testing.T) {
+	dir := t.TempDir()
+	if err := supervise.WriteDesired(dir, supervise.DesiredRunning); err != nil {
+		t.Fatal(err)
+	}
+	e := &fakeEngine{
+		running:      true,
+		probeEntered: make(chan struct{}, 1),
+		probeGate:    make(chan struct{}),
+	}
+	s := &supervise.Supervisor{
+		Engine: e,
+		Config: supervise.Config{StateDir: dir, Interval: 10 * time.Millisecond},
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	runDone := make(chan struct{})
+	go func() { defer close(runDone); s.Run(ctx) }()
+
+	// Wait for a probe to be in flight, then leave it wedged.
+	select {
+	case <-e.probeEntered:
+	case <-time.After(5 * time.Second):
+		cancel()
+		<-runDone
+		t.Fatal("no probe started; the test proves nothing")
+	}
+
+	// Demand must not wait behind it. The engine is not idle, so Demand does
+	// nothing but take the lock and return — which is exactly the assertion:
+	// it could take the lock at all.
+	demanded := make(chan error, 1)
+	go func() { demanded <- s.Demand(context.Background()) }()
+
+	select {
+	case <-demanded:
+	case <-time.After(5 * time.Second):
+		close(e.probeGate)
+		cancel()
+		<-runDone
+		t.Fatal("Demand blocked behind a probe in flight: the reconciler is holding " +
+			"s.mu across Engine.Running, so a wedged wslservice hangs every docker command (#437)")
+	}
+
+	close(e.probeGate)
+	cancel()
+	<-runDone
 }

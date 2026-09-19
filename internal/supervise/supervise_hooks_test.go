@@ -73,7 +73,7 @@ func TestHookOnIdleStop(t *testing.T) {
 
 	waitFor(t, 3*time.Second, func() bool { return rec.has(supervise.HookOnIdleStop) },
 		"on-idle-stop hook did not fire")
-	if e.Running(ctx) {
+	if engineUp(e) {
 		t.Error("engine should be idle-stopped")
 	}
 }

@@ -47,16 +47,26 @@ type wslcEngineAdapter struct {
 // Both halves matter. A session whose VM came back after idle-termination has
 // a tmpfs root, so it is running with no agent -- reporting that as healthy
 // would leave the supervisor content while every docker call failed.
-func (e *wslcEngineAdapter) Running(ctx context.Context) bool {
+func (e *wslcEngineAdapter) Running(ctx context.Context) (bool, error) {
+	// No session configured is a definite "not running", not a failed probe.
 	if e.session == "" {
-		return false
+		return false, nil
 	}
+	// Both probes distinguish "the answer is no" from "I could not ask"
+	// (#437). Folding an error into false told the reconciler the engine was
+	// down, and its response to that is to start one.
 	ok, err := e.local.HasSession(ctx, e.session)
-	if err != nil || !ok {
-		return false
+	if err != nil {
+		return false, fmt.Errorf("checking for the wslc session: %w", err)
+	}
+	if !ok {
+		return false, nil
 	}
 	running, err := e.local.AgentRunning(ctx, e.session)
-	return err == nil && running
+	if err != nil {
+		return false, fmt.Errorf("checking the agent in session %s: %w", e.session, err)
+	}
+	return running, nil
 }
 
 // Start resolves a session -- creating one if nothing is running -- and places
