@@ -100,6 +100,65 @@ func RewriteBindsFor(t SourceTranslator, sink AuditSink, gate Gate) func(net.Con
 	return func(c net.Conn, e io.ReadWriteCloser) error { return rewriteBinds(c, e, sink, gate, t) }
 }
 
+const (
+	// bodyGrace is how long a final response waits for the request body to
+	// finish forwarding before the connection is written off.
+	bodyGrace = 250 * time.Millisecond
+
+	// abandonGrace bounds the wait for the body writer to notice it has been
+	// cut off. See abandonBody: the point is that this wait ENDS.
+	abandonGrace = 5 * time.Second
+)
+
+// abandonBody tears down a request body that is still streaming after the
+// engine has already answered, and waits — bounded — for its writer to exit.
+//
+// The writer is `bodySent <- req.Write(engine)`, and req.Write does two things
+// that can block: it READS req.Body, which reads the client, and it WRITES to
+// the engine. This used to close only the engine and then wait forever:
+//
+//	engine.Close()
+//	<-bodySent
+//
+// which unblocks a writer stuck on the write and does nothing at all for one
+// stuck on the read. A client that stalls mid-upload — a laptop that sleeps
+// during `docker build`, a dropped VPN, a killed CLI — parks req.Write in a
+// Read that never returns, so <-bodySent never returns, so rewriteBinds never
+// returns, so Server.handle never runs `s.clients.Add(-1)`.
+//
+// The cost of that is out of all proportion to the cause: ActiveConns stays
+// above zero for the life of the process, maybeIdleStop vetoes on "open client
+// connections" forever, and the idle-timeout feature is silently dead with
+// nothing in the log to say so. Serve's wg.Wait() never completes either, so
+// shutdown hangs holding the single-instance lock — which the comment above
+// Serve says must not happen.
+//
+// So: cut BOTH sides, and bound the wait.
+//
+// A read deadline in the past is what reaches the read. It makes the in-flight
+// Read return immediately and every later one fail, which is exactly right
+// here — the caller has already set resp.Close, so this connection is finished
+// either way.
+//
+// The bounded select is the belt to that pair of braces. If the writer is
+// wedged on something neither close reached, leaking one goroutine is strictly
+// better than not returning: a leaked goroutine costs a little memory, while
+// not returning disables idle-stop for every user of this process.
+func abandonBody(client net.Conn, engine io.ReadWriteCloser, bodySent <-chan error) {
+	engine.Close()
+	if client != nil {
+		// Errors are not actionable: the deadline is best-effort on a
+		// connection already being discarded, and a transport that does not
+		// support deadlines still gets the engine close and the bound below.
+		_ = client.SetReadDeadline(time.Now())
+	}
+	select {
+	case <-bodySent:
+	case <-time.After(abandonGrace):
+		trace("REQ body writer did not exit within %s; abandoning it", abandonGrace)
+	}
+}
+
 func rewriteBinds(client net.Conn, engine io.ReadWriteCloser, audit AuditSink, gate Gate, translate SourceTranslator) error {
 	clientR := bufio.NewReader(client)
 	engineR := bufio.NewReader(engine)
@@ -221,16 +280,13 @@ func rewriteBinds(client net.Conn, engine io.ReadWriteCloser, audit AuditSink, g
 				trace("REQ body aborted by early response (%d): %v", resp.StatusCode, werr)
 				resp.Close = true // unsendable remainder: never reuse this connection
 			}
-		case <-time.After(250 * time.Millisecond):
+		case <-time.After(bodyGrace):
 			trace("REQ body still streaming after early response (%d); abandoning the connection", resp.StatusCode)
 			resp.Close = true
 			// The engine side is torn down AFTER the response is relayed to
 			// the client below; deferring the close here keeps the salvaged
 			// body readable. Mark it so.
-			defer func() {
-				engine.Close()
-				<-bodySent
-			}()
+			defer abandonBody(client, engine, bodySent)
 		}
 
 		// A real response is in hand: the engine is answering, so later EOFs on
