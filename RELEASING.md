@@ -53,6 +53,24 @@ has to exist first:
    source (or restores the cached binaries), runs the smoke test, and attaches
    the three assets. (The first release predates the scheme and is tagged bare
    `rootfs-v29.7.2`.)
+
+   **Always pass `--latest=false`:**
+
+   ```
+   gh release edit rootfs-vX.Y.Z-N --prerelease=false --latest=false
+   ```
+
+   Rootfs releases are cut far more often than app releases, so a rootfs tag
+   is almost always the newest thing in the repository. Publish one as a
+   normal release without pinning `--latest=false` and **it takes the repo's
+   "Latest release" badge** — a visitor lands on an engine tarball instead of
+   skrog. Neither installer is affected (both filter by `^v\d+\.\d+\.\d+$` and
+   never touch `/releases/latest`), so this is purely about what a human sees
+   first, which is reason enough.
+
+   Releases through `rootfs-v29.8.0-2` are still flagged pre-release, from
+   before this file described a normal release at all. Harmless — the assets
+   are what matter and they are immutable — and not worth rewriting.
 2. **Copy the published checksum into the manifest.** Take the value from the
    uploaded `.sha256` and put it in `manifest.json` under
    `engines[].rootfs.sha256`, confirming the `url` matches the tag you used.
