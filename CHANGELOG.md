@@ -12,6 +12,24 @@ useful than saying where the real one is.
 
 ## [Unreleased]
 
+### Changed
+
+- **`allow-registries` now applies to `docker plugin install`**
+  ([#420](https://github.com/wslkit/skrog/issues/420)). A plugin pull names its
+  registry, so it is judged exactly like `docker pull` — including
+  `require-digest` if you have set it. Previously the plugin endpoints were
+  grouped with swarm as "unattributable" and inherited the permissive **build**
+  default, so a plain `allow-registries` let a plugin from any registry
+  through. A plugin gets host device and mount access where an image gets a
+  container, which made that a worse hole than the build one the default was
+  chosen to tolerate.
+
+  **This can refuse something that worked before:** installing a plugin from a
+  registry your allowlist does not list now returns 403. A plugin from a listed
+  registry is unaffected. Swarm and `/swarm/init` are unchanged — they still
+  need `deny-unattributable-builds`, because a TaskSpec genuinely cannot be
+  attributed.
+
 ### Fixed
 
 The concurrency findings from the pre-0.6.0 review, which were filed but not
