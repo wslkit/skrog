@@ -76,11 +76,15 @@ modest gain with enough variance that it is fair to call them a wash.
 | case sensitivity | insensitive, unchanged |
 | `inotify` | events fire, so file watchers keep working |
 
-That first row is worth calling out, because it does *not* hold on the other
-backend: a wslc session's virtiofs shares present `-rwxrwxrwx` and ignore
-`chmod` ([wslc-backend.md](wslc-backend.md#bind-mount-metadata-is-virtiofs-flavoured)).
-WSL's drvfs virtiofs keeps the metadata behaviour. Two different uses of the
-same filesystem.
+That first row held here even while it did **not** hold on the wslc backend,
+whose virtiofs shares presented `-rwxrwxrwx` and ignored `chmod` until WSL
+2.9.12 fixed it
+([wslc-backend.md](wslc-backend.md#bind-mount-metadata-broken-below-wsl-2912-fixed-at-2912)).
+The difference was never virtiofs itself: WSL's distro mount path always
+passed the `metadata` option and the wslc container path did not. So
+`wsl.virtiofs` on this backend was never affected by
+[microsoft/WSL#40719](https://github.com/microsoft/WSL/issues/40719), despite
+an issue title that reads as though it covers both.
 
 ### Caveats
 
