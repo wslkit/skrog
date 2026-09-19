@@ -142,13 +142,31 @@ would be trivially bypassed.
 `c:/work` is the same root. **Named volumes are not binds** — `-v myvol:/data`
 carries only a name at create time, so this rule does not apply to it.
 
-> That is a gap, not just a scope note. A `local`-driver volume *can* name a
-> host path — `docker volume create -o type=none -o o=bind -o device=/mnt/c/...`
-> — and `POST /volumes/create` is not judged at all, so a volume made that way
-> reaches a directory `allow-bind-sources` would have refused. Tracked as
-> [#419](https://github.com/wslkit/skrog/issues/419). Until it is closed, read
-> this rule as covering `-v <hostpath>:<target>`, not as covering every route
-> to a host directory.
+> **But a volume that names a host path is judged as one.** A `local`-driver
+> volume *can* point at a directory:
+>
+> ```
+> docker volume create -d local -o type=none -o o=bind -o device=/mnt/c/secrets esc
+> ```
+>
+> `POST /volumes/create` was not judged at all until
+> [#419](https://github.com/wslkit/skrog/issues/419), so that volume — and any
+> container later mounting it — reached a directory the rule would have
+> refused. The container create that follows carries only the volume's *name*,
+> and a name is not a path, so nothing downstream could catch it either.
+>
+> It is judged now. The `device` is a guest path, so it is mapped back from
+> `/mnt/<drive>/...` to Windows form before being compared against the allowed
+> roots. Two consequences worth knowing:
+>
+> - **A device that is not under a Windows drive is refused** — `device=/`,
+>   `/etc`, `/var/lib/docker`. They are under no allowed root, and refusing is
+>   the point of the rule.
+> - **A third-party volume driver is refused while this rule is in force**,
+>   because its options are its own vocabulary and Skrog cannot tell whether
+>   they name a host path. Saying "checked" would be a lie. The `local` driver
+>   — the default, and what `docker volume create` uses unless told otherwise —
+>   is unaffected.
 
 **`allow-registries` blocks Docker Hub unless you list it.** Docker's own rule
 is that the first component of an image reference is a registry only if it
@@ -364,13 +382,15 @@ rule applies where. With `deny-unattributable-builds` set, the build endpoints
 (`/build`, `/session`, `/grpc`) and the other calls that carry no attributable
 image reference are refused too.
 
-Not judged: `POST /volumes/create`. A `local`-driver volume created with
-`-o type=none -o o=bind -o device=<path>` does have a host path, and it is not
-checked against `allow-bind-sources`
-([#419](https://github.com/wslkit/skrog/issues/419)). `POST /plugins/pull` and
-the swarm/service endpoints are only refused when
-`deny-unattributable-builds` is on, which is off by default
-([#420](https://github.com/wslkit/skrog/issues/420)).
+Also judged: `POST /volumes/create`, when `allow-bind-sources` is set — a
+`local`-driver volume can name a host path through its driver options, and the
+container create that follows carries only the volume's name
+([#419](https://github.com/wslkit/skrog/issues/419)).
+
+Not judged: `POST /plugins/pull` and the swarm/service endpoints, which are
+refused only when `deny-unattributable-builds` is on — and that is off by
+default ([#420](https://github.com/wslkit/skrog/issues/420)). A Docker plugin
+gets host device and mount access, so this is the gap worth knowing about.
 
 Resource caps on an unset container — the one *mutating* rule in the original
 proposal — are deliberately not implemented: mutating a user's request

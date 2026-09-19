@@ -77,10 +77,30 @@ func (g combinedGate) DenyBuild() (string, bool) {
 	return "", false
 }
 
+// DenyVolumeCreate consults only policy.yaml (#419).
+//
+// Unlike create/pull/push/build there is no WSL half: the administrator's
+// WSLContainerRegistryAllowlist governs registries, and a volume has none.
+// Delegating to one layer is the whole rule here, not an omission.
+//
+// This method exists at all because of what happened to
+// deny-unattributable-builds: combinedGate consulted both layers for
+// create/pull/push and only the WSL layer for build, so the rule was inert on
+// this backend while `policy show` reported it active. A new gate method is
+// exactly where that recurs, so allow-bind-sources gets wired on both backends
+// in the same change that adds it.
+func (g combinedGate) DenyVolumeCreate(body map[string]any) (string, bool) {
+	if vg, ok := g.skrog.(pipeproxy.VolumeGate); ok && g.skrog != nil {
+		return vg.DenyVolumeCreate(body)
+	}
+	return "", false
+}
+
 // Without these, dropping a method here would not fail the build — combinedGate
 // would quietly stop satisfying ImageGate and every pull, build and push on
 // this backend would pass unjudged.
 var (
-	_ pipeproxy.Gate      = combinedGate{}
-	_ pipeproxy.ImageGate = combinedGate{}
+	_ pipeproxy.Gate       = combinedGate{}
+	_ pipeproxy.ImageGate  = combinedGate{}
+	_ pipeproxy.VolumeGate = combinedGate{}
 )
