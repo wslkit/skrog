@@ -1,0 +1,112 @@
+name: e2e
+
+# The acceptance suite: 45 ordered stages driving the real skrog.exe against a
+# real engine on a real Windows machine (test/e2e). It covers very nearly every
+# headline README claim -- hello-world, Compose, Testcontainers, Dev Containers,
+# kind, act, GitLab, Dagger, GPU, remote mTLS, idle-stop and wake, migrate,
+# uninstall, "nothing left behind".
+#
+# It existed for months and NO workflow ran it. `go test ./...` skips it (it is
+# behind //go:build e2e) and `go vet ./...` never type-checked it, so it could
+# not even fail to compile in CI. A release labelled stable while its acceptance
+# suite is run by hand is asserting something nobody verified (#11).
+#
+# Why not a PR gate: it provisions a real WSL2 distro, downloads the published
+# rootfs and runs containers -- minutes, not seconds, and it mutates the runner.
+# Nightly plus manual is the honest trade: RELEASING.md requires a green run on
+# the release commit, which is the moment it actually has to be true.
+#
+# The platform excuse is retired and proven retired. PLAN.md said hosted
+# `windows-latest` exposes nested virtualization; the sibling setup-skrog repo
+# installs the engine and runs `docker run --rm hello-world` on that runner on
+# every push. No self-hosted runner is needed on x64.
+
+on:
+  workflow_dispatch:
+  schedule:
+    # 04:20 UTC daily. Off-peak, and far from the release.yml window.
+    - cron: '20 4 * * *'
+
+permissions:
+  contents: read
+
+jobs:
+  acceptance:
+    name: acceptance suite (windows-latest)
+    runs-on: windows-latest
+    # The suite's own default is 30m; this bounds the job around it including
+    # the rootfs download, rather than letting a wedged stage burn six hours.
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version: stable
+
+      # Type-check it even if the run later fails. This is the cheap half of
+      # the problem: for months nothing compiled this file, so it could rot
+      # against the packages it drives without anyone finding out.
+      - name: the suite still compiles
+        shell: pwsh
+        working-directory: test/e2e
+        run: |
+          go vet -tags e2e ./...
+          if ($LASTEXITCODE -ne 0) { throw "test/e2e does not build" }
+
+      - name: environment
+        shell: pwsh
+        run: |
+          wsl --version
+          # A missing docker CLI makes the suite skip rather than fail, which
+          # would look like a pass. Say what is here before it runs.
+          $d = Get-Command docker -ErrorAction SilentlyContinue
+          if ($d) { "docker: $($d.Source)" } else { "docker: NOT FOUND — the suite will skip" }
+
+      # A wholesale skip is not a pass, and `go test` exits 0 for one.
+      #
+      # TestAcceptance skips entirely when it is not Windows or finds no docker
+      # CLI. Both are environment faults, both would go green, and green is
+      # exactly what a release checklist reads. So the output is captured and
+      # the two wholesale-skip messages are treated as failures.
+      #
+      # Per-stage skips stay allowed: act, dagger, kind, devcontainer and a GPU
+      # are genuinely optional on a hosted runner, and demanding them would
+      # make the suite unrunnable rather than more honest.
+      - name: acceptance
+        shell: pwsh
+        working-directory: test/e2e
+        run: |
+          go test -tags e2e -timeout 45m -v . 2>&1 | Tee-Object -FilePath e2e.log
+          $code = $LASTEXITCODE
+          $log = Get-Content e2e.log -Raw
+          foreach ($m in @('acceptance runs on Windows with WSL2',
+                           'no docker CLI found on PATH')) {
+            if ($log -match [regex]::Escape($m)) {
+              throw "the suite skipped wholesale ($m) — that is an environment failure, not a pass"
+            }
+          }
+          if ($log -notmatch 'PASS|FAIL') { throw "no test result in the output; the suite did not run" }
+          # Report which optional stages were skipped, so a green run says what
+          # it did NOT cover rather than implying it covered everything.
+          $skips = Select-String -Path e2e.log -Pattern '^\s*--- SKIP' -AllMatches
+          if ($skips) { "`nstages skipped on this runner:"; $skips | ForEach-Object { "  " + $_.Line.Trim() } }
+          exit $code
+
+      - name: suite log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-log
+          path: test/e2e/e2e.log
+          if-no-files-found: warn
+
+      - name: leftovers
+        if: always()
+        shell: pwsh
+        run: |
+          # The suite cleans up after itself; a failure can leave a distro
+          # behind. Print what is registered so a red run says whether the
+          # runner was left dirty.
+          wsl --list --verbose
+          exit 0
