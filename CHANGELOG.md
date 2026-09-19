@@ -137,7 +137,16 @@ category.
 
 ### Known issues
 
-Not ours, but you will hit them.
+- **`skrog restart --supervisor` loses a custom pipe**
+  ([#429](https://github.com/wslkit/skrog/issues/429)). The replacement
+  supervisor re-runs pipe selection from scratch instead of reusing what it
+  was serving, so a `skrog supervise --pipe <custom>` setup comes back on the
+  default or fallback pipe and `DOCKER_HOST` stops working. Pre-existing, not
+  new in 0.6.0; it surfaced because the acceptance suite now runs in CI and
+  isolates itself with a custom pipe. Plain `skrog restart` — the one almost
+  everyone wants — is unaffected.
+
+Below are not ours, but you will hit them.
 
 - **Container DNS fails on the wslc backend with WSL 2.9.12**
   ([#424](https://github.com/wslkit/skrog/issues/424)). A container is handed
