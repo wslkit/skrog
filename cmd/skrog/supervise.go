@@ -432,7 +432,18 @@ func optsWithResolvedStateDir(opts provision.Options) provision.Options {
 	return opts
 }
 
-func runStart(args []string) int {
+func runStart(args []string) int { return runStartPreserving(args, "") }
+
+// runStartPreserving is runStart with the pipe a replacement supervisor must
+// keep serving (#429).
+//
+// Separate from runStart, rather than a `--pipe` flag on `start`, because this
+// is not something a user asks for: it is `restart --supervisor` carrying a
+// value across a teardown that would otherwise erase it. A CLI flag would
+// document a decision the caller never makes.
+//
+// Empty means "choose normally", which is every path except that one.
+func runStartPreserving(args []string, preservePipe string) int {
 	fs := flag.NewFlagSet("start", flag.ContinueOnError)
 	stateDir := fs.String("state-dir", "", "override Skrog's state directory")
 	timeout := fs.Duration("timeout", 2*time.Minute, "how long to wait for the engine")
@@ -474,7 +485,7 @@ running, and waits for the engine to answer.
 
 	if !supervise.Held(opts.StateDir) {
 		fmt.Fprintln(os.Stderr, "  starting the supervisor in the background")
-		if err := spawnSupervisor(opts.StateDir); err != nil {
+		if err := spawnSupervisor(opts.StateDir, preservePipe); err != nil {
 			fmt.Fprintf(os.Stderr, "skrog: launching supervisor: %v\n", err)
 			return exitError
 		}
@@ -642,9 +653,21 @@ supervisor itself is misbehaving, or after replacing skrog.exe on disk.
 	}
 	if *supervisor {
 		dir := optsWithResolvedStateDir(provision.Options{StateDir: *stateDir}).StateDir
+
+		// Captured BEFORE recycling, because the supervisor deletes its own
+		// endpoint record on the way out -- runSupervise clears it in a defer,
+		// so a clean exit is precisely the case where the record is gone by
+		// the time anything downstream could read it (#429).
+		//
+		// Reading it afterwards is what the first attempt at this did. It
+		// worked for a hard kill, where the record survives, and not for the
+		// restart it was written for.
+		keepPipe := customPipeToPreserve(dir)
+
 		if code := recycleSupervisor(dir); code != exitOK {
 			return code
 		}
+		return runStartPreserving(pass, keepPipe)
 	}
 	return runStart(pass)
 }
@@ -876,12 +899,12 @@ func fileExists(path string) bool {
 // seconds of pipe downtime rather than every docker command until the next
 // `skrog start` (#166). Falling back to spawning supervise directly keeps a
 // single-binary checkout working, just without the watchdog.
-func spawnSupervisor(stateDir string) error {
+func spawnSupervisor(stateDir, preservePipe string) error {
 	self, err := selfexe.Path()
 	if err != nil {
 		return err
 	}
-	target, args := supervisorCommand(self, stateDir)
+	target, args := supervisorCommand(self, stateDir, preservePipe)
 	cmd := exec.Command(target, args...)
 	configureDetached(cmd)
 	if err := cmd.Start(); err != nil {
@@ -899,12 +922,26 @@ func spawnSupervisor(stateDir string) error {
 // customPipeToPreserve passed with the wiring deleted — a correct helper
 // nothing called, which is the exact shape of three other defects in this
 // release.
-func supervisorCommand(self, stateDir string) (target string, args []string) {
+func supervisorCommand(self, stateDir, preservePipe string) (target string, args []string) {
 	target, args = self, []string{"supervise", "--state-dir", stateDir}
 	if launcher := filepath.Join(filepath.Dir(self), "skrogw.exe"); fileExists(launcher) {
 		target, args = launcher, []string{"--state-dir", stateDir}
 	}
-	if pipe := customPipeToPreserve(stateDir); pipe != "" {
+
+	// Two sources, and the order matters.
+	//
+	// An explicit value comes from `restart --supervisor`, which read the
+	// endpoint BEFORE tearing the old supervisor down — the record is gone by
+	// now, because runSupervise clears it on a clean exit.
+	//
+	// The recorded fallback covers the other case: a supervisor that died
+	// hard ran no cleanup, so its record survives and is the only thing that
+	// remembers which pipe was being served.
+	pipe := preservePipe
+	if pipe == "" {
+		pipe = customPipeToPreserve(stateDir)
+	}
+	if pipe != "" {
 		args = append(args, "--pipe", pipe)
 	}
 	return target, args
