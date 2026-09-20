@@ -194,3 +194,85 @@ func TestDisableIfOwnedMatchesAResolvedDir(t *testing.T) {
 		t.Fatal("the owner could not remove its own entry when passing a resolved directory")
 	}
 }
+
+// useAbsentScratchKey points the package at a key that does NOT exist, and
+// makes sure it stays that way until the code under test creates it.
+//
+// This is the case the existing helper cannot cover, because it creates the
+// key first — with a comment saying it must exist for OpenKey(SET_VALUE) to
+// succeed. That comment is the bug report: the product assumed a precondition
+// the test then supplied for it (#444).
+func useAbsentScratchKey(t *testing.T) {
+	t.Helper()
+	orig := runKeyPath
+	runKeyPath = `Software\SkrogTest\AbsentRun`
+
+	// Make sure a previous run did not leave it behind.
+	registry.DeleteKey(registry.CURRENT_USER, runKeyPath)
+	if k, err := registry.OpenKey(registry.CURRENT_USER, runKeyPath, registry.QUERY_VALUE); err == nil {
+		k.Close()
+		t.Fatalf("%s exists; this test is about the case where it does not", runKeyPath)
+	}
+
+	t.Cleanup(func() {
+		registry.DeleteKey(registry.CURRENT_USER, runKeyPath)
+		registry.DeleteKey(registry.CURRENT_USER, `Software\SkrogTest`)
+		runKeyPath = orig
+	})
+}
+
+// A profile with no Run key at all must still be able to enable autostart.
+//
+// Windows creates HKCU\...\CurrentVersion\Run on demand, so a profile that has
+// never registered a logon entry does not have one. OpenKey then fails with
+// "The system cannot find the file specified", which `skrog install --config`
+// surfaced as:
+//
+//	skrog: applying config: opening the Run key: The system cannot find the file specified.
+//
+// — a message that reads as a missing FILE and sends the user looking for
+// skrogw.exe. Found by the nightly acceptance run on a clean hosted runner.
+func TestEnableCreatesTheRunKeyWhenAbsent(t *testing.T) {
+	useAbsentScratchKey(t)
+	exe := fakeInstall(t, true)
+
+	if err := Enable(exe); err != nil {
+		t.Fatalf("Enable with no Run key: %v", err)
+	}
+	enabled, cmd, err := Status()
+	if err != nil {
+		t.Fatalf("Status: %v", err)
+	}
+	if !enabled {
+		t.Error("autostart not registered after Enable created the key")
+	}
+	if !strings.Contains(cmd, "skrogw.exe") {
+		t.Errorf("Run entry = %q, want the skrogw launcher", cmd)
+	}
+}
+
+// Status on a profile with no Run key is "not enabled", not an error. It used
+// to fail, which broke `skrog status` and `doctor` on such a profile.
+func TestStatusWithNoRunKeyIsNotAnError(t *testing.T) {
+	useAbsentScratchKey(t)
+
+	enabled, cmd, err := Status()
+	if err != nil {
+		t.Fatalf("Status with no Run key returned an error: %v", err)
+	}
+	if enabled || cmd != "" {
+		t.Errorf("Status = (%v, %q), want (false, \"\")", enabled, cmd)
+	}
+}
+
+// Disable's own doc comment says removing an entry that does not exist is
+// success — "the user asked for a state, not an action". That held for a
+// missing VALUE and not for a missing KEY, which is the same answer one level
+// up.
+func TestDisableWithNoRunKeyIsSuccess(t *testing.T) {
+	useAbsentScratchKey(t)
+
+	if err := Disable(); err != nil {
+		t.Errorf("Disable with no Run key: %v", err)
+	}
+}
