@@ -13,7 +13,9 @@
 package autostart
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -42,7 +44,13 @@ func Enable(skrogExe string) error {
 			"(a console binary at logon would flash a console window): %w", err)
 	}
 
-	k, err := registry.OpenKey(registry.CURRENT_USER, runKeyPath, registry.SET_VALUE)
+	// CreateKey, not OpenKey: the Run key is created on demand by Windows and
+	// is NOT guaranteed to exist (#444). A profile that has never had a logon
+	// entry has no key, and OpenKey then fails with "The system cannot find
+	// the file specified" — which reads as a missing FILE and sends the user
+	// looking for skrogw.exe. CreateKey opens an existing key unchanged, so
+	// this costs nothing on the machines that already have one.
+	k, _, err := registry.CreateKey(registry.CURRENT_USER, runKeyPath, registry.SET_VALUE)
 	if err != nil {
 		return fmt.Errorf("opening the Run key: %w", err)
 	}
@@ -59,6 +67,13 @@ func Enable(skrogExe string) error {
 // success: the user asked for a state, not an action.
 func Disable() error {
 	k, err := registry.OpenKey(registry.CURRENT_USER, runKeyPath, registry.SET_VALUE)
+	if errors.Is(err, registry.ErrNotExist) || errors.Is(err, fs.ErrNotExist) {
+		// No Run key at all, so nothing is registered — which is the state
+		// the caller asked for. The comment above already said a missing
+		// VALUE is success; a missing KEY is the same answer one level up,
+		// and failing here contradicted it (#444).
+		return nil
+	}
 	if err != nil {
 		return fmt.Errorf("opening the Run key: %w", err)
 	}
@@ -106,6 +121,13 @@ func DisableIfOwned(installDir string) (bool, error) {
 // Status returns whether autostart is registered, and the command if so.
 func Status() (enabled bool, command string, err error) {
 	k, err := registry.OpenKey(registry.CURRENT_USER, runKeyPath, registry.QUERY_VALUE)
+	if errors.Is(err, registry.ErrNotExist) || errors.Is(err, fs.ErrNotExist) {
+		// No key means nothing is registered, which is an answer and not a
+		// failure (#444). Reporting an error here made `skrog status` and
+		// `doctor` fail on a profile that had simply never autostarted
+		// anything.
+		return false, "", nil
+	}
 	if err != nil {
 		return false, "", fmt.Errorf("opening the Run key: %w", err)
 	}
