@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -880,10 +881,7 @@ func spawnSupervisor(stateDir string) error {
 	if err != nil {
 		return err
 	}
-	target, args := self, []string{"supervise", "--state-dir", stateDir}
-	if launcher := filepath.Join(filepath.Dir(self), "skrogw.exe"); fileExists(launcher) {
-		target, args = launcher, []string{"--state-dir", stateDir}
-	}
+	target, args := supervisorCommand(self, stateDir)
 	cmd := exec.Command(target, args...)
 	configureDetached(cmd)
 	if err := cmd.Start(); err != nil {
@@ -891,6 +889,73 @@ func spawnSupervisor(stateDir string) error {
 	}
 	// Released, not waited on: it must outlive this CLI invocation.
 	return cmd.Process.Release()
+}
+
+// supervisorCommand builds what spawnSupervisor launches.
+//
+// Split out from spawnSupervisor so the ARGUMENTS can be tested without
+// starting a process. That distinction is not pedantry: the first version of
+// this fix put the --pipe wiring inline, and the test for
+// customPipeToPreserve passed with the wiring deleted — a correct helper
+// nothing called, which is the exact shape of three other defects in this
+// release.
+func supervisorCommand(self, stateDir string) (target string, args []string) {
+	target, args = self, []string{"supervise", "--state-dir", stateDir}
+	if launcher := filepath.Join(filepath.Dir(self), "skrogw.exe"); fileExists(launcher) {
+		target, args = launcher, []string{"--state-dir", stateDir}
+	}
+	if pipe := customPipeToPreserve(stateDir); pipe != "" {
+		args = append(args, "--pipe", pipe)
+	}
+	return target, args
+}
+
+// customPipeToPreserve returns the pipe a replacement supervisor must keep
+// serving, or "" to let it choose normally (#429).
+//
+// `skrog restart --supervisor` rebuilds the argument list rather than
+// forwarding it, and the pipe was not among what it carried. So a supervisor
+// started with `--pipe <custom>` came back on the DEFAULT pipe, DOCKER_HOST
+// stopped working, and the error named a missing file rather than a moved
+// pipe. Same for the watchdog path: skrogw relaunches through here too, so a
+// crash lost the pipe the same way.
+//
+// Only a genuinely custom pipe is preserved, and the two exclusions are what
+// keep this from breaking the ordinary case:
+//
+//   - The DEFAULT pipe is not preserved. Normal selection takes it again when
+//     it is free, and correctly falls back when something else (Docker
+//     Desktop) has taken it in the meantime. Pinning it would turn that
+//     graceful fallback into a hard failure to bind.
+//   - The FALLBACK pipe is not preserved either, because normal selection
+//     re-derives it: it is only ever chosen when the default is taken. Pinning
+//     it would make the fallback sticky, so a machine that stopped running
+//     Desktop would never take the default pipe back — and "plain docker just
+//     works" is the thing the default pipe buys.
+//
+// What is left is a pipe someone asked for by name, which is exactly the case
+// that was being lost.
+func customPipeToPreserve(stateDir string) string {
+	e, ok := supervise.ReadEndpoint(stateDir)
+	if !ok || e.Pipe == "" {
+		return ""
+	}
+	// Both sides are normalised. DefaultPipeName and FallbackPipeName are full
+	// `\\.\pipe\...` paths, and a recorded endpoint should be too -- but
+	// comparing one against the other's bare name silently matches nothing,
+	// which makes every exclusion below a no-op and the fallback sticky.
+	// Trimming both is what makes the comparison mean what it reads as.
+	if pipeEq(e.Pipe, pipeproxy.DefaultPipeName) || pipeEq(e.Pipe, pipeproxy.FallbackPipeName) {
+		return ""
+	}
+	return e.Pipe
+}
+
+// pipeEq compares two pipe names, tolerating the `\\.\pipe\` prefix on either
+// side. Windows pipe names are case-insensitive.
+func pipeEq(a, b string) bool {
+	const prefix = `\\.\pipe\`
+	return strings.EqualFold(strings.TrimPrefix(a, prefix), strings.TrimPrefix(b, prefix))
 }
 
 // statsFlushInterval is how often the supervisor publishes its counters. Five
