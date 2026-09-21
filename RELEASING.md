@@ -1,25 +1,31 @@
 # Releasing
 
-Two independent release streams, deliberately kept apart:
+Three independent release streams, deliberately kept apart:
 
 | stream | tag | what it publishes | workflow |
 |---|---|---|---|
-| **rootfs** | `rootfs-vX.Y.Z` | one engine tarball **per architecture**, each with its `.sha256` and an SPDX SBOM | `rootfs.yml` |
+| **rootfs** | `rootfs-vX.Y.Z-N` | one engine tarball **per architecture**, each with its `.sha256` and an SPDX SBOM | `rootfs.yml` |
 | **app** | `vX.Y.Z` | `skrog.exe` for amd64 and arm64, zipped, plus `SHA256SUMS` | `release.yml` |
+| **docker CLI** | `dockercli-vX.Y.Z` | the Windows **arm64** `docker.exe` upstream does not publish (#450), with its `.sha256` | `dockercli.yml` |
 
-They are separate because the engine and the app version independently: an engine
-security patch should not require an app release, and vice versa (PLAN §04,
-`skrog engine upgrade`). Both workflows check the tag prefix, so a rootfs
-release never gets app binaries attached and an app release never gets a rootfs.
+They are separate because they version independently: an engine security patch
+should not require an app release, a docker CLI bump is upstream's schedule
+rather than ours, and vice versa (PLAN §04, `skrog engine upgrade`).
+
+**Each workflow tests for its own prefix, positively.** They used to exclude
+each other by name — "not `rootfs-`" — which is an open list: adding a third
+namespace would silently have attached `skrog.exe` to a docker CLI release
+because nothing said no. The guards now ask "is this mine", which the next
+namespace cannot break.
 
 Deciding *what* to bump — which moby tag, whether containerd/runc/buildkit move
 with it, where each checksum comes from — is a separate job from cutting the
 release. That is [docs/bumping-upstream.md](docs/bumping-upstream.md); this file
 covers publishing once the versions are settled.
 
-## `git describe` sees both streams
+## `git describe` sees every stream
 
-The two tag namespaces share one repository, and rootfs releases are cut far
+The tag namespaces share one repository, and rootfs releases are cut far
 more often than app releases — so `git describe --tags` usually resolves to a
 **rootfs** tag, not an app version:
 
@@ -123,6 +129,46 @@ has to exist first:
 Until step 2 lands, `skrog install` refuses with a message telling the user to
 pass `--rootfs-url` and `--rootfs-sha256` explicitly. That is intentional: there
 is no code path that installs an unverified rootfs.
+
+## Cutting a docker CLI release
+
+Only needed on Windows arm64, and only until upstream publishes one
+([#450](https://github.com/wslkit/skrog/issues/450)). The shape mirrors the
+rootfs stream, one step shorter because there is a single artifact.
+
+1. **Pin the version.** `third_party/docker-cli/versions.env` carries
+   `DOCKER_CLI_VERSION`, `DOCKER_CLI_TAG` and `DOCKER_CLI_SHA` — the tag's
+   dereferenced commit, which `build.sh` refuses to build without matching:
+
+   ```
+   git ls-remote https://github.com/docker/cli 'refs/tags/vX.Y.Z^{}'
+   ```
+
+   It must equal the `docker` component's `version` in
+   `internal/dockercli/manifest.json`; a test asserts that, because the same
+   binary is installed on both architectures and two versions is a support
+   trap.
+
+2. **Cut the release.** Tag `dockercli-v<version>` — matching
+   `DOCKER_CLI_VERSION`, no revision suffix, because the artifact is one
+   binary from one upstream commit and there is nothing else in it to revise.
+   Publishing triggers `dockercli.yml`, which builds, asserts the PE header is
+   really ARM64, attests, signs the checksum and attaches both files.
+
+   **`--latest=false`, as always:**
+
+   ```
+   gh release edit dockercli-vX.Y.Z --prerelease=false --latest=false
+   ```
+
+3. **Point the manifest at it.** Put the published `.sha256` and URL into
+   `internal/dockercli/manifest.json` under
+   `components[docker].arch.arm64`. Merge as a normal PR.
+
+   amd64 is **not** touched — it stays Docker's own published zip. That
+   asymmetry is deliberate and argued in `docs/docker-cli.md`; a test fails if
+   the amd64 URL ever stops pointing at `download.docker.com`, so changing it
+   is a decision rather than a slip.
 
 ## Dry runs
 

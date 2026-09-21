@@ -24,8 +24,12 @@ jobs:
       # Same invocation as scripts/lint.ps1 and the pre-commit hook: -x follows
       # `source=` directives, -P SCRIPTDIR resolves them next to each script
       # (versions.env sits beside build.sh, not in the working directory).
+      # Every .sh in the tree, matching what scripts/lint.ps1 does locally.
+      # A hardcoded list here means a new script is unchecked in CI until
+      # someone remembers this line, and the one person who would notice is
+      # the one who did not add it.
       - name: shellcheck
-        run: shellcheck -x -P SCRIPTDIR guest/rootfs/*.sh spike/a/*.sh
+        run: shellcheck -x -P SCRIPTDIR $(git ls-files '*.sh')
 
   build:
     # One rootfs per architecture, each compiled NATIVELY (#388).
@@ -37,6 +41,13 @@ jobs:
     # GitHub's ubuntu-24.04-arm runners are real arm64 and free for public
     # repositories, so there is no reason to emulate.
     name: build rootfs (${{ matrix.arch }})
+    # Not on someone else's release. This job runs ~6 minutes per
+    # architecture, and the release event does not say what is being
+    # released -- so without this it rebuilt the engine twice for every app
+    # tag, and would now do it for every docker CLI tag too. The publish job
+    # was always guarded, so nothing wrong was ever uploaded; this is waste,
+    # not a correctness fix.
+    if: github.event_name != 'release' || startsWith(github.event.release.tag_name, 'rootfs-')
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
     strategy:

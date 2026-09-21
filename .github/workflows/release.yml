@@ -2,8 +2,16 @@ name: release
 
 # Builds and attaches the skrog binaries when an app release is published.
 #
-# Rootfs releases are a separate namespace (tag prefix rootfs-) handled by
-# rootfs.yml; this workflow skips them so the two never cross-contaminate.
+# There are three tag namespaces in this repository -- vX.Y.Z (the app),
+# rootfs-vX.Y.Z-N (the engine image) and dockercli-vX.Y.Z (the Windows arm64
+# docker CLI). Each has its own workflow, and each must ignore the others'
+# tags or a release ends up carrying assets from a different product.
+#
+# The guards below are written as "is this an app version" rather than "is
+# this not a rootfs", which is how they used to read. That was an open list:
+# adding dockercli- would silently have attached skrog.exe to a docker CLI
+# release, because nothing said no. A closed test cannot be broken by the
+# next namespace.
 #
 # Artifacts are signed with cosign keyless (Sigstore, GitHub OIDC) and carry
 # SLSA build provenance (#147), so a download can be tied to this workflow, this
@@ -43,7 +51,7 @@ permissions:
 jobs:
   build:
     name: build binaries
-    if: github.event_name != 'release' || !startsWith(github.event.release.tag_name, 'rootfs-')
+    if: github.event_name != 'release' || startsWith(github.event.release.tag_name, 'v')
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
@@ -281,7 +289,7 @@ jobs:
   publish:
     name: attach to release
     needs: build
-    if: github.event_name == 'release' && !startsWith(github.event.release.tag_name, 'rootfs-')
+    if: github.event_name == 'release' && startsWith(github.event.release.tag_name, 'v')
     runs-on: ubuntu-latest
     permissions:
       contents: write

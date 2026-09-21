@@ -1,0 +1,147 @@
+name: docker-cli
+
+# Builds the Windows arm64 docker.exe that upstream does not publish (#450).
+#
+# download.docker.com's static tree has exactly one directory, x86_64/, and
+# docker/cli publishes no release assets at all. So `skrog cli install` on
+# Windows on ARM laid down compose, buildx and the credential helper -- all of
+# which DO have arm64 builds -- and skipped the one command anybody types.
+#
+# amd64 is NOT built here. It stays Docker's own published binary, because
+# those bytes are verifiable by anyone against the digest pinned in
+# internal/dockercli/manifest.json without reference to Skrog, and building
+# them ourselves would put every user behind our build instead of only the
+# arm64 users who have no alternative. third_party/docker-cli/build.sh carries
+# the full reasoning, including why code signing is not part of it.
+#
+# The asymmetry ends by itself: when upstream publishes a Windows arm64
+# docker.exe, the manifest points at it and this workflow is deleted.
+
+on:
+  push:
+    branches: [main]
+    paths: ['third_party/docker-cli/**', '.github/workflows/dockercli.yml']
+  pull_request:
+    paths: ['third_party/docker-cli/**', '.github/workflows/dockercli.yml']
+  # A CLI release (tag: dockercli-vX.Y.Z) rebuilds and attaches its assets.
+  # App and rootfs releases are other namespaces and skip the publish job.
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: build docker.exe (windows/arm64)
+    # Cross-compiled, and that is not a compromise here the way it would be
+    # for the engine: docker/cli is pure Go with CGO off and everything
+    # vendored, so an x86-64 runner produces the same binary an arm64 one
+    # would. The engine needs native runners because it is C-linked and
+    # boot-tested; this is `go build` with GOARCH set.
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: shellcheck
+        run: shellcheck -x -P SCRIPTDIR third_party/docker-cli/*.sh
+
+      - name: build
+        run: ./third_party/docker-cli/build.sh "$GITHUB_WORKSPACE/out"
+
+      # build.sh already fails on a non-ARM64 PE header. This repeats the
+      # check outside the script so a bug in the script's own parsing cannot
+      # pass its own test -- the binary is going to machines nobody here has,
+      # and an x86-64 exe named arm64 would only be discovered by the one
+      # person least able to diagnose it.
+      - name: it really is an ARM64 binary
+        run: |
+          exe=$(ls out/docker-*-windows-arm64.exe)
+          machine=$(python3 - "$exe" <<'PY'
+          import struct, sys
+          with open(sys.argv[1], 'rb') as f:
+              f.seek(0x3c)
+              off = struct.unpack('<I', f.read(4))[0]
+              f.seek(off)
+              assert f.read(4) == b'PE\0\0', 'not a PE file'
+              print('%04x' % struct.unpack('<H', f.read(2))[0])
+          PY
+          )
+          echo "PE machine type: 0x$machine"
+          [ "$machine" = "aa64" ] || { echo "expected 0xaa64 (ARM64)" >&2; exit 1; }
+
+      - name: report
+        run: |
+          {
+            echo '### docker CLI (windows/arm64)'
+            echo ''
+            echo '```'
+            cat out/*.commit.txt
+            cat out/*.sha256
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: docker-cli-windows-arm64
+          path: out/
+          retention-days: 14
+
+  publish:
+    name: attach to release
+    needs: build
+    # Only docker CLI releases. Without this check every app and rootfs
+    # release would also get a docker.exe attached, because the release event
+    # does not distinguish what is being released.
+    if: github.event_name == 'release' && startsWith(github.event.release.tag_name, 'dockercli-')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      # See release.yml: id-token for the OIDC exchange cosign and the
+      # attestation both need, attestations to record the provenance (#147).
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: docker-cli-windows-arm64
+          path: out
+
+      # This is the part that makes a self-built CLI defensible. The amd64
+      # binary is Docker's and anyone can re-download it to check the pinned
+      # digest; this one exists nowhere else, so its provenance has to come
+      # from here -- tied to this workflow, this repository and this commit.
+      - uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: 'out/docker-*-windows-arm64.exe'
+
+      - uses: sigstore/cosign-installer@v3
+      - name: sign the checksum
+        run: |
+          shopt -s nullglob
+          sumfiles=(out/*.sha256)
+          if [ ${#sumfiles[@]} -eq 0 ]; then
+            echo "no .sha256 to sign; the build produced nothing" >&2
+            exit 1
+          fi
+          for sums in "${sumfiles[@]}"; do
+            cosign sign-blob --yes --bundle "$sums.cosign.bundle" "$sums"
+            cosign verify-blob \
+              --bundle "$sums.cosign.bundle" \
+              --certificate-identity-regexp "^https://github.com/${GITHUB_REPOSITORY}/" \
+              --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+              "$sums"
+          done
+
+      # --repo is required: this job downloads artifacts without checking out
+      # the code, so gh has no git remote to infer the repository from.
+      - name: upload release assets
+        # TAG/REPO via env, not spliced into the command (#87): this job holds
+        # contents: write.
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+          REPO: ${{ github.repository }}
+        run: gh release upload "$TAG" out/* --clobber --repo "$REPO"
