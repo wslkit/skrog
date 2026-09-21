@@ -2,10 +2,9 @@
 // reference name?
 //
 // It is its own package because that question is the load-bearing step in
-// every registry allowlist, and it used to be answered twice — once in
-// internal/wslc for the administrator's WSL policy, once in internal/policy for
-// Skrog's own policy.yaml. Same rule, written twice, and already drifting
-// (#371).
+// every registry allowlist, and it used to be answered twice — once for the
+// administrator's deployed WSL policy, once in internal/policy for Skrog's
+// own policy.yaml. Same rule, written twice, and already drifting (#371).
 //
 // The rule itself is not ours. It is Docker's, via
 // distribution/reference.ParseNormalizedNamed — the function the daemon uses.

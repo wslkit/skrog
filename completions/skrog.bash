@@ -46,13 +46,13 @@ _skrog() {
             doctor) flags="--fix --json --report --state-dir" ;;
             enable-gpu) flags="--distro --off --state-dir --vendor" ;;
             healthcheck) flags="--json --state-dir --wait" ;;
-            install) flags="--agent --config --data-dir --distro --engine --engine-version --headless --json --locked --no-autostart --no-verify-signature --offline --rootfs-sha256 --rootfs-url --state-dir" ;;
+            install) flags="--config --data-dir --distro --engine-version --headless --json --locked --no-autostart --no-verify-signature --offline --rootfs-sha256 --rootfs-url --state-dir" ;;
             lock) flags="--engine-version --o --output" ;;
             logs) flags="--follow --json --n --source --state-dir" ;;
             migrate) flags="--docker --docker-host --dry-run --from-context --from-desktop --from-host --from-podman --from-rancher --only --state-dir" ;;
             prewarm) flags="--concurrency --json" ;;
             profile) flags="--json --state-dir" ;;
-            proxy) flags="--agent --distro --engine --no-context --no-path-translation --pipe --sddl --socket --state-dir" ;;
+            proxy) flags="--distro --no-context --no-path-translation --pipe --sddl --socket --state-dir" ;;
             prune) flags="--all --build-cache --json --until --volumes" ;;
             relocate) flags="--distro --dry-run --json --keep-archive --restart --state-dir" ;;
             remote) flags="--certs --host --json --state-dir" ;;
@@ -64,7 +64,7 @@ _skrog() {
             start) flags="--state-dir --timeout" ;;
             status) flags="--json --prometheus --state-dir --stats" ;;
             stop) flags="--state-dir --timeout" ;;
-            supervise) flags="--agent --distro --no-context --pipe --state-dir" ;;
+            supervise) flags="--distro --no-context --pipe --state-dir" ;;
             uninstall) flags="--distro --state-dir --yes" ;;
             upgrade) flags="--apply --check --dry-run --force --json --offline --state-dir --timeout --yes" ;;
             wsl-integrate) flags="--remove --state-dir" ;;

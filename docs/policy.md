@@ -205,13 +205,13 @@ the pipe a BuildKit build is an opaque gRPC stream, so a build cannot be
 attributed to a registry in advance. `policy.yaml` lets builds through rather
 than refusing them.
 
-That is a deliberate default, not an oversight. Skrog's
-[wslc backend](wslc-backend.md) *does* refuse builds while the administrator's
-`WSLContainerRegistryAllowlist` is active — but that policy is deployed by GPO
-against a user who cannot edit it, where failing closed is the only coherent
-answer. `policy.yaml` is your own file: refusing every build on a machine that
-merely lists its registries would break working setups to close a hole its
-author can walk around by editing one line.
+That is a deliberate default, not an oversight. An administrator's deployed
+WSL policy *does* refuse builds while `WSLContainerRegistryAllowlist` is
+active — but that policy arrives by GPO against a user who cannot edit it,
+where failing closed is the only coherent answer. `policy.yaml` is your own
+file: refusing every build on a machine that merely lists its registries would
+break working setups to close a hole its author can walk around by editing one
+line.
 
 **If you want the strict reading, ask for it:**
 
@@ -221,9 +221,9 @@ allow-registries:
 deny-unattributable-builds: true
 ```
 
-`docker build` is then refused outright, with the same reasoning the wslc gate
-applies by default — reached here because you chose it rather than because we
-assumed it.
+`docker build` is then refused outright, with the same reasoning the
+administrator's policy applies by default — reached here because you chose it
+rather than because we assumed it.
 
 The rule is **inert without `allow-registries`**, and `skrog policy show` says
 so rather than letting you believe otherwise:

@@ -42,8 +42,7 @@ would rather not be named.
 
 - Local privilege escalation, or one user reaching another's engine
 - Anything that lets an unprivileged process on the machine reach the docker
-  API through Skrog when it should not — the named pipe, the vsock transport,
-  the wslc backend
+  API through Skrog when it should not — the named pipe or the vsock transport
 - Supply-chain issues: the version manifest, rootfs verification, the upgrade
   path, the release workflows
 - A bypass of something the docs claim is enforced. **A false claim in the

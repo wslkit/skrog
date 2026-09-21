@@ -82,7 +82,7 @@ flags:
 	log := cliLogger(false)
 
 	p := &provision.Provisioner{Logger: log}
-	if _, ok := requireDistroInstall(p, opts, "migrate", "it copies Docker Desktop's data into a distro Skrog owns, and this install has none."); !ok {
+	if _, ok := requireDistroInstall(p, opts); !ok {
 		return exitNotFound
 	}
 

@@ -66,38 +66,19 @@ type Gate interface {
 // The handler therefore proxies HTTP only until the engine signals a hijack,
 // then reverts to a raw byte relay for the life of the connection.
 func RewriteBinds(client net.Conn, engine io.ReadWriteCloser) error {
-	return rewriteBinds(client, engine, nil, nil, nil)
+	return rewriteBinds(client, engine, nil, nil)
 }
 
 // RewriteBindsAudited is RewriteBinds with an audit sink wired in, for use as a
 // Server.Handler when the audit log is enabled.
 func RewriteBindsAudited(sink AuditSink) func(net.Conn, io.ReadWriteCloser) error {
-	return func(c net.Conn, e io.ReadWriteCloser) error { return rewriteBinds(c, e, sink, nil, nil) }
+	return func(c net.Conn, e io.ReadWriteCloser) error { return rewriteBinds(c, e, sink, nil) }
 }
 
 // RewriteBindsGuarded is RewriteBinds with an audit sink and an admission gate
 // (#120). Either may be nil.
 func RewriteBindsGuarded(sink AuditSink, gate Gate) func(net.Conn, io.ReadWriteCloser) error {
-	return func(c net.Conn, e io.ReadWriteCloser) error { return rewriteBinds(c, e, sink, gate, nil) }
-}
-
-// SourceTranslator maps one bind source to the path the engine should see.
-//
-// It exists because the right mapping is a property of the BACKEND, not of
-// Docker. For an engine distro a Windows drive path becomes /mnt/<drive>,
-// because the distro auto-mounts drives. A wslc session has no /mnt/c at all --
-// each Windows folder is its own virtiofs share at /mnt/{GUID} (#321) -- so the
-// same translation would hand dockerd a path that does not exist.
-//
-// What both backends share is the named-pipe case (#164): a pipe bind-mounted
-// into a Linux container can only mean "this engine socket", and that is what
-// Testcontainers Ryuk and docker-in-docker rely on.
-type SourceTranslator func(source string) (string, error)
-
-// RewriteBindsFor is RewriteBindsGuarded with the backend's own source
-// translation. A nil translator keeps the engine-distro behaviour.
-func RewriteBindsFor(t SourceTranslator, sink AuditSink, gate Gate) func(net.Conn, io.ReadWriteCloser) error {
-	return func(c net.Conn, e io.ReadWriteCloser) error { return rewriteBinds(c, e, sink, gate, t) }
+	return func(c net.Conn, e io.ReadWriteCloser) error { return rewriteBinds(c, e, sink, gate) }
 }
 
 const (
@@ -159,7 +140,7 @@ func abandonBody(client net.Conn, engine io.ReadWriteCloser, bodySent <-chan err
 	}
 }
 
-func rewriteBinds(client net.Conn, engine io.ReadWriteCloser, audit AuditSink, gate Gate, translate SourceTranslator) error {
+func rewriteBinds(client net.Conn, engine io.ReadWriteCloser, audit AuditSink, gate Gate) error {
 	clientR := bufio.NewReader(client)
 	engineR := bufio.NewReader(engine)
 
@@ -219,7 +200,7 @@ func rewriteBinds(client net.Conn, engine io.ReadWriteCloser, audit AuditSink, g
 		}
 
 		if isContainerCreate(req) {
-			denied, err := rewriteCreateBody(req, gate, translate)
+			denied, err := rewriteCreateBody(req, gate)
 			switch {
 			case denied != nil:
 				// Admission control refused it (#120). 403 rather than 400:
@@ -548,7 +529,7 @@ func isHijack(resp *http.Response) bool {
 // every release, and silently dropping a caller's option would be far worse
 // than not translating a path. json.Number likewise preserves numeric literals
 // exactly instead of round-tripping them through float64.
-func rewriteCreateBody(req *http.Request, gate Gate, translate SourceTranslator) (denied, err error) {
+func rewriteCreateBody(req *http.Request, gate Gate) (denied, err error) {
 	if req.Body == nil {
 		return nil, nil
 	}
@@ -590,7 +571,7 @@ func rewriteCreateBody(req *http.Request, gate Gate, translate SourceTranslator)
 		}
 	}
 
-	changed, err := translateHostConfig(body, translate)
+	changed, err := translateHostConfig(body)
 	if err != nil {
 		return nil, err
 	}
@@ -614,10 +595,7 @@ func rewriteCreateBody(req *http.Request, gate Gate, translate SourceTranslator)
 
 // translateHostConfig rewrites HostConfig.Binds and the source of any bind-type
 // entry in HostConfig.Mounts, reporting whether anything changed.
-func translateHostConfig(body map[string]any, translate SourceTranslator) (bool, error) {
-	if translate == nil {
-		translate = winpath.ToWSL
-	}
+func translateHostConfig(body map[string]any) (bool, error) {
 	hc, ok := apibody.Map(body, "HostConfig")
 	if !ok {
 		return false, nil
@@ -634,7 +612,7 @@ func translateHostConfig(body map[string]any, translate SourceTranslator) (bool,
 			}
 			binds = append(binds, s)
 		}
-		translated, err := translateBindList(binds, translate)
+		translated, err := translateBindList(binds)
 		if err != nil {
 			return false, err
 		}
@@ -670,7 +648,7 @@ func translateHostConfig(body map[string]any, translate SourceTranslator) (bool,
 			if !ok || src == "" {
 				continue
 			}
-			translated, err := translate(src)
+			translated, err := winpath.ToWSL(src)
 			if err != nil {
 				return false, err
 			}
@@ -750,14 +728,14 @@ func relayBuffered(client net.Conn, engine io.ReadWriteCloser, clientR, engineR 
 	return Relay(client, engine)
 }
 
-// translateBindList applies the backend's source translation to each entry of
-// HostConfig.Binds, reusing winpath's spec parsing so the delicate parts --
-// a Windows drive designator being part of the source rather than a separator,
-// and a named volume never becoming a bind -- stay in one place.
-func translateBindList(binds []string, translate SourceTranslator) ([]string, error) {
+// translateBindList maps each entry of HostConfig.Binds, reusing winpath's
+// spec parsing so the delicate parts -- a Windows drive designator being part
+// of the source rather than a separator, and a named volume never becoming a
+// bind -- stay in one place.
+func translateBindList(binds []string) ([]string, error) {
 	out := make([]string, len(binds))
 	for i, b := range binds {
-		t, err := winpath.TranslateBindWith(b, translate)
+		t, err := winpath.TranslateBind(b)
 		if err != nil {
 			return nil, fmt.Errorf("bind %q: %w", b, err)
 		}
@@ -784,9 +762,9 @@ type ImageGate interface {
 	DenyPull(image string) (reason string, denied bool)
 
 	// DenyBuild judges `docker build`. It takes no image because a Dockerfile
-	// can pull from anywhere, which is exactly why it may need refusing: WSL
-	// takes the same position for `wslc image build`, refusing whenever an
-	// allowlist is active because it cannot attribute the traffic.
+	// can pull from anywhere, which is exactly why it may need refusing: an
+	// administrator's deployed WSL policy takes the same position, refusing
+	// whenever an allowlist is active because it cannot attribute the traffic.
 	DenyBuild() (reason string, denied bool)
 
 	// DenyPush judges `docker push` and `docker plugin push`. The image is the
@@ -794,9 +772,10 @@ type ImageGate interface {
 	//
 	// A registry allowlist that gates only inbound traffic controls what may
 	// ENTER the machine and says nothing about what leaves it — and leaving is
-	// the direction that moves data off it (#353). WSL's own `wslc push`
-	// refuses a blocked registry, so gating here is matching them rather than
-	// Skrog inventing a second reading of what an allowlist means.
+	// the direction that moves data off it (#353). An administrator's deployed
+	// WSL policy refuses a push to a blocked registry, so gating here matches
+	// it rather than Skrog inventing a second reading of what an allowlist
+	// means.
 	DenyPush(image string) (reason string, denied bool)
 }
 

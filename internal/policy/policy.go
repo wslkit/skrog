@@ -94,8 +94,8 @@ type Rules struct {
 	// be attributed to a registry in advance, because a Dockerfile's FROM and
 	// any RUN can reach anywhere and at the pipe a BuildKit build is an opaque
 	// gRPC stream. So the only two honest positions are refuse, or allow and
-	// say so. See DenyBuild for why "allow and say so" is the default here and
-	// "refuse" is the default on the wslc gate.
+	// say so. See DenyBuild for why "allow and say so" is the default here,
+	// where an administrator's deployed WSL policy refuses instead.
 	//
 	// It does nothing on its own: with no AllowRegistries there is no rule for
 	// a build to get around, and refusing every build on a machine with no
@@ -461,8 +461,8 @@ func (r Rules) DenyCreate(body map[string]any) (reason string, denied bool) {
 // had it too: an unpinned image landed in the local store and only the create
 // was refused.
 //
-// Note this changes distro-backend behaviour, not just wslc: a `docker pull`
-// that worked yesterday on a machine with allow-registries set is refused now.
+// Note this is a behaviour change: a `docker pull` that worked yesterday on a
+// machine with allow-registries set is refused now.
 // That is the rule doing what it says, but it is a change in a shipping
 // product, which is why it is documented in docs/policy.md rather than slipped
 // in.
@@ -492,8 +492,8 @@ func (r Rules) DenyPull(image string) (reason string, denied bool) {
 //
 // The case for refusing is real: a Dockerfile's FROM and any RUN can reach any
 // registry, so a build cannot be attributed in advance, and allow-registries is
-// therefore bypassable by anyone who writes a Dockerfile. Skrog's wslc gate
-// does refuse, following wslpolicies.h.
+// therefore bypassable by anyone who writes a Dockerfile. An administrator's
+// deployed WSL policy does refuse, per wslpolicies.h.
 //
 // It is not followed here because the two rule sets answer to different people.
 // The WSL policy is an ADMINISTRATOR's, deployed by GPO against a user who
@@ -504,8 +504,8 @@ func (r Rules) DenyPull(image string) (reason string, denied bool) {
 //
 // So it stays open and documented rather than closed and surprising — unless
 // the rule set asks for the strict reading with deny-unattributable-builds
-// (#376), which is the same verdict the wslc gate reaches by default, reached
-// here only because someone chose it.
+// (#376), which is the same verdict the administrator's policy reaches by
+// default, reached here only because someone chose it.
 //
 // The rule needs an allowlist to bite. Refusing builds on a machine with no
 // registry restriction would close a hole that is not open.

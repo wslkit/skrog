@@ -20,7 +20,7 @@ engine-bin/
 /site/resources/
 /site/.hugo_build.lock
 
-# the linux guest agent, built for the wslc backend and shipped in releases
+# the linux guest agent, if built out of tree; it lives in the rootfs
 skrog-agent
 
 # the e2e workflow writes this on the runner

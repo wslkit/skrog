@@ -115,8 +115,7 @@ should have; only the MSI is.
    ```
 
 The zip contains `skrog.exe`, `skrogw.exe` (the windowless logon launcher —
-autostart needs it), `skrogtray.exe` (an optional status tray), `skrog-agent`
-(a Linux binary used by the [wslc backend](wslc-backend.md)), plus `LICENSE`
+autostart needs it), `skrogtray.exe` (an optional status tray), plus `LICENSE`
 and `README.md`. Keep them together.
 
 > **SmartScreen will warn on first run.** The binaries are not
@@ -162,7 +161,6 @@ Useful flags:
 | `--headless` | never prompt; for CI and unattended installs |
 | `--locked skrog.lock` | install the exact engine a `skrog lock` pinned |
 | `--offline bundle.zip` | install from an air-gap bundle ([air-gap.md](air-gap.md)) |
-| `--engine wslc` | use a WSL container session instead ([wslc-backend.md](wslc-backend.md)) |
 
 ## Step 3 — make sure you have a `docker` command
 

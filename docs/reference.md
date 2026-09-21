@@ -275,10 +275,6 @@ itself land when the engine next starts, which `skrog restart` asks for.
                  the key to restore the default.
   prune.build-cache also drop the BuildKit cache on an automatic prune; on/off
                  ("off" by default, because the cache is expensive to rebuild).
-  wslc.ignore-plugins serve the wslc backend even though WSL plugins are registered
-                 on this machine; on/off ("off" by default). Their hooks do NOT
-                 fire through the relay, so the default is to refuse rather
-                 than silently disable an administrator's tooling. wslc only.
 
 Engine settings (engine.<key>) are written into the engine's daemon.json,
 validated with `dockerd --validate` before they replace the live file, and
@@ -464,16 +460,12 @@ Exit codes: 0 ok, 1 error, 2 usage, 4 unsupported platform (the engine
 rootfs is amd64-only; see issue #388).
 
 flags:
-  -agent string
-    	linux skrog-agent for the wslc backend (default: the one shipped beside skrog.exe)
   -config skrog config export
     	declarative install from a skrog.yaml (see skrog config export)
   -data-dir string
     	where the distro's VHDX lives (default: under the state dir)
   -distro string
     	WSL distro name (default: skrog-engine)
-  -engine string
-    	engine backend: distro (a WSL2 distro Skrog owns) or wslc (a WSL container session) [experimental] (default "distro")
   -engine-version string
     	engine version to install (default: this build's default)
   -headless
@@ -718,12 +710,8 @@ docs/auto-logon-runner.md.
 Exit codes: 0 clean shutdown, 1 error, 2 usage, 3 no engine installed.
 
 flags:
-  -agent string
-    	linux skrog-agent to place in the wslc session (default: the one shipped beside skrog.exe, else lifted from the engine distro)
   -distro string
     	WSL distro to relay to (default: from the install manifest)
-  -engine string
-    	engine backend: distro (a WSL2 distro Skrog owns) or wslc (a WSL container session) [experimental] (default "distro")
   -no-context
     	do not create or update the skrog docker context
   -no-path-translation
@@ -1088,8 +1076,6 @@ logon autostart (`skrog autostart`) runs it for you. Logs go to supervisor.log i
 state directory (rotated) as well as stderr.
 
 flags:
-  -agent string
-    	linux skrog-agent for a wslc install (default: the one shipped beside skrog.exe)
   -distro string
     	WSL distro (default: from the install manifest)
   -no-context

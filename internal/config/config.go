@@ -114,17 +114,6 @@ var WSLKeys = map[string]string{
 // flagged before pulls start failing.
 const KeyDiskWarnBelow = "disk.warn-below"
 
-// KeyWslcIgnorePlugins serves the wslc backend even though WSL plugins are
-// registered on this machine (#406).
-//
-// Off by default, and the refusal it overrides is deliberate: WSL plugin hooks
-// do not fire through Skrog's docker.sock relay, so serving anyway silently
-// disables whatever security tooling an administrator deployed. This exists
-// because there are legitimate reasons to accept that — a plugin the operator
-// knows is irrelevant, or a machine where they are the administrator — but it
-// should be a decision someone made, not a default.
-const KeyWslcIgnorePlugins = "wslc.ignore-plugins"
-
 // KeyPruneEvery is how often the supervisor reclaims disk on its own (#393):
 // a duration like 168h, or "off" (the default). Automatic deletion is opt-in
 // and stays that way — a tool that removes a user's images because a timer
@@ -173,9 +162,6 @@ type Config struct {
 	VerifySignature bool
 	// DiskWarnBelow is the doctor free-space floor in bytes; 0 means default.
 	DiskWarnBelow uint64
-	// WslcIgnorePlugins serves the wslc backend despite registered WSL
-	// plugins, whose hooks the relay cannot fire (#406).
-	WslcIgnorePlugins bool
 	// PruneEvery of zero means the supervisor never prunes on its own (#393).
 	PruneEvery time.Duration
 	// PruneKeepSince is the age guard on an automatic prune; zero means the
@@ -244,7 +230,6 @@ func Load(stateDir string) (Config, error) {
 		}
 		c.PruneKeepSince = d
 	}
-	c.WslcIgnorePlugins = raw[KeyWslcIgnorePlugins] == "on"
 	c.PruneBuildCache = raw[KeyPruneBuildCache] == "on"
 	return c, nil
 }
@@ -277,22 +262,21 @@ var validators = map[string]func(string) (string, error){
 		}
 		return d.String(), nil
 	},
-	KeyHookPostStart:     validateHookPath,
-	KeyHookPreStop:       validateHookPath,
-	KeyHookOnIdleStop:    validateHookPath,
-	KeyHookOnWake:        validateHookPath,
-	KeyAudit:             validateOnOff,
-	KeyProxy:             validateProxy,
-	KeyNoProxy:           func(v string) (string, error) { return strings.TrimSpace(v), nil },
-	KeyImportHostCAs:     validateOnOff,
-	KeyGPU:               validateOnOff,
-	KeyGPUVendor:         validateGPUVendor,
-	KeyDiskWarnBelow:     validateSize,
-	KeyWslcIgnorePlugins: validateOnOff,
-	KeyPruneEvery:        validateDurationOrOff,
-	KeyPruneKeepSince:    validatePruneKeepSince,
-	KeyPruneBuildCache:   validateOnOff,
-	KeyVerifySignature:   validateOnOff,
+	KeyHookPostStart:   validateHookPath,
+	KeyHookPreStop:     validateHookPath,
+	KeyHookOnIdleStop:  validateHookPath,
+	KeyHookOnWake:      validateHookPath,
+	KeyAudit:           validateOnOff,
+	KeyProxy:           validateProxy,
+	KeyNoProxy:         func(v string) (string, error) { return strings.TrimSpace(v), nil },
+	KeyImportHostCAs:   validateOnOff,
+	KeyGPU:             validateOnOff,
+	KeyGPUVendor:       validateGPUVendor,
+	KeyDiskWarnBelow:   validateSize,
+	KeyPruneEvery:      validateDurationOrOff,
+	KeyPruneKeepSince:  validatePruneKeepSince,
+	KeyPruneBuildCache: validateOnOff,
+	KeyVerifySignature: validateOnOff,
 
 	// Validated the way WSL reads them, so a typo fails here rather than
 	// silently sizing the VM as something else (#148).

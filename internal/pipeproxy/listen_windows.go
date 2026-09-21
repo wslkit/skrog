@@ -18,17 +18,6 @@ const DefaultPipeName = `\\.\pipe\docker_engine`
 // FallbackPipeName is Skrog's own pipe, used when the default is taken.
 const FallbackPipeName = `\\.\pipe\skrog_engine`
 
-// WslcPipeName is where the experimental wslc backend serves (#335).
-//
-// A third name rather than reusing either of the above, because the two
-// backends are meant to run side by side: a machine keeps its distro engine on
-// the default pipe and reaches a wslc session through `docker context use
-// skrog-wslc`. Sharing a pipe would make them mutually exclusive, and sharing
-// the FALLBACK pipe would be worse than that -- whichever started second would
-// take the name only when Docker Desktop happened to hold the default, so the
-// backends would collide on some machines and not others.
-const WslcPipeName = `\\.\pipe\skrog_wslc`
-
 // defaultSDDL builds the pipe's security descriptor: full control for SYSTEM,
 // administrators, and the OWNING USER; nobody else connects at all.
 //

@@ -76,15 +76,10 @@ modest gain with enough variance that it is fair to call them a wash.
 | case sensitivity | insensitive, unchanged |
 | `inotify` | events fire, so file watchers keep working |
 
-That first row held here even while it did **not** hold on the wslc backend,
-whose virtiofs shares presented `-rwxrwxrwx` and ignored `chmod` until WSL
-2.9.12 fixed it
-([wslc-backend.md](wslc-backend.md#bind-mount-metadata-broken-below-wsl-2912-fixed-at-2912)).
-The difference was never virtiofs itself: WSL's distro mount path always
-passed the `metadata` option and the wslc container path did not. So
-`wsl.virtiofs` on this backend was never affected by
-[microsoft/WSL#40719](https://github.com/microsoft/WSL/issues/40719), despite
-an issue title that reads as though it covers both.
+That first row is worth stating because
+[microsoft/WSL#40719](https://github.com/microsoft/WSL/issues/40719) reads as
+though virtiofs loses permission metadata in general. It does not here: WSL's
+distro mount path passes the `metadata` option, so `chmod` sticks.
 
 ### Caveats
 
@@ -163,56 +158,9 @@ On a large machine with no sizing set it says so and stays `ok`: WSL's default
 is a reasonable answer there, and a check that warned on every untuned machine
 would be noise.
 
-## The wslc backend sizes differently, and you cannot set it
-
-None of the above applies to the [wslc backend](wslc-backend.md). A wslc
-session is its own VM with its own settings, and they do not come from
-`.wslconfig`.
-
-WSL's own `WSLCSessionSettings` carries `CpuCount`, `MemoryMb`,
-`MaximumStorageSizeMb`, `BootTimeoutMs`, `NetworkingMode`, `StoragePath` and
-`IdleTimeoutSec`. **The shipped `wslc` CLI exposes none of them.** There is no
-`session create`, and the only subcommands are `enter`, `list`, `run`, `shell`
-and `terminate`.
-
-`system session enter` looks like the way in — its help says it "creates a
-non-persistent session with the given storage path" and it takes a `--name`.
-It does not create one. Pointed at an empty directory it fails:
-
-```
-No WSLC session found in 'C:\...\sessionstore'
-Error code: ERROR_PATH_NOT_FOUND
-```
-
-It attaches to storage that already exists. So a session's size is whatever
-WSL chose when it created the default session, and Skrog cannot change it.
-
-### Where a session's storage actually lives
-
-```
-%LOCALAPPDATA%\wslc\sessions\<session name>\storage.vhdx
-%LOCALAPPDATA%\wslc\sessions\<session name>\swap.vhdx
-```
-
-Ordinary VHDX files, so the disk mechanics `skrog compact` uses would apply in
-principle — but the path is WSLC's, not Skrog's, and nothing in Skrog operates
-on it today. `compact`, `relocate` and `snapshot` remain distro-only.
-
-### What you can control
-
-Only whether a session exists at all. `wslc system session terminate` releases
-its ~820 MB, and the session boots again on next use — about 3.3 s cold. Skrog
-holds a lease while its bridge is running precisely to stop that happening
-underneath your containers, and drops it when the bridge stops.
-
-Getting real control here needs the SDK or COM path rather than the CLI, which
-is [#325](https://github.com/wslkit/skrog/issues/325) and is gated on code
-signing.
-
 ## See also
 
 - [ci-runners.md](ci-runners.md) — running jobs against the engine
 - [housekeeping.md](housekeeping.md) — `skrog prune` and `skrog compact` for
   the disk side of the same problem
 - [vpn.md](vpn.md) — the networking keys, which stay advisory
-- [wslc-backend.md](wslc-backend.md) — the other backend, whose VM you cannot size

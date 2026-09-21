@@ -44,11 +44,10 @@ const SecretFile = "/etc/skrog/agent-secret"
 
 func main() {
 	var (
-		version     = flag.Bool("version", false, "print the agent identity and exit")
-		port        = flag.Uint("port", uint(vsockproto.Port), "vsock port to listen on")
-		socket      = flag.String("socket", "/var/run/docker.sock", "engine socket to relay to")
-		secretFile  = flag.String("secret-file", SecretFile, "per-install auth secret (empty file disables auth)")
-		forwardPort = flag.Uint("forward-port", 0, "vsock port for TCP forwarding (0 disables it)")
+		version    = flag.Bool("version", false, "print the agent identity and exit")
+		port       = flag.Uint("port", uint(vsockproto.Port), "vsock port to listen on")
+		socket     = flag.String("socket", "/var/run/docker.sock", "engine socket to relay to")
+		secretFile = flag.String("secret-file", SecretFile, "per-install auth secret (empty file disables auth)")
 	)
 	flag.Parse()
 	if *version {
@@ -65,21 +64,6 @@ func main() {
 	}
 	if secret == "" {
 		log.Printf("no auth secret at %s; serving the v1 (unauthenticated) handshake", *secretFile)
-	}
-
-	// The forward listener is opt-in and off by default, so the engine distro's
-	// agent is byte-for-byte the same service it has always been. Only the wslc
-	// backend starts it, because only there does Skrog have to carry published
-	// ports to Windows itself (#330).
-	if *forwardPort != 0 {
-		go func() {
-			if err := runForward(uint32(*forwardPort), secret); err != nil {
-				// Not fatal: the engine relay is the important half, and a
-				// bridge that serves docker without published ports is far
-				// better than one that serves nothing.
-				log.Printf("forward listener stopped: %v", err)
-			}
-		}()
 	}
 
 	if err := run(uint32(*port), *socket, secret); err != nil {

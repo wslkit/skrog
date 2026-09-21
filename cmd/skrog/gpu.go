@@ -75,7 +75,7 @@ flags:
 	log := cliLogger(false)
 	p := &provision.Provisioner{Logger: log}
 
-	targetDistro, ok := requireDistroInstall(p, opts, "enable-gpu", "the WSLC guest already provides a CDI spec, so `docker run --gpus` works without this.")
+	targetDistro, ok := requireDistroInstall(p, opts)
 	if !ok {
 		return exitNotFound
 	}

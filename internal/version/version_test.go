@@ -499,35 +499,7 @@ func TestVersionTextDockerRowColumns(t *testing.T) {
 	t.Fatalf("no docker row:\n%s", b.String())
 }
 
-// On the wslc backend the engine is Microsoft's, so the distro line would be
-// both empty and wrong. `wsl --update` moves that engine, which is the whole
-// reason `skrog lock` does not apply here (#324, #335).
-func TestWriteTextNamesTheWslcBackend(t *testing.T) {
-	var buf bytes.Buffer
-	r := version.Report{
-		App:    "0.5.0",
-		Engine: version.EngineInfo{Installed: true, Backend: version.BackendWslc},
-	}
-	if err := r.WriteText(&buf); err != nil {
-		t.Fatal(err)
-	}
-	out := buf.String()
-	if !strings.Contains(out, "Microsoft") {
-		t.Errorf("wslc engine line does not name Microsoft:\n%s", out)
-	}
-	if strings.Contains(out, "distro ") {
-		t.Errorf("wslc report names a distro it does not have:\n%s", out)
-	}
-	// Only the ENGINE line: "wsl unknown" is a separate and legitimate fact
-	// about a fixture that sets no WSL version.
-	for _, line := range strings.Split(out, "\n") {
-		if strings.HasPrefix(line, "engine") && strings.Contains(line, "unknown") {
-			t.Errorf("the wslc engine line prints a version as unknown, which reads as a fault: %q", line)
-		}
-	}
-}
-
-// And the distro line is unchanged, because every existing install prints it.
+// The distro line, which every install prints, because every existing install prints it.
 func TestWriteTextKeepsTheDistroLine(t *testing.T) {
 	var buf bytes.Buffer
 	r := version.Report{

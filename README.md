@@ -248,33 +248,16 @@ handled by a shim, and the corners where tooling reaches for dockerd's actual be
 Skrog runs dockerd itself, so there is no compatibility surface to fall off. That same
 compatible API is how `skrog migrate --from-podman` reads your images out.
 
-**`wslc`** is Microsoft's own, and if you have updated WSL recently you already have it —
-`wslc.exe` ships with WSL 2.9.3+ and is headed for general availability. It runs, builds
-and networks Linux containers, with GPU support, and there is a `Microsoft.WSL.Containers`
-NuGet for driving containers from a Windows app. It is the strongest argument against
-needing this project at all, and if you want a first-party runtime with Microsoft behind
-it, use it.
+**Microsoft's own WSL container tooling** ships with recent WSL releases and runs, builds
+and networks Linux containers with a CLI of its own. If you want a first-party runtime
+with Microsoft behind it and you do not need the Docker API, use it.
 
-What it does not give you is **an endpoint**. Every wslc session really does run a Moby
-engine — dockerd on a unix socket inside the session VM — but it is started with no `-H`,
-and no named pipe, TCP port or inbound route reaches it from Windows. So nothing that
-already speaks Docker can talk to it: Compose, Testcontainers, Dev Containers, buildx,
-`act`, `gitlab-ci-local`, Dagger. Skrog serves that endpoint — the real `docker` API on
-`\\.\pipe\docker_engine` — which is why that list works here without any of those tools
-knowing Skrog exists. `wslc` also
-[cannot bind-mount WSL host paths yet](https://github.com/Microsoft/WSL/issues/40957),
-which rules out docker-in-docker — a limitation of its CLI rather than of the engine
-underneath. [wslc and Skrog](docs/wsl-containers.md) has the full picture: what is
-actually inside a session, why `docker` cannot reach it, and how you can check both
-yourself in one command.
-
-Skrog can also **serve that engine**: `skrog install --engine wslc` makes a wslc
-session this machine's engine, and `skrog start`, `status`, `version` and a
-`doctor` check all know it. `skrog proxy --engine wslc` runs the same bridge in
-the foreground if you would rather just try it. Compose, Testcontainers and
-Windows-folder bind mounts all work. It is experimental, it cannot pin an
-engine, and a session costs a second VM. [wslc as the engine](docs/wslc-backend.md)
-is the full guide, with the measured numbers and a pros-and-cons table.
+What it does not give you is **an endpoint**. Its sessions run a Moby engine on a unix
+socket inside the session VM, started with no `-H`, and no named pipe, TCP port or
+inbound route reaches it from Windows. So nothing that already speaks Docker can talk to
+it: Compose, Testcontainers, Dev Containers, buildx, `act`, `gitlab-ci-local`, Dagger.
+Skrog serves that endpoint — the real `docker` API on `\\.\pipe\docker_engine` — which is
+why that list works here without any of those tools knowing Skrog exists.
 
 **What none of them do** is let you pin the engine. `skrog lock` writes the exact dockerd,
 containerd, runc and BuildKit commits; `setup-skrog` installs that same file on the runner.
@@ -333,9 +316,7 @@ page is reachable from here.
 **Start**
 [Installing Skrog](docs/install.md) ·
 [Bundled docker CLI](docs/docker-cli.md) ·
-[Dev Containers](docs/devcontainers.md) ·
-[wslc and Skrog](docs/wsl-containers.md) ·
-[wslc as the engine](docs/wslc-backend.md)
+[Dev Containers](docs/devcontainers.md)
 
 **Keep it healthy**
 [Housekeeping: prune, compact, relocate](docs/housekeeping.md) ·

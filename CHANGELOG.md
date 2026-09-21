@@ -12,6 +12,37 @@ useful than saying where the real one is.
 
 ## [Unreleased]
 
+### Removed
+
+- **The WSL container session backend is gone**
+  ([#451](https://github.com/wslkit/skrog/issues/451)). Skrog serves one
+  engine: Docker Engine in a WSL2 distro it owns and can pin.
+
+  `skrog install --engine wslc`, `skrog proxy --engine wslc`, the
+  `wslc.ignore-plugins` setting, the `skrog-wslc` docker context, the `--agent`
+  flags on `install`, `proxy` and `supervise`, the session doctor check and the
+  `session` field in `skrog status --json` are all removed, along with
+  `docs/wsl-containers.md`, `docs/wslc-backend.md` and `docs/wslc-deep-dive.md`.
+  `skrog-agent` no longer ships beside `skrog.exe`; it lives in the rootfs,
+  which is the only place it is used.
+
+  **Why.** That backend served a *different engine* — Microsoft's, inside a
+  session — with its own API version, its own command surface and its own
+  limits. Skrog's whole promise is that the real Docker API answers on
+  `\\.\pipe\docker_engine` and unmodified tooling works. A second backend that
+  could not keep that promise put the promise itself in question, and the
+  maintenance cost was paid on every feature.
+
+  **If you installed with `--engine wslc`**, Skrog will tell you so and stop
+  rather than misbehave. Move over with `skrog uninstall` then `skrog install`.
+  Containers and images in the old session are **not** carried over: they
+  belong to the other engine, so save anything you need with `wslc` first.
+
+  `backend` stays in `skrog status --json` and `skrog version --json`, always
+  `"distro"`. It is part of a pinned contract
+  ([docs/cli-json.md](docs/cli-json.md)) and a reader that switches on it must
+  keep parsing.
+
 ### Changed
 
 - **`allow-registries` now applies to `docker plugin install`**

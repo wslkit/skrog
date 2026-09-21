@@ -167,15 +167,3 @@ arm64 `docker.exe`; `skrog cli install` reports it as unavailable and installs
 the rest. Use Docker Desktop's `docker` (which is arm64-native) until an upstream
 arm64 CLI ships.
 
-## Against the wslc backend
-
-The bundled CLI also drives Skrog's experimental
-[wslc backend](wslc-backend.md), with one thing worth knowing up front: the
-engine Microsoft ships inside a session is **25.0.3, API 1.44**, and the CLI's
-own minimum is 1.44. It negotiates down and works, with no headroom — anything
-needing API 1.45 or newer fails rather than degrades.
-
-[Behaviour differences from the distro backend](wslc-backend.md#behaviour-differences-from-the-distro-backend)
-covers the rest: no cross-architecture execution, virtiofs bind-mount
-permissions, and the several limits that belong to the `wslc` CLI rather than
-to the engine and so do not apply here.

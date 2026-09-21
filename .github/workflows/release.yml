@@ -100,22 +100,12 @@ jobs:
             $outt = "dist/skrog_${env:VERSION}_windows_$arch/skrogtray.exe"
             go build -trimpath -ldflags "-s -w -H=windowsgui" -o $outt ./cmd/skrogtray
             if ($LASTEXITCODE -ne 0) { exit 1 }
-            # skrog-agent is a LINUX binary, and it ships here rather than only
-            # inside the rootfs because the wslc backend has no distro to lift
-            # one from (#335). Always amd64: a wslc session is an x64 VM even
-            # on an arm64 host, and the arm64 zip needs it for the same reason
-            # the amd64 one does.
-            $env:GOOS = 'linux'
-            $env:GOARCH = 'amd64'
-            $outa = "dist/skrog_${env:VERSION}_windows_$arch/skrog-agent"
-            go build -trimpath -ldflags "-s -w" -o $outa ./guest/agent
-            if ($LASTEXITCODE -ne 0) { exit 1 }
             Copy-Item LICENSE, README.md (Split-Path $out)
             # Shell completions (#392), generated from this same tree and
             # verified current by CI. Text files, so the size budget below is
             # unaffected.
             Copy-Item -Recurse completions (Split-Path $out)
-            Write-Host "built $out ($([math]::Round((Get-Item $out).Length/1MB,1)) MB) + skrogw + skrogtray + skrog-agent"
+            Write-Host "built $out ($([math]::Round((Get-Item $out).Length/1MB,1)) MB) + skrogw + skrogtray"
           }
 
       - name: verify the version stamp and size budget
