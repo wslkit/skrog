@@ -148,16 +148,6 @@ flags:
 		log.Warn("using an overridden rootfs; this is a development path, not a release install",
 			"url", *rootfsURL)
 	default:
-		// The manifest is amd64-only (#388). Refuse here rather than after a
-		// 200 MB download, a passing SHA-256 and a successful `wsl --import`
-		// that leaves the user with a distro whose every binary is the wrong
-		// ISA. Only this branch checks: --rootfs-url, --offline and --locked
-		// all carry bytes the caller chose, and skrog does not second-guess
-		// those.
-		if err := release.CheckHostArch(); err != nil {
-			fmt.Fprintf(os.Stderr, "skrog: %v\n", err)
-			return exitUnsupported
-		}
 		m, err := release.Load()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "skrog: %v\n", err)
@@ -168,12 +158,24 @@ flags:
 			fmt.Fprintf(os.Stderr, "skrog: %v\n", err)
 			return exitUsage
 		}
-		if !engine.Published() {
-			fmt.Fprintf(os.Stderr, "skrog: %v\n", &release.ErrNotPublished{Version: engine.Version})
+		// Pick the rootfs for this host's architecture, and refuse HERE rather
+		// than after a 200 MB download, a passing SHA-256 and a successful
+		// `wsl --import` that leaves the user with a distro whose every binary
+		// is the wrong ISA (#388).
+		//
+		// Only this branch selects: --rootfs-url, --offline and --locked all
+		// carry bytes the caller chose, and skrog does not second-guess those.
+		rootfs, err := engine.HostRootfs()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "skrog: %v\n", err)
+			var unsupported *release.ErrUnsupportedHostArch
+			if errors.As(err, &unsupported) {
+				return exitUnsupported
+			}
 			return exitError
 		}
-		opts.RootfsURL = engine.Rootfs.URL
-		opts.RootfsSHA256 = engine.Rootfs.SHA256
+		opts.RootfsURL = rootfs.URL
+		opts.RootfsSHA256 = rootfs.SHA256
 		opts.EngineVersion = engine.Version
 	}
 

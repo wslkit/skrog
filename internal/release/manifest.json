@@ -1,12 +1,19 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "comment": [
     "The locked version manifest (PLAN section 04). Nothing is fetched as",
     "'latest at install time': this file is compiled into the binary, so a",
     "given Skrog build always installs exactly these components.",
     "",
-    "rootfs.sha256 is filled in when a rootfs release is published, copied from",
-    "the .sha256 asset the rootfs workflow attaches. While it is empty,",
+    "rootfs is keyed by GOARCH (schemaVersion 2, #388). An architecture that",
+    "is ABSENT was never built for that engine; an architecture that is",
+    "present with an empty sha256 is built but not yet released. Those are",
+    "different failures with different answers, so they are different shapes",
+    "here -- do not add an empty arm64 entry to an engine that has no arm64",
+    "build, because it turns 'this will never exist' into 'this is coming'.",
+    "",
+    "rootfs.<arch>.sha256 is filled in when a rootfs release is published,",
+    "copied from that architecture's .sha256 asset. While it is empty,",
     "`skrog install` refuses and tells the user to pass --rootfs-url and",
     "--rootfs-sha256 explicitly, rather than silently installing something",
     "unverified. Keep these values in step with guest/rootfs/versions.env.",
@@ -22,15 +29,22 @@
     "install and every rollback. Releases cut from here on are named",
     "skrog-rootfs-*; the ones already published stay exactly as they were.",
     "Same rule as formerRootfsHomes in internal/provision/canonical.go, and the",
-    "same reason: these describe bytes that already exist somewhere."
+    "same reason: these describe bytes that already exist somewhere.",
+    "",
+    "For the same reason the entries below carry no -amd64 suffix: they were",
+    "published before guest/rootfs/arch.sh put the architecture in the name.",
+    "Releases cut from rootfs-v29.8.1-2 onward are suffixed on both",
+    "architectures."
   ],
   "engines": [
     {
       "version": "29.8.1",
       "default": true,
       "rootfs": {
-        "url": "https://github.com/wslkit/skrog/releases/download/rootfs-v29.8.1-1/skrog-rootfs-29.8.1-1.tar.gz",
-        "sha256": "863834299a97b0ce935b4b2cecce2d35afb179ba7db089fa02998ce1deddcfbb"
+        "amd64": {
+          "url": "https://github.com/wslkit/skrog/releases/download/rootfs-v29.8.1-1/skrog-rootfs-29.8.1-1.tar.gz",
+          "sha256": "863834299a97b0ce935b4b2cecce2d35afb179ba7db089fa02998ce1deddcfbb"
+        }
       },
       "components": {
         "dockerd": "29.8.1",
@@ -45,8 +59,10 @@
       "version": "29.8.0",
       "default": false,
       "rootfs": {
-        "url": "https://github.com/wslkit/skrog/releases/download/rootfs-v29.8.0-2/skrog-rootfs-29.8.0-2.tar.gz",
-        "sha256": "a16cd3bc38f0529542a7fc6fba066d944e96302f459595ebf7c5d04035a600af"
+        "amd64": {
+          "url": "https://github.com/wslkit/skrog/releases/download/rootfs-v29.8.0-2/skrog-rootfs-29.8.0-2.tar.gz",
+          "sha256": "a16cd3bc38f0529542a7fc6fba066d944e96302f459595ebf7c5d04035a600af"
+        }
       },
       "components": {
         "dockerd": "29.8.0",
@@ -61,8 +77,10 @@
       "version": "29.7.2",
       "default": false,
       "rootfs": {
-        "url": "https://github.com/wslkit/skrog/releases/download/rootfs-v29.7.2-4/hawser-rootfs-29.7.2-4.tar.gz",
-        "sha256": "8a9cb099b6fa58e8633c7612cb9b16ce0284e257ec9bf8a4c594844131f370a1"
+        "amd64": {
+          "url": "https://github.com/wslkit/skrog/releases/download/rootfs-v29.7.2-4/hawser-rootfs-29.7.2-4.tar.gz",
+          "sha256": "8a9cb099b6fa58e8633c7612cb9b16ce0284e257ec9bf8a4c594844131f370a1"
+        }
       },
       "components": {
         "dockerd": "29.7.2",

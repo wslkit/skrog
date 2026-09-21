@@ -38,12 +38,28 @@ type Rootfs struct {
 
 var sha256Re = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
-// FromEngine builds a Lock from a resolved release engine.
-func FromEngine(e *release.Engine) Lock {
+// FromEngine builds a Lock from a resolved release engine, pinning the rootfs
+// for THIS host's architecture.
+//
+// A lock file therefore describes one architecture, and always did -- it
+// holds one URL and one digest, and that is the point of it. Since #388 the
+// manifest can offer several, so which one was taken is now a decision rather
+// than the only option, and `skrog install --locked` on a different
+// architecture will fail the way any wrong-architecture rootfs fails. Making
+// a lock multi-architecture would mean pinning bytes the machine writing it
+// never verified, which is the opposite of what a lock is for.
+//
+// Returns an error where it used to return unconditionally: an engine with no
+// build for this host has nothing to pin.
+func FromEngine(e *release.Engine) (Lock, error) {
+	r, err := e.HostRootfs()
+	if err != nil {
+		return Lock{}, err
+	}
 	l := Lock{
 		SchemaVersion: SchemaVersion,
 		EngineVersion: e.Version,
-		Rootfs:        Rootfs{URL: e.Rootfs.URL, SHA256: e.Rootfs.SHA256},
+		Rootfs:        Rootfs{URL: r.URL, SHA256: r.SHA256},
 	}
 	if len(e.Components) > 0 {
 		l.Components = make(map[string]string, len(e.Components))
@@ -51,7 +67,7 @@ func FromEngine(e *release.Engine) Lock {
 			l.Components[k] = v
 		}
 	}
-	return l
+	return l, nil
 }
 
 // Load reads and validates a skrog.lock from disk.

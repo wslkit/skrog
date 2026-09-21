@@ -89,17 +89,33 @@ has to exist first:
    Releases through `rootfs-v29.8.0-2` are still flagged pre-release, from
    before this file described a normal release at all. Harmless — the assets
    are what matter and they are immutable — and not worth rewriting.
-2. **Copy the published checksum into the manifest.** Take the value from the
-   uploaded `.sha256` and put it in `manifest.json` under
-   `engines[].rootfs.sha256`, confirming the `url` matches the tag you used.
-   Merge that as a normal PR — a test asserts the manifest agrees with
-   `versions.env`.
+2. **Copy the published checksums into the manifest.** `manifest.json` is
+   schema 2: `engines[].rootfs` is a map keyed by GOARCH. Take each
+   architecture's `.sha256` asset and add its entry, confirming each `url`
+   matches the tag you used.
 
-   Today that is the **amd64** checksum, because `manifest.json` has one
-   `rootfs` per engine and no architecture dimension. The arm64 tarball is
-   published and attested but nothing installs it yet; `skrog install` still
-   refuses on arm64 with the message in `internal/release/arch.go`. Teaching
-   the manifest to carry both is the second half of #388.
+   ```json
+   "rootfs": {
+     "amd64": { "url": "...-amd64.tar.gz", "sha256": "..." },
+     "arm64": { "url": "...-arm64.tar.gz", "sha256": "..." }
+   }
+   ```
+
+   Merge that as a normal PR — a test asserts the manifest agrees with
+   `versions.env`, per architecture.
+
+   **Absent and empty mean different things.** An architecture that is not in
+   the map was never built for that engine; one that is present with an empty
+   `sha256` is built but not released. `skrog install` says something
+   different for each, because the user's next move differs — nothing they
+   wait for fixes the first. Do not add an empty entry for an architecture
+   that has no build.
+
+   Adding the first arm64 entry is what turns arm64 on. There is no code
+   change: `HostRootfs()` selects by `runtime.GOARCH`, and a test
+   (`TestNoArm64RootfsIsPublishedYet`) fails on purpose the moment one
+   appears, to send you at `docs/install.md` and `internal/release/arch.go`,
+   which still describe arm64 as unsupported.
 3. **Cut the app release.** Tag `v<app-version>`. `release.yml` builds both
    architectures, asserts the version stamp actually took, packages, and
    attaches the zips with `SHA256SUMS`.

@@ -57,12 +57,16 @@ func runInstallFromConfig(configPath string, opts provision.Options, engineVersi
 			fmt.Fprintf(os.Stderr, "skrog: %v\n", err)
 			return exitUsage
 		}
-		if !engine.Published() {
-			fmt.Fprintf(os.Stderr, "skrog: %v\n", &release.ErrNotPublished{Version: engine.Version})
+		// Selects this host's architecture and says why when there is none
+		// (#388); HostRootfs covers both "never built for this" and "built
+		// but not released yet".
+		rootfs, err := engine.HostRootfs()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "skrog: %v\n", err)
 			return exitError
 		}
-		opts.RootfsURL = engine.Rootfs.URL
-		opts.RootfsSHA256 = engine.Rootfs.SHA256
+		opts.RootfsURL = rootfs.URL
+		opts.RootfsSHA256 = rootfs.SHA256
 		opts.EngineVersion = engine.Version
 		if _, err := p.Install(ctx, opts); err != nil {
 			var pfe *provision.PreflightError

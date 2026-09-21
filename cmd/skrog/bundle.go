@@ -63,11 +63,22 @@ flags:
 	ctx, stop := interruptible()
 	defer stop()
 
+	// A bundle is for THIS architecture. It carries one rootfs and a lock that
+	// pins it, so building one on amd64 for an arm64 machine would mean
+	// shipping bytes this machine never verified (#388). Someone who needs an
+	// arm64 bundle builds it on an arm64 machine, which is the rule air-gap
+	// transfer follows anyway.
+	rootfs, err := engine.HostRootfs()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "skrog: %v\n", err)
+		return exitError
+	}
+
 	// Download + verify into the normal rootfs cache, so a later real install
 	// reuses it and this does not re-fetch what is already present.
-	cached := filepath.Join(opts.StateDir, "rootfs", filepath.Base(engine.Rootfs.URL))
-	log.Info("fetching rootfs for bundle", "version", engine.Version)
-	if err := p.FetchRootfs(ctx, engine.Rootfs.URL, engine.Rootfs.SHA256, cached); err != nil {
+	cached := filepath.Join(opts.StateDir, "rootfs", filepath.Base(rootfs.URL))
+	log.Info("fetching rootfs for bundle", "version", engine.Version, "arch", release.HostArch())
+	if err := p.FetchRootfs(ctx, rootfs.URL, rootfs.SHA256, cached); err != nil {
 		fmt.Fprintf(os.Stderr, "skrog: %v\n", err)
 		return exitError
 	}
@@ -76,7 +87,12 @@ flags:
 	if dest == "" {
 		dest = fmt.Sprintf("skrog-bundle-%s.zip", engine.Version)
 	}
-	if err := bundle.Create(dest, lockfile.FromEngine(engine), cached); err != nil {
+	lock, err := lockfile.FromEngine(engine)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "skrog: %v\n", err)
+		return exitError
+	}
+	if err := bundle.Create(dest, lock, cached); err != nil {
 		fmt.Fprintf(os.Stderr, "skrog: %v\n", err)
 		return exitError
 	}

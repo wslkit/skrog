@@ -26,19 +26,24 @@ clean machine you do need it, and `skrog install` now says so when it finishes.
 ### Windows on ARM
 
 `skrog.exe` has an arm64 build and it runs natively — the CLI, the bridge and
-the supervisor are all fine. **The engine is not available.** Every rootfs in
-the version manifest is built x86-64, and WSL2 runs the guest on the host CPU,
-so an x86-64 `dockerd` cannot start inside an arm64 utility VM. There is no
-emulation route.
+the supervisor are all fine. **The engine is not available yet.** WSL2 runs
+the guest on the host CPU, so an x86-64 `dockerd` cannot start inside an arm64
+utility VM, and there is no emulation route.
 
 `skrog install` **refuses on arm64** with exit code `4` rather than
 downloading 200 MB and failing obscurely afterwards. If you have built an
 arm64 rootfs yourself, `skrog install --rootfs-url <url> --rootfs-sha256 <sha>`
 still works — that path is deliberately open.
 
-Until a published arm64 rootfs exists
-([#388](https://github.com/wslkit/skrog/issues/388)), use Docker Desktop or
-Rancher Desktop on ARM; both ship an arm64 engine.
+**What has changed, and what has not.** The rootfs is now *built* for arm64:
+CI compiles the whole engine from source on a native arm64 runner, boots it
+and checks it against Docker's aarch64 reference bundle on every change, and
+the version manifest carries a rootfs per architecture. What is missing is a
+published arm64 release for the manifest to point at. When one is cut, arm64
+installs work — selection is already there, keyed on the host's architecture.
+
+Until then ([#388](https://github.com/wslkit/skrog/issues/388)), use Docker
+Desktop or Rancher Desktop on ARM; both ship an arm64 engine.
 
 Nothing else. Skrog does not need Docker Desktop, and coexists with it if you
 keep it.
