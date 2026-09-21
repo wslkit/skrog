@@ -10,15 +10,16 @@ import (
 )
 
 // A tripwire on the premise CheckHostArch rests on: an Engine has exactly one
-// rootfs and no architecture dimension anywhere — not in the schema, not even
-// in the published filenames, which are `skrog-rootfs-<version>.tar.gz` with
-// no arch in them at all. That is why a blanket refusal is the right shape
-// today: there is nothing to select between.
+// rootfs and no architecture dimension in the SCHEMA, so there is nothing to
+// select between and a blanket refusal is the right shape.
 //
-// The day an arm64 rootfs is published (#388), this has to change — an arch
-// key in the schema, or arch in the asset name — and one of the assertions
-// below will fail and lead whoever does it to CheckHostArch, which must then
-// select rather than refuse.
+// The build side has moved on already — rootfs.yml builds amd64 and arm64
+// natively and names each artifact with its architecture. What has not moved
+// is this: no arm64 rootfs has been published, and the manifest could not
+// point at one if it had been.
+//
+// The day that changes (#388), an assertion below fails and leads whoever
+// does it to CheckHostArch, which must then select rather than refuse.
 func TestTheManifestStillHasNoArchitectureDimension(t *testing.T) {
 	m, err := release.Load()
 	if err != nil {
@@ -28,8 +29,8 @@ func TestTheManifestStillHasNoArchitectureDimension(t *testing.T) {
 		t.Fatal("the manifest has no engines; this test proves nothing")
 	}
 	if release.EngineArch != "amd64" {
-		t.Errorf("EngineArch is %q; every published rootfs is built x86_64-only "+
-			"(rootfs.yml has one build job and no matrix)", release.EngineArch)
+		t.Errorf("EngineArch is %q; every rootfs the manifest points at is amd64",
+			release.EngineArch)
 	}
 	for _, e := range m.Engines {
 		if e.Rootfs.URL == "" {

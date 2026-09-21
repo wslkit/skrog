@@ -23,9 +23,10 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 out="${1:?usage: boot-test.sh <out-dir>}"
 # shellcheck source=versions.env
 . "$here/versions.env"
-rootfs_version="${ENGINE_VERSION}-${ROOTFS_REVISION}"
+# shellcheck source=arch.sh
+. "$here/arch.sh"
 
-tarball="$out/skrog-rootfs-${rootfs_version}.tar.gz"
+tarball="$out/$rootfs_tarball_name"
 test -f "$tarball" || { echo "missing $tarball"; exit 1; }
 
 image="skrog-boot-test:${ENGINE_VERSION}"

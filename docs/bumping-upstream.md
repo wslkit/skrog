@@ -97,6 +97,12 @@ engine from source and runs `smoke-test.sh`, `boot-test.sh` and
 not start reached a published release **twice** — a green build alone has
 already proven insufficient here, so treat the boot test as the real gate.
 
+It does all of that **twice**, once per architecture, on native amd64 and
+arm64 runners (#388). So a bump has to build, boot and match Docker's
+reference bundle on both. Read both jobs: an upstream tag that compiles on
+x86-64 and not on aarch64 is a real possibility, and `fail-fast: false` is set
+so the passing one still tells you which it is.
+
 ### 7. Release, then fill in the checksum
 
 Follow [RELEASING.md](../RELEASING.md): tag `rootfs-v<engine>-<revision>` (here

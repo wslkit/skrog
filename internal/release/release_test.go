@@ -81,11 +81,29 @@ func TestEmbeddedManifestMatchesRootfsPins(t *testing.T) {
 	// (ENGINE_VERSION-ROOTFS_REVISION): a revision bump that forgets the
 	// manifest would otherwise keep installing the previous rootfs while
 	// `skrog version` claims the new one's contents.
+	//
+	// Two spellings are accepted, and the reason is a fact about what is
+	// published rather than laxness. Since #388 the build names its output
+	// skrog-rootfs-<version>-<rev>-<arch>.tar.gz, because an unsuffixed name
+	// that silently means amd64 is the ambiguity that issue is about. Every
+	// release up to rootfs-v29.8.1-1 was cut before that and carries the bare
+	// name; those bytes exist under that name and will not be renamed.
 	if rev := pins["ROOTFS_REVISION"]; rev != "" {
-		wantName := "skrog-rootfs-" + pins["ENGINE_VERSION"] + "-" + rev + ".tar.gz"
-		if !strings.HasSuffix(e.Rootfs.URL, "/"+wantName) {
-			t.Errorf("manifest rootfs URL %q does not end in %q (versions.env ROOTFS_REVISION=%s)",
-				e.Rootfs.URL, wantName, rev)
+		stem := "skrog-rootfs-" + pins["ENGINE_VERSION"] + "-" + rev
+		accepted := []string{
+			stem + "-" + release.EngineArch + ".tar.gz", // cut after #388
+			stem + ".tar.gz", // cut before it
+		}
+		ok := false
+		for _, name := range accepted {
+			if strings.HasSuffix(e.Rootfs.URL, "/"+name) {
+				ok = true
+				break
+			}
+		}
+		if !ok {
+			t.Errorf("manifest rootfs URL %q ends in none of %v (versions.env ROOTFS_REVISION=%s)",
+				e.Rootfs.URL, accepted, rev)
 		}
 	}
 }

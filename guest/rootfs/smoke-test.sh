@@ -10,10 +10,11 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 out="${1:?usage: smoke-test.sh <out-dir>}"
 # shellcheck source=versions.env
 . "$here/versions.env"
-rootfs_version="${ENGINE_VERSION}-${ROOTFS_REVISION}"
+# shellcheck source=arch.sh
+. "$here/arch.sh"
 
-tarball="$out/skrog-rootfs-${rootfs_version}.tar.gz"
-sbom="$out/skrog-rootfs-${rootfs_version}.spdx.json"
+tarball="$out/$rootfs_tarball_name"
+sbom="$out/${rootfs_name}.spdx.json"
 
 echo "==> artifacts present"
 test -f "$tarball" || { echo "missing $tarball"; exit 1; }

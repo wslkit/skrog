@@ -6,14 +6,17 @@
 #
 #   ./build.sh [output-dir]     default: ./out
 #
-# Output: skrog-rootfs-<version>.tar.gz, its .sha256, and an SPDX SBOM.
+# Output: skrog-rootfs-<version>-<arch>.tar.gz, its .sha256, and an SPDX SBOM.
+# The architecture is the host's: every component is compiled natively, so an
+# arm64 rootfs is built by running this on an arm64 Linux host (#388).
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 out="${1:-$here/out}"
 # shellcheck source=versions.env
 . "$here/versions.env"
-rootfs_version="${ENGINE_VERSION}-${ROOTFS_REVISION}"
+# shellcheck source=arch.sh
+. "$here/arch.sh"
 
 mkdir -p "$out"
 work="$(mktemp -d)"
@@ -110,7 +113,25 @@ docker run --rm \
     fi
     [ -n "$HOOK_SHA" ] || echo "    WARNING: no expected SHA pinned for nvidia-cdi-hook; resolved $sha" >&2
     cd /src/toolkit
-    CGO_ENABLED=1 go build -trimpath \
+    # -Wno-deprecated-declarations, and nothing else, for a reason.
+    #
+    # nvidia-container-toolkit vendors the NVIDIA go-nvml bindings, whose nvml.h marks
+    # ~60 functions DEPRECATED(13.0) while the Go bindings still wrap all of
+    # them. cgo compiles a shim per wrapped function, so every build prints
+    # ~60 -Wdeprecated-declarations warnings and buries the rest of the log --
+    # including the version line this script checks by eye.
+    #
+    # Upstream C calling its own deprecated C. There is
+    # nothing here to fix and no version to move to; the deprecations are
+    # resolved when NVIDIA drops the wrappers. Suppressing exactly that one
+    # diagnostic is honest. Suppressing warnings generally would not be, so
+    # this does not reach for -w.
+    #
+    # -O2 -g are the CGO_CFLAGS defaults go itself uses, restated because setting the
+    # variable REPLACES them rather than appending -- dropping optimisation
+    # from a shipped binary by accident is exactly the kind of thing a
+    # one-line build tweak does.
+    CGO_ENABLED=1 CGO_CFLAGS="-O2 -g -Wno-deprecated-declarations" go build -trimpath \
       -ldflags "-s -w -linkmode external -extldflags -static -X github.com/NVIDIA/nvidia-container-toolkit/internal/info.version=${HOOK_TAG#v}" \
       -o /out/nvidia-cdi-hook ./cmd/nvidia-cdi-hook 2>&1 | grep -v "statically linked applications" || true
     [ -x /out/nvidia-cdi-hook ] || { echo "nvidia-cdi-hook build produced no binary" >&2; exit 1; }
@@ -192,10 +213,14 @@ CONF
 
 cp "$here/assemble.Dockerfile" "$ctx/Dockerfile"
 
-tag="skrog-rootfs:${ENGINE_VERSION}"
+tag="skrog-rootfs:${ENGINE_VERSION}-${ROOTFS_ARCH}"
+# No --platform: the alpine digest is a multi-arch index, so docker resolves
+# the host's architecture from it. Pinning a platform here would let the
+# tarball's contents disagree with the binaries staged above, which were built
+# natively.
 docker build --build-arg "ALPINE_TAG=${ALPINE_BRANCH#v}" --build-arg "ALPINE_DIGEST=${ALPINE_DIGEST}" -t "$tag" "$ctx"
 
-tarball="$out/skrog-rootfs-${rootfs_version}.tar.gz"
+tarball="$out/$rootfs_tarball_name"
 echo "==> exporting $tarball"
 # docker export writes the container filesystem with correct ownership and
 # without the pseudo-filesystems, which is exactly what `wsl --import` wants.
@@ -209,7 +234,7 @@ docker rm -f "$cid" >/dev/null
 (cd "$out" && sha256sum "$(basename "$tarball")" > "$(basename "$tarball").sha256")
 
 echo "==> SBOM"
-"$here/sbom.sh" "$here/versions.env" "$out/skrog-rootfs-${rootfs_version}.spdx.json"
+ROOTFS_ARCH="$ROOTFS_ARCH" "$here/sbom.sh" "$here/versions.env" "$out/${rootfs_name}.spdx.json"
 
 ls -la "$out"
 echo "OK"

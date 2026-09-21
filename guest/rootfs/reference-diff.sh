@@ -17,16 +17,20 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 out="${1:?usage: reference-diff.sh <out-dir>}"
 # shellcheck source=versions.env
 . "$here/versions.env"
-rootfs_version="${ENGINE_VERSION}-${ROOTFS_REVISION}"
+# shellcheck source=arch.sh
+. "$here/arch.sh"
 
-tarball="$out/skrog-rootfs-${rootfs_version}.tar.gz"
+tarball="$out/$rootfs_tarball_name"
 test -f "$tarball" || { echo "missing $tarball"; exit 1; }
 
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
-echo "==> what Docker ships in its ${ENGINE_VERSION} static bundle"
-bundle_url="https://download.docker.com/linux/static/stable/x86_64/docker-${ENGINE_VERSION}.tgz"
+echo "==> what Docker ships in its ${ENGINE_VERSION} ${ARCH_DOCKER_STATIC} static bundle"
+# Per architecture: Docker's aarch64 bundle is not guaranteed to hold the same
+# set of binaries as the x86_64 one, and "the reference for what a working
+# engine needs" is only a reference if it is the reference for THIS engine.
+bundle_url="https://download.docker.com/linux/static/stable/${ARCH_DOCKER_STATIC}/docker-${ENGINE_VERSION}.tgz"
 if ! curl -fsSL "$bundle_url" -o "$work/bundle.tgz"; then
     # A pinned engine version with no published bundle is possible (a release
     # candidate, say). Skip rather than fail: this check is a safety net, not a

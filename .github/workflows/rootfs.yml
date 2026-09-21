@@ -28,9 +28,28 @@ jobs:
         run: shellcheck -x -P SCRIPTDIR guest/rootfs/*.sh spike/a/*.sh
 
   build:
-    name: build rootfs
-    runs-on: ubuntu-latest
+    # One rootfs per architecture, each compiled NATIVELY (#388).
+    #
+    # No QEMU, deliberately. Every binary here is built from upstream source,
+    # and building an arm64 engine under emulation would turn a ~4 minute job
+    # into a very long one for bytes that are harder to trust -- an emulated
+    # toolchain is a difference between what CI exercises and what users run.
+    # GitHub's ubuntu-24.04-arm runners are real arm64 and free for public
+    # repositories, so there is no reason to emulate.
+    name: build rootfs (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
+    strategy:
+      # One architecture failing must not cancel the other: when arm64 breaks,
+      # the amd64 result is exactly what says whether the cause is the change
+      # or the architecture.
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v7
 
@@ -39,12 +58,19 @@ jobs:
       # them, so editing daemon.json or wsl.conf still rebuilds the tarball
       # from cached binaries. No restore-keys: a partial match would hand us
       # binaries built from different pins, which is worse than a cache miss.
+      #
+      # The architecture is in the key because the binaries are architecture
+      # specific and runner.os says "Linux" for both. Without it the two jobs
+      # would share one entry and whichever ran second would ship the other's
+      # ELFs -- which the smoke test's own version check would NOT catch,
+      # since `dockerd --version` runs fine under binfmt and reports the
+      # pinned version either way.
       - name: engine binary cache
         id: engine-cache
         uses: actions/cache@v6
         with:
           path: engine-bin
-          key: engine-bin-${{ runner.os }}-${{ hashFiles('guest/rootfs/versions.env', 'guest/rootfs/build-engine.sh') }}
+          key: engine-bin-${{ runner.os }}-${{ matrix.arch }}-${{ hashFiles('guest/rootfs/versions.env', 'guest/rootfs/build-engine.sh') }}
 
       - name: build
         env:
@@ -69,7 +95,7 @@ jobs:
 
       - uses: actions/upload-artifact@v7
         with:
-          name: skrog-rootfs
+          name: skrog-rootfs-${{ matrix.arch }}
           path: out/
           retention-days: 14
 
@@ -89,9 +115,14 @@ jobs:
       id-token: write
       attestations: write
     steps:
+      # Both architectures into one directory. The filenames carry the
+      # architecture, so they cannot collide, and one `gh release upload`
+      # attaches the whole set -- which is what makes a rootfs release atomic
+      # rather than "amd64 is up, arm64 is coming".
       - uses: actions/download-artifact@v8
         with:
-          name: skrog-rootfs
+          pattern: skrog-rootfs-*
+          merge-multiple: true
           path: out
 
       # Provenance over the tarball, its checksum and the SBOM, so a rootfs can
@@ -103,15 +134,27 @@ jobs:
           subject-path: 'out/*'
 
       - uses: sigstore/cosign-installer@v3
-      - name: sign the rootfs checksum
+      # One signature per checksum file, because there is one per architecture
+      # now. `sums=$(ls out/*.tar.gz.sha256)` was a single unquoted assignment
+      # that silently became "file1 file2" the moment a second architecture
+      # appeared -- cosign would have signed a path that does not exist.
+      - name: sign the rootfs checksums
         run: |
-          sums=$(ls out/*.tar.gz.sha256)
-          cosign sign-blob --yes --bundle "$sums.cosign.bundle" "$sums"
-          cosign verify-blob \
-            --bundle "$sums.cosign.bundle" \
-            --certificate-identity-regexp "^https://github.com/${GITHUB_REPOSITORY}/" \
-            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-            "$sums"
+          shopt -s nullglob
+          sumfiles=(out/*.tar.gz.sha256)
+          if [ ${#sumfiles[@]} -eq 0 ]; then
+            echo "no .sha256 files to sign; the build produced nothing" >&2
+            exit 1
+          fi
+          for sums in "${sumfiles[@]}"; do
+            echo "==> signing $sums"
+            cosign sign-blob --yes --bundle "$sums.cosign.bundle" "$sums"
+            cosign verify-blob \
+              --bundle "$sums.cosign.bundle" \
+              --certificate-identity-regexp "^https://github.com/${GITHUB_REPOSITORY}/" \
+              --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+              "$sums"
+          done
       # --repo is required: this job downloads artifacts without checking out
       # the code, so gh has no git remote to infer the repository from and
       # fails with "not a git repository".
