@@ -96,7 +96,13 @@ fi
 echo "  nothing registered, as intended"
 
 echo "==> starting dockerd out of the rootfs"
-docker run -d --name "$name" --privileged -v "$sockdir:/shared" "$image" \
+# /var/lib/docker gets its own volume. Without one, the inner overlayfs is
+# stacked on the outer container's overlayfs and every image mount fails with
+#   failed to mount ...: fstype: overlay ... err: invalid argument
+# which reads like an emulation failure and is not one. A volume is a real
+# filesystem, so the snapshotter behaves.
+docker run -d --name "$name" --privileged \
+    -v "$sockdir:/shared" -v "/var/lib/docker" "$image" \
     /usr/local/bin/dockerd -H unix:///shared/docker.sock >/dev/null
 for _ in $(seq 1 60); do
     [ -S "$sockdir/docker.sock" ] && break
@@ -115,19 +121,34 @@ engine version --format '  engine {{.Server.Version}} via {{.Server.Os}}/{{.Serv
 # mistaken for the negative control below succeeding.
 echo "==> pulling a $ARCH_EMULATE image into that engine"
 engine pull -q --platform "linux/$ARCH_EMULATE" "$test_image" >/dev/null
-engine image inspect "$test_image" --format '  pulled architecture: {{.Architecture}}'
 
 echo "==> it does NOT run yet"
 # The negative control, and the reason this test is worth anything. Without
 # it, green could mean "the rootfs made emulation work" or "the kernel already
 # had a handler and the rootfs contributed nothing".
-if engine run --rm --platform "linux/$ARCH_EMULATE" "$test_image" /bin/true 2>/dev/null; then
+#
+# It asserts WHY it failed, not merely that it did. The first version accepted
+# any non-zero exit and duly reported "exec format error, as it should be" for
+# a run that had actually died on an unrelated overlayfs mount error. A
+# negative control that passes for the wrong reason is worse than none,
+# because it certifies exactly the thing it was there to rule out.
+if err=$(engine run --rm --platform "linux/$ARCH_EMULATE" "$test_image" /bin/true 2>&1); then
     echo "FATAL: a $ARCH_EMULATE container ran with no interpreter registered." >&2
     echo "  Either this kernel already had one -- in which case this test proves" >&2
     echo "  nothing about the rootfs -- or the image is not really $ARCH_EMULATE." >&2
     exit 1
 fi
-echo "  exec format error, as it should be"
+case "$err" in
+    *"exec format error"*) echo "  exec format error, as it should be" ;;
+    *)
+        echo "FATAL: it failed, but not for the right reason:" >&2
+        printf "    %s
+" "$err" >&2
+        echo "  Expected 'exec format error'. Anything else means this step is not" >&2
+        echo "  measuring emulation, and every assertion after it proves nothing." >&2
+        exit 1
+        ;;
+esac
 
 echo "==> registering $QEMU_BIN"
 # The registration line is piped in as bytes rather than interpolated through
