@@ -53,8 +53,9 @@ func TestStagePlacesEachRole(t *testing.T) {
 	m := &Manifest{SchemaVersion: 1, Components: []Component{
 		{
 			Name: "docker", Version: "1.0", Role: RoleCLI, Target: "docker.exe",
-			ZipEntry: "docker/docker.exe", License: "Apache-2.0",
-			Arch: map[string]Asset{"amd64": {URL: srv.URL + "/docker.zip", SHA256: sha(dockerZip)}},
+			License: "Apache-2.0",
+			Arch: map[string]Asset{"amd64": {URL: srv.URL + "/docker.zip",
+				SHA256: sha(dockerZip), ZipEntry: "docker/docker.exe"}},
 		},
 		{
 			Name: "compose", Version: "2.0", Role: RolePlugin, Target: "docker-compose.exe",
@@ -107,6 +108,64 @@ func TestStagePlacesEachRole(t *testing.T) {
 	}
 	if len(res.Skipped) != 1 || res.Skipped[0] != "armonly" {
 		t.Errorf("skipped = %v, want [armonly]", res.Skipped)
+	}
+}
+
+// The docker CLI is the one component whose asset SHAPE differs by
+// architecture (#450): amd64 is Docker's zip containing docker/docker.exe,
+// arm64 is a bare .exe Skrog builds because upstream publishes none.
+//
+// This is why ZipEntry lives on the Asset rather than the Component. While it
+// was per-component, staging arm64 would have taken the zip branch and tried
+// to extract an entry from a Windows executable — a failure nobody here could
+// have hit, on the one architecture nobody here can test.
+func TestStagePlacesABareExeWhereTheOtherArchUsesAZip(t *testing.T) {
+	dockerExe := []byte("I am docker.exe, amd64, from a zip")
+	dockerZip := zipWith(t, "docker/docker.exe", dockerExe)
+	armExe := []byte("I am docker.exe, arm64, built by skrog")
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/docker.zip", func(w http.ResponseWriter, r *http.Request) { w.Write(dockerZip) })
+	mux.HandleFunc("/docker-arm64.exe", func(w http.ResponseWriter, r *http.Request) { w.Write(armExe) })
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	m := &Manifest{SchemaVersion: 1, Components: []Component{{
+		Name: "docker", Version: "1.0", Role: RoleCLI, Target: "docker.exe",
+		License: "Apache-2.0",
+		Arch: map[string]Asset{
+			"amd64": {URL: srv.URL + "/docker.zip", SHA256: sha(dockerZip),
+				ZipEntry: "docker/docker.exe"},
+			"arm64": {URL: srv.URL + "/docker-arm64.exe", SHA256: sha(armExe)},
+		},
+	}}}
+
+	for _, tc := range []struct {
+		arch string
+		want []byte
+	}{
+		{"amd64", dockerExe},
+		{"arm64", armExe},
+	} {
+		t.Run(tc.arch, func(t *testing.T) {
+			root := t.TempDir()
+			binDir := filepath.Join(root, "bin")
+			if _, err := Stage(context.Background(), m, Options{
+				BinDir:    binDir,
+				PluginDir: filepath.Join(root, "plugins"),
+				CacheDir:  filepath.Join(root, "cache"),
+				Arch:      tc.arch,
+			}); err != nil {
+				t.Fatalf("Stage(%s): %v", tc.arch, err)
+			}
+			got, err := os.ReadFile(filepath.Join(binDir, "docker.exe"))
+			if err != nil {
+				t.Fatalf("docker.exe not placed: %v", err)
+			}
+			if !bytes.Equal(got, tc.want) {
+				t.Errorf("docker.exe on %s = %q, want %q", tc.arch, got, tc.want)
+			}
+		})
 	}
 }
 

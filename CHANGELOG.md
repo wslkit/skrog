@@ -19,7 +19,8 @@ useful than saying where the real one is.
   arm64 laid down compose, buildx and the credential helper — all of which
   have real arm64 builds — and skipped the one command anybody types.
   `download.docker.com`'s static tree has exactly one directory, `x86_64/`,
-  and `docker/cli` attaches no release assets.
+  and `docker/cli` attaches no release assets. It now installs all four, and
+  **the arm64 toolchain is complete**: engine, CLI, plugins and helper.
 
   So Skrog builds it: `docker/cli` at a commit-pinned tag, in the same pinned
   Go toolchain as the engine, with SLSA provenance and a cosign-signed
@@ -39,6 +40,18 @@ useful than saying where the real one is.
   The arm64 binary reports its version and upstream commit, and deliberately
   does **not** claim `Docker Engine - Community` — that is Docker's build
   string for Docker's builds.
+
+  **The build is reproducible**, which matters more than the attestation: it
+  has no timestamp and no build host in it, so the same commit produces the
+  same bytes anywhere. Three independent builds — one local, two in CI — all
+  came out at `910087c0d9a8…`, 28,319,232 bytes. Run
+  `third_party/docker-cli/build.sh` and compare.
+
+  One internal change came out of it: `zipEntry` moved from the component to
+  the **asset** in `internal/dockercli/manifest.json`. Docker publishes the
+  amd64 CLI as a zip and the arm64 binary is a bare `.exe` — one component,
+  two shapes — and while that flag was per-component, staging arm64 would
+  have tried to extract a zip entry from a Windows executable.
 
 - **Windows on ARM: `skrog install` works**
   ([#388](https://github.com/wslkit/skrog/issues/388)). `skrog.exe` has

@@ -82,7 +82,7 @@ func Stage(ctx context.Context, m *Manifest, opts Options) (Result, error) {
 		asset := c.Arch[arch]
 
 		ext := ".exe"
-		if c.ZipEntry != "" {
+		if asset.ZipEntry != "" {
 			ext = ".zip"
 		}
 		cached := filepath.Join(opts.CacheDir, fmt.Sprintf("%s-%s-%s%s", c.Name, c.Version, arch, ext))
@@ -95,8 +95,8 @@ func Stage(ctx context.Context, m *Manifest, opts Options) (Result, error) {
 		if err != nil {
 			return res, err
 		}
-		if c.ZipEntry != "" {
-			if err := extractZipEntry(cached, c.ZipEntry, dest); err != nil {
+		if asset.ZipEntry != "" {
+			if err := extractZipEntry(cached, asset.ZipEntry, dest); err != nil {
 				return res, fmt.Errorf("%s: %w", c.Name, err)
 			}
 		} else if err := copyFile(cached, dest, 0o755); err != nil {

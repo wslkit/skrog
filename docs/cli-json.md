@@ -143,8 +143,10 @@ could be written, because the engine's state is *in* the metrics).
 }
 ```
 
-- `available`: whether the manifest publishes the tool for this arch at all
-  (the docker CLI has no Windows arm64 build — `available: false` there).
+- `available`: whether the manifest publishes the tool for this arch at all.
+  Every tool is available on both architectures today; the field exists
+  because that has not always been true and need not stay true — a component
+  with no build for the host reports `false` rather than failing at install.
 - `activeDocker`: the `docker` that resolves on PATH; omitted if none.
 - Exits `3` when an available tool is not installed.
 

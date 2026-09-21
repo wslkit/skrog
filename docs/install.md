@@ -43,11 +43,12 @@ checks it against Docker's aarch64 reference bundle on every change.
 > first real test. Please report what happens either way:
 > [#458](https://github.com/wslkit/skrog/issues/458).
 
-The docker **CLI** is the one remaining gap: upstream publishes no Windows
-arm64 `docker.exe`, so `skrog cli install` reports it unavailable and installs
-compose, buildx and the credential helper, which all have arm64 builds. Use
-Docker Desktop's `docker` (it is arm64-native) until
-[#450](https://github.com/wslkit/skrog/issues/450) lands.
+The docker **CLI** works too. Upstream publishes no Windows arm64
+`docker.exe`, so Skrog builds it from `docker/cli` source — reproducibly, and
+`skrog cli install` places it like any other tool. compose, buildx and the
+credential helper are upstream's own arm64 releases.
+[docs/docker-cli.md](docker-cli.md) explains which binary comes from where and
+why only one of them is ours ([#450](https://github.com/wslkit/skrog/issues/450)).
 
 Nothing else. Skrog does not need Docker Desktop, and coexists with it if you
 keep it.

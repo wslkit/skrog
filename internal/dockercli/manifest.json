@@ -42,15 +42,18 @@
       "version": "29.8.1",
       "role": "cli",
       "target": "docker.exe",
-      "zipEntry": "docker/docker.exe",
       "license": "Apache-2.0",
       "licenseURL": "https://raw.githubusercontent.com/docker/cli/master/LICENSE",
       "arch": {
         "amd64": {
           "url": "https://download.docker.com/win/static/stable/x86_64/docker-29.8.1.zip",
-          "sha256": "f99b6e0ac1950e6c47c267b1d7ac53ef973682208523212d03477478c6562aaf"
+          "sha256": "f99b6e0ac1950e6c47c267b1d7ac53ef973682208523212d03477478c6562aaf",
+          "zipEntry": "docker/docker.exe"
         },
-        "arm64": { "url": "", "sha256": "" }
+        "arm64": {
+          "url": "https://github.com/wslkit/skrog/releases/download/dockercli-v29.8.1/docker-29.8.1-windows-arm64.exe",
+          "sha256": "910087c0d9a80ac0e7802f8c48b98cdc7fd890c78e0dab5f0472bee856ac50a0"
+        }
       }
     },
     {
