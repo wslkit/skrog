@@ -208,6 +208,23 @@ flags:
 	targetDistro := target.Distro
 	opts.Distro = targetDistro
 
+	// What this supervisor was ASKED for, recorded before anything can fail,
+	// so a replacement can ask for the same thing (#429).
+	//
+	// The request, not the selection. Recording `selected` would pin the
+	// FALLBACK pipe on a machine that happened to have Docker Desktop running
+	// at this moment, and that machine would never take the default back once
+	// Desktop was gone. Recording the request keeps normal selection normal
+	// and pins only what someone named.
+	//
+	// Written unconditionally, including empty -- WriteServedPipe removes the
+	// file for an empty value, so starting a supervisor with no --pipe erases
+	// a previous run's preference rather than inheriting it.
+	if err := supervise.WriteServedPipe(opts.StateDir, *pipeName); err != nil {
+		log.Warn("could not record the requested pipe; a supervisor restart may not keep it",
+			"error", err)
+	}
+
 	selected, reason := pipeproxy.SelectPipeName(*pipeName)
 	listener, err := pipeproxy.Listen(selected, "")
 	if err != nil {
@@ -925,8 +942,20 @@ func supervisorCommand(self, stateDir, preservePipe string) (target string, args
 // What is left is a pipe someone asked for by name, which is exactly the case
 // that was being lost.
 func customPipeToPreserve(stateDir string) string {
-	e, ok := supervise.ReadEndpoint(stateDir)
-	if !ok || e.Pipe == "" {
+	pipe := supervise.ReadServedPipe(stateDir)
+	if pipe == "" {
+		// Fall back to the endpoint record. It is right for the crash path --
+		// a supervisor killed hard runs no cleanup, so its record survives --
+		// and it is what an install that predates served-pipe has. It is NOT
+		// enough on its own, which is the whole of #429: a clean exit deletes
+		// it, and the acceptance suite deletes it too, on purpose.
+		e, ok := supervise.ReadEndpoint(stateDir)
+		if !ok {
+			return ""
+		}
+		pipe = e.Pipe
+	}
+	if pipe == "" {
 		return ""
 	}
 	// Both sides are normalised. DefaultPipeName and FallbackPipeName are full
@@ -934,10 +963,10 @@ func customPipeToPreserve(stateDir string) string {
 	// comparing one against the other's bare name silently matches nothing,
 	// which makes every exclusion below a no-op and the fallback sticky.
 	// Trimming both is what makes the comparison mean what it reads as.
-	if pipeEq(e.Pipe, pipeproxy.DefaultPipeName) || pipeEq(e.Pipe, pipeproxy.FallbackPipeName) {
+	if pipeEq(pipe, pipeproxy.DefaultPipeName) || pipeEq(pipe, pipeproxy.FallbackPipeName) {
 		return ""
 	}
-	return e.Pipe
+	return pipe
 }
 
 // pipeEq compares two pipe names, tolerating the `\\.\pipe\` prefix on either

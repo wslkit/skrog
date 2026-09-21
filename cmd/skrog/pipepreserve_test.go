@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"path/filepath"
 	"slices"
 	"testing"
@@ -90,30 +91,71 @@ func pipeArg(args []string) string {
 	return args[i+1]
 }
 
-// The RESTART sequence, which is the one that was broken (#429).
+// The exact sequence the acceptance suite runs, which is the one BOTH earlier
+// attempts failed (#429).
 //
-// The first attempt at this fix read the recorded endpoint inside
-// spawnSupervisor. That passed a test which wrote an endpoint and called
-// supervisorCommand directly — and still failed in the product, because
-// runSupervise DELETES its endpoint record on a clean exit, and
-// `restart --supervisor` exits it cleanly before spawning the replacement.
-// The test asserted the right thing about the wrong scenario.
+// Attempt one read the endpoint record inside spawnSupervisor, after the old
+// supervisor had cleared it on the way out. Attempt two captured it earlier,
+// which fixed that and still failed — because stageSupervisorRestart DELETES
+// endpoint.json before restarting, deliberately, so that finding a record
+// afterwards proves the replacement wrote its own (#273) rather than
+// inheriting one.
 //
-// So this models the ordering: record present, supervisor exits and clears it,
-// THEN the replacement is built.
+// There is therefore no moment at which endpoint.json can answer this. A
+// record that is correctly deleted cannot also be a handoff channel, and that
+// is why the fix is a separate served-pipe record with a different lifetime.
+//
+// Both unit tests before this one passed while the product failed, because
+// each modelled a scenario in which endpoint.json still existed.
+func TestRestartSurvivesTheSuiteDeletingTheEndpointRecord(t *testing.T) {
+	self := filepath.Join(t.TempDir(), "skrog.exe")
+	dir := t.TempDir()
+	const custom = `\\.\pipe\skrog-e2e-suite`
+
+	// 1. A supervisor starts, asked for a custom pipe. It records both.
+	if err := supervise.WriteServedPipe(dir, custom); err != nil {
+		t.Fatal(err)
+	}
+	if err := supervise.WriteEndpoint(dir, supervise.Endpoint{Pipe: custom}); err != nil {
+		t.Fatal(err)
+	}
+
+	// 2. The suite deletes the endpoint record before restarting.
+	if err := os.Remove(filepath.Join(dir, "endpoint.json")); err != nil {
+		t.Fatal(err)
+	}
+
+	// 3. `skrog restart --supervisor` captures what to keep.
+	captured := customPipeToPreserve(dir)
+
+	// 4. The old supervisor exits cleanly, clearing the endpoint record it no
+	//    longer has. The served-pipe record is NOT cleared -- that is its job.
+	if err := supervise.ClearEndpoint(dir); err != nil {
+		t.Fatal(err)
+	}
+
+	// 5. The replacement is built.
+	_, args := supervisorCommand(self, dir, captured)
+	if got := pipeArg(args); got != custom {
+		t.Errorf("args %v carry pipe %q, want %q.\n"+
+			"  With no endpoint record anywhere in this sequence, the replacement "+
+			"re-selects from scratch and DOCKER_HOST stops working (#429).",
+			args, got, custom)
+	}
+}
+
+// The clean-exit path, with the endpoint record present up to the exit. This
+// is what attempt two fixed and must keep working.
 func TestRestartSequencePreservesTheCustomPipe(t *testing.T) {
 	self := filepath.Join(t.TempDir(), "skrog.exe")
 	dir := t.TempDir()
 	const custom = `\\.\pipe\skrog-e2e-suite`
 
-	// 1. A supervisor is serving a custom pipe.
 	if err := supervise.WriteEndpoint(dir, supervise.Endpoint{Pipe: custom}); err != nil {
 		t.Fatal(err)
 	}
-	// 2. restart --supervisor captures it before tearing anything down.
 	captured := customPipeToPreserve(dir)
 
-	// 3. The old supervisor exits cleanly, which clears the record.
 	if err := supervise.ClearEndpoint(dir); err != nil {
 		t.Fatal(err)
 	}
@@ -121,12 +163,38 @@ func TestRestartSequencePreservesTheCustomPipe(t *testing.T) {
 		t.Fatalf("the record survived a clean exit (%q); this test no longer models the bug", got)
 	}
 
-	// 4. The replacement is built. Reading the record here finds nothing,
-	//    which is exactly why the captured value has to be carried.
 	_, args := supervisorCommand(self, dir, captured)
 	if got := pipeArg(args); got != custom {
 		t.Errorf("args %v carry pipe %q, want %q — the replacement will re-select and "+
 			"DOCKER_HOST stops working (#429)", args, got, custom)
+	}
+}
+
+// Starting a supervisor with no --pipe must ERASE a previous run's
+// preference, not inherit it. Otherwise one `skrog supervise --pipe custom`
+// pins that pipe for every future supervisor on the machine, and the only way
+// back is deleting a file nobody documented.
+func TestAServedPipeIsForgottenWhenNoneIsRequested(t *testing.T) {
+	dir := t.TempDir()
+	const custom = `\\.\pipe\skrog-e2e-suite`
+
+	if err := supervise.WriteServedPipe(dir, custom); err != nil {
+		t.Fatal(err)
+	}
+	if got := supervise.ReadServedPipe(dir); got != custom {
+		t.Fatalf("ReadServedPipe = %q, want %q", got, custom)
+	}
+
+	// The next supervisor is started without --pipe.
+	if err := supervise.WriteServedPipe(dir, ""); err != nil {
+		t.Fatal(err)
+	}
+	if got := supervise.ReadServedPipe(dir); got != "" {
+		t.Errorf("ReadServedPipe = %q after a supervisor asked for no pipe; "+
+			"the old preference is sticky and the default can never come back", got)
+	}
+	if got := customPipeToPreserve(dir); got != "" {
+		t.Errorf("customPipeToPreserve = %q, want none", got)
 	}
 }
 

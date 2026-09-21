@@ -23,17 +23,28 @@ name: e2e
 
 # The nightly schedule is DISABLED, deliberately and temporarily (#448).
 #
-# It ran for two nights and both were red on #429 — a known, triaged bug in
+# It ran for two nights and both were red on #429, a known and triaged bug in
 # `restart --supervisor`. A nightly that is expected to be red is a nightly
 # nobody reads, and the next real regression would have arrived as one more
-# red run in a row of them. That is worse than no nightly, because it looks
-# like coverage.
+# red run in a row of them — worse than no nightly, because it looks like
+# coverage.
+#
+# #429 IS NOW FIXED and that stage passes:
+#
+#   run 35662530599
+#   --- PASS: TestAcceptance/SupervisorRestartReplacesTheProcess (8.33s)
+#
+# The schedule stays off anyway, because the same run then failed on #468 --
+# `skrog reset --to <snapshot>`, a stage that had NEVER executed in CI before,
+# because #429 killed the suite two stages earlier every time. Fixing the
+# first failure revealed the second, which is the suite doing its job.
+#
+# Turning the nightly on into a still-red suite would recreate exactly the
+# situation #448 exists to escape, so the condition is unchanged in substance:
+# re-enable when the suite can be green, now tracked by #468 rather than #429.
 #
 # Manual dispatch is unaffected, and RELEASING.md still requires a run on the
 # release commit — which is the moment it actually has to be true.
-#
-# Re-enable when #429 is fixed. #448 tracks that, and exists so this does not
-# quietly stay off.
 on:
   workflow_dispatch:
 
