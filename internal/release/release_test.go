@@ -2,6 +2,7 @@ package release_test
 
 import (
 	"errors"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -27,12 +28,18 @@ func TestEmbeddedManifestIsValid(t *testing.T) {
 		if e.Version == "" {
 			t.Error("an engine entry has no version")
 		}
-		if e.Rootfs.URL == "" {
-			t.Errorf("engine %s has no rootfs URL", e.Version)
+		if len(e.Rootfs) == 0 {
+			t.Errorf("engine %s lists no rootfs for any architecture", e.Version)
 		}
-		// A digest, when present, must be a full SHA-256.
-		if e.Rootfs.SHA256 != "" && len(e.Rootfs.SHA256) != 64 {
-			t.Errorf("engine %s has a malformed sha256 (%d chars)", e.Version, len(e.Rootfs.SHA256))
+		for arch, r := range e.Rootfs {
+			if r.URL == "" {
+				t.Errorf("engine %s has no %s rootfs URL", e.Version, arch)
+			}
+			// A digest, when present, must be a full SHA-256.
+			if r.SHA256 != "" && len(r.SHA256) != 64 {
+				t.Errorf("engine %s has a malformed %s sha256 (%d chars)",
+					e.Version, arch, len(r.SHA256))
+			}
 		}
 		for _, c := range []string{"dockerd", "containerd", "runc", "buildkit"} {
 			if e.Components[c] == "" {
@@ -90,20 +97,22 @@ func TestEmbeddedManifestMatchesRootfsPins(t *testing.T) {
 	// name; those bytes exist under that name and will not be renamed.
 	if rev := pins["ROOTFS_REVISION"]; rev != "" {
 		stem := "skrog-rootfs-" + pins["ENGINE_VERSION"] + "-" + rev
-		accepted := []string{
-			stem + "-" + release.EngineArch + ".tar.gz", // cut after #388
-			stem + ".tar.gz", // cut before it
-		}
-		ok := false
-		for _, name := range accepted {
-			if strings.HasSuffix(e.Rootfs.URL, "/"+name) {
-				ok = true
-				break
+		for arch, r := range e.Rootfs {
+			accepted := []string{
+				stem + "-" + arch + ".tar.gz", // cut after #388
+				stem + ".tar.gz",              // cut before it
 			}
-		}
-		if !ok {
-			t.Errorf("manifest rootfs URL %q ends in none of %v (versions.env ROOTFS_REVISION=%s)",
-				e.Rootfs.URL, accepted, rev)
+			ok := false
+			for _, name := range accepted {
+				if strings.HasSuffix(r.URL, "/"+name) {
+					ok = true
+					break
+				}
+			}
+			if !ok {
+				t.Errorf("manifest %s rootfs URL %q ends in none of %v (versions.env ROOTFS_REVISION=%s)",
+					arch, r.URL, accepted, rev)
+			}
 		}
 	}
 }
@@ -160,7 +169,13 @@ func TestPublishedRequiresBothURLAndChecksum(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			e := release.Engine{Version: "1.0.0", Rootfs: tc.r}
+			// Keyed on this host's architecture: Published() is host-relative
+			// since #388, so a literal "amd64" here would make the whole
+			// table vacuously false on the arm64 runner.
+			e := release.Engine{
+				Version: "1.0.0",
+				Rootfs:  map[string]release.Rootfs{runtime.GOARCH: tc.r},
+			}
 			if got := e.Published(); got != tc.want {
 				t.Errorf("Published() = %v, want %v", got, tc.want)
 			}

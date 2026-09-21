@@ -68,10 +68,36 @@ Exit codes: 0 ok, %d error, %d usage, %d not installed.
 func engineRef(version, rootfsURL string) string {
 	base := path.Base(rootfsURL)
 	base = strings.TrimSuffix(base, ".tar.gz")
+	// The architecture suffix is trimmed (#388). A ref names an engine BUILD,
+	// and it is recorded in the install manifest and compared against later.
+	// Leaving the architecture in would make the same engine release report a
+	// different ref on an arm64 machine than on an amd64 one, and would print
+	// "-amd64" on every row of `skrog engine list` on a machine that has no
+	// other choice. Neither tells anyone anything.
+	for _, arch := range []string{"-amd64", "-arm64"} {
+		base = strings.TrimSuffix(base, arch)
+	}
 	if rest, ok := strings.CutPrefix(base, "skrog-rootfs-"); ok && rest != "" {
 		return rest
 	}
 	return version
+}
+
+// engineRefURL picks the rootfs URL a ref is derived from.
+//
+// This host's, when there is one. When there is not -- an engine with no
+// build for this architecture -- any of them still identifies the engine, and
+// `skrog engine list` has to be able to print a row for an entry it cannot
+// install. Architectures() is sorted, so the choice is deterministic rather
+// than whatever the map iterates first.
+func engineRefURL(e release.Engine) string {
+	if r, err := e.HostRootfs(); err == nil {
+		return r.URL
+	}
+	for _, a := range e.Architectures() {
+		return e.Rootfs[a].URL
+	}
+	return ""
 }
 
 func runEngineList(args []string) int {
@@ -106,7 +132,7 @@ func runEngineList(args []string) int {
 		out := engineListJSON{Installed: installed, Previous: previous}
 		for _, e := range m.Engines {
 			out.Available = append(out.Available, engineEntryJSON{
-				Ref:       engineRef(e.Version, e.Rootfs.URL),
+				Ref:       engineRef(e.Version, engineRefURL(e)),
 				Version:   e.Version,
 				Default:   e.Default,
 				Published: e.Published(),
@@ -117,7 +143,7 @@ func runEngineList(args []string) int {
 
 	fmt.Println("engines this build can install:")
 	for _, e := range m.Engines {
-		ref := engineRef(e.Version, e.Rootfs.URL)
+		ref := engineRef(e.Version, engineRefURL(e))
 		marks := []string{}
 		if e.Default {
 			marks = append(marks, "default")
@@ -125,8 +151,17 @@ func runEngineList(args []string) int {
 		if ref == installed {
 			marks = append(marks, "installed")
 		}
-		if !e.Published() {
-			marks = append(marks, "no published checksum — not installable")
+		// Published() is host-relative since #388, so this row says why THIS
+		// machine cannot install it -- "not built for arm64" and "built but
+		// not released yet" are different sentences, and RootfsFor already
+		// writes both.
+		if _, err := e.HostRootfs(); err != nil {
+			var unsupported *release.ErrUnsupportedHostArch
+			if errors.As(err, &unsupported) {
+				marks = append(marks, "no "+release.HostArch()+" build — not installable here")
+			} else {
+				marks = append(marks, "no published checksum — not installable")
+			}
 		}
 		suffix := ""
 		if len(marks) > 0 {
@@ -146,7 +181,7 @@ func runEngineList(args []string) int {
 
 func containsRef(engines []release.Engine, ref string) bool {
 	for _, e := range engines {
-		if engineRef(e.Version, e.Rootfs.URL) == ref {
+		if engineRef(e.Version, engineRefURL(e)) == ref {
 			return true
 		}
 	}
@@ -373,12 +408,6 @@ func resolveTarget(rollback bool, to, url, sha string, im *provision.Manifest, c
 		return engineupgrade.Engine{Ref: engineRef("", url), URL: url, SHA256: sha}, exitOK
 	}
 
-	// Same reason as `skrog install` (#388): every rootfs the manifest lists
-	// is amd64. An explicit --url above is exempt, as it is there.
-	if err := release.CheckHostArch(); err != nil {
-		fmt.Fprintf(os.Stderr, "skrog: %v\n", err)
-		return engineupgrade.Engine{}, exitUnsupported
-	}
 	m, err := release.Load()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "skrog: %v\n", err)
@@ -391,12 +420,20 @@ func resolveTarget(rollback bool, to, url, sha string, im *provision.Manifest, c
 		fmt.Fprintf(os.Stderr, "skrog: %v\n", err)
 		return engineupgrade.Engine{}, exitUsage
 	}
-	if !e.Published() {
-		fmt.Fprintf(os.Stderr, "skrog: %v\n", &release.ErrNotPublished{Version: e.Version})
+	// Refuse before a multi-hundred-megabyte download rather than after it
+	// (#388). An explicit --url above is exempt, as it is in `skrog install`:
+	// those are bytes the caller chose.
+	r, err := e.HostRootfs()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "skrog: %v\n", err)
+		var unsupported *release.ErrUnsupportedHostArch
+		if errors.As(err, &unsupported) {
+			return engineupgrade.Engine{}, exitUnsupported
+		}
 		return engineupgrade.Engine{}, exitError
 	}
 	return engineupgrade.Engine{
-		Ref: engineRef(e.Version, e.Rootfs.URL), URL: e.Rootfs.URL, SHA256: e.Rootfs.SHA256,
+		Ref: engineRef(e.Version, r.URL), URL: r.URL, SHA256: r.SHA256,
 	}, exitOK
 }
 
@@ -406,8 +443,12 @@ func resolveTarget(rollback bool, to, url, sha string, im *provision.Manifest, c
 func targetForRef(ref string, im *provision.Manifest) (engineupgrade.Engine, error) {
 	if m, err := release.Load(); err == nil {
 		for _, e := range m.Engines {
-			if engineRef(e.Version, e.Rootfs.URL) == ref && e.Published() {
-				return engineupgrade.Engine{Ref: ref, URL: e.Rootfs.URL, SHA256: e.Rootfs.SHA256}, nil
+			r, rerr := e.HostRootfs()
+			if rerr != nil {
+				continue
+			}
+			if engineRef(e.Version, r.URL) == ref {
+				return engineupgrade.Engine{Ref: ref, URL: r.URL, SHA256: r.SHA256}, nil
 			}
 		}
 	}

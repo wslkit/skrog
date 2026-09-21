@@ -1,6 +1,8 @@
 package lockfile
 
 import (
+	"errors"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -9,13 +11,25 @@ import (
 
 const goodSHA = "aee4312306d7d613ca3d0c23049c19837707cd4837b266ea057b544ac9605af4"
 
+// hostRootfs builds the per-architecture map an Engine carries since #388,
+// with an entry for whatever architecture the test is running on. Keyed on
+// runtime.GOARCH rather than a literal so these tests pass on the arm64 CI
+// runner too, which is the machine that would notice if FromEngine started
+// picking the wrong one.
+func hostRootfs(url, sha string) map[string]release.Rootfs {
+	return map[string]release.Rootfs{runtime.GOARCH: {URL: url, SHA256: sha}}
+}
+
 func TestFromEngineAndRoundTrip(t *testing.T) {
 	e := &release.Engine{
 		Version:    "29.7.2",
-		Rootfs:     release.Rootfs{URL: "https://example.com/rootfs.tar.gz", SHA256: goodSHA},
+		Rootfs:     hostRootfs("https://example.com/rootfs.tar.gz", goodSHA),
 		Components: map[string]string{"dockerd": "29.7.2", "runc": "1.3.0"},
 	}
-	l := FromEngine(e)
+	l, err := FromEngine(e)
+	if err != nil {
+		t.Fatalf("FromEngine: %v", err)
+	}
 	if l.SchemaVersion != SchemaVersion || l.EngineVersion != "29.7.2" ||
 		l.Rootfs.SHA256 != goodSHA || l.Components["runc"] != "1.3.0" {
 		t.Fatalf("FromEngine wrong: %+v", l)
@@ -41,11 +55,51 @@ func TestFromEngineAndRoundTrip(t *testing.T) {
 // FromEngine must copy the components map, not alias the engine's.
 func TestFromEngineCopiesComponents(t *testing.T) {
 	comps := map[string]string{"dockerd": "29.7.2"}
-	e := &release.Engine{Version: "v", Rootfs: release.Rootfs{URL: "u", SHA256: goodSHA}, Components: comps}
-	l := FromEngine(e)
+	e := &release.Engine{Version: "v", Rootfs: hostRootfs("u", goodSHA), Components: comps}
+	l, err := FromEngine(e)
+	if err != nil {
+		t.Fatal(err)
+	}
 	l.Components["dockerd"] = "mutated"
 	if comps["dockerd"] != "29.7.2" {
 		t.Error("FromEngine aliased the engine's components map")
+	}
+}
+
+// A lock pins one architecture's bytes. An engine with no build for this host
+// has nothing to pin, and FromEngine has to say so rather than emit a lock
+// with an empty URL that fails much later, at the download.
+func TestFromEngineRefusesAnEngineWithNoBuildForThisHost(t *testing.T) {
+	other := "arm64"
+	if runtime.GOARCH == "arm64" {
+		other = "amd64"
+	}
+	e := &release.Engine{
+		Version: "29.7.2",
+		Rootfs:  map[string]release.Rootfs{other: {URL: "https://x/y.tar.gz", SHA256: goodSHA}},
+	}
+	l, err := FromEngine(e)
+	if err == nil {
+		t.Fatalf("locked an engine built only for %s while running on %s: %+v",
+			other, runtime.GOARCH, l)
+	}
+	var unsupported *release.ErrUnsupportedHostArch
+	if !errors.As(err, &unsupported) {
+		t.Errorf("want ErrUnsupportedHostArch, got %T: %v", err, err)
+	}
+}
+
+// And the other failure: built for this host, release not cut yet. Different
+// error, because the user's next move is different.
+func TestFromEngineRefusesAnUnpublishedRootfs(t *testing.T) {
+	e := &release.Engine{Version: "29.7.2", Rootfs: hostRootfs("", "")}
+	if _, err := FromEngine(e); err == nil {
+		t.Fatal("locked an engine with no published checksum")
+	} else {
+		var notPublished *release.ErrNotPublished
+		if !errors.As(err, &notPublished) {
+			t.Errorf("want ErrNotPublished, got %T: %v", err, err)
+		}
 	}
 }
 

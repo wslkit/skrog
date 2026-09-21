@@ -12,6 +12,36 @@ useful than saying where the real one is.
 
 ## [Unreleased]
 
+### Added
+
+- **The engine rootfs is built for arm64, and the manifest can carry it**
+  ([#388](https://github.com/wslkit/skrog/issues/388)). Two halves of the same
+  gap, neither of which makes `skrog install` work on Windows on ARM yet —
+  that needs a published arm64 rootfs release, which is next.
+
+  The build: `rootfs.yml` runs a matrix over native amd64 and arm64 runners,
+  compiling the whole engine from upstream source on each and naming the
+  result `skrog-rootfs-<version>-<rev>-<arch>.tar.gz`. Not QEMU — an emulated
+  toolchain is a difference between what CI exercises and what users run.
+  CI now boots the arm64 engine and diffs it against Docker's aarch64
+  reference bundle on every change to `guest/rootfs/**`.
+
+  The selection: `internal/release/manifest.json` is **schema 2**, where
+  `engines[].rootfs` is a map keyed by GOARCH instead of a single object.
+  `skrog install`, `engine upgrade`, `lock`, `bundle` and declarative install
+  all pick the entry for `runtime.GOARCH`. `skrog engine list` reports what
+  *this* machine can install, so an engine with no build for the host is
+  marked accordingly rather than offered.
+
+  A missing architecture and an unreleased one are now different errors,
+  because the user's next move differs: nothing they wait for fixes the first.
+
+  **A lock file and an air-gap bundle pin one architecture** — they always
+  held one URL and one digest, and that is the point of them. `skrog lock` and
+  `skrog bundle` now record the host's, and refuse rather than emit something
+  unusable when there is no build for it. An arm64 bundle is built on an arm64
+  machine, which is the rule air-gap transfer follows anyway.
+
 ### Removed
 
 - **The WSL container session backend is gone**

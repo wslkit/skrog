@@ -47,14 +47,17 @@ flags:
 		fmt.Fprintf(os.Stderr, "skrog: %v\n", err)
 		return exitUsage
 	}
-	if !engine.Published() {
-		// An unpublished engine has no rootfs SHA-256, so it cannot be locked to
-		// a verifiable artifact — which is the whole point of a lock.
-		fmt.Fprintf(os.Stderr, "skrog: %v\n", &release.ErrNotPublished{Version: engine.Version})
+	// A lock pins ONE rootfs for THIS architecture (#388). An engine with no
+	// build for this host, or one whose release has not been cut, has no
+	// verifiable artifact to pin — which is the whole point of a lock — and
+	// FromEngine says which of the two it is.
+	lock, err := lockfile.FromEngine(engine)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "skrog: %v\n", err)
 		return exitError
 	}
 
-	b, err := lockfile.FromEngine(engine).Marshal()
+	b, err := lock.Marshal()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "skrog: %v\n", err)
 		return exitError

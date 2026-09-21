@@ -12,6 +12,7 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"runtime"
 	"sort"
 	"strings"
 )
@@ -25,11 +26,18 @@ type Manifest struct {
 	Engines       []Engine `json:"engines"`
 }
 
-// Engine is one installable engine version and the rootfs that carries it.
+// Engine is one installable engine version and the rootfs that carries it,
+// per architecture.
+//
+// Rootfs is keyed by GOARCH ("amd64", "arm64"), not by Alpine's or Docker's
+// spelling, because every consumer compares it against runtime.GOARCH. An
+// architecture that is absent from the map is one this engine was never built
+// for -- which is a different thing from one that was built and not yet
+// published, and the two produce different errors.
 type Engine struct {
 	Version    string            `json:"version"`
 	Default    bool              `json:"default"`
-	Rootfs     Rootfs            `json:"rootfs"`
+	Rootfs     map[string]Rootfs `json:"rootfs"`
 	Components map[string]string `json:"components"`
 }
 
@@ -39,24 +47,67 @@ type Rootfs struct {
 	SHA256 string `json:"sha256"`
 }
 
-// Published reports whether this entry can actually be installed. An entry
-// with no checksum is a placeholder: the rootfs release has not been cut yet,
-// and installing it unverified is not an option (the rootfs becomes root inside
-// the engine VM).
-func (e Engine) Published() bool {
-	return e.Rootfs.URL != "" && e.Rootfs.SHA256 != ""
+// Architectures lists the GOARCH values this engine has an entry for, sorted.
+// Used to say what IS available when the host's architecture is not.
+func (e Engine) Architectures() []string {
+	out := make([]string, 0, len(e.Rootfs))
+	for a := range e.Rootfs {
+		out = append(out, a)
+	}
+	sort.Strings(out)
+	return out
 }
 
-// ErrNotPublished reports an engine entry without a checksum.
-type ErrNotPublished struct{ Version string }
+// RootfsFor returns the rootfs for one architecture.
+//
+// The two failure modes are deliberately distinct, because the user's next
+// move differs. No entry at all means this engine was never built for that
+// host: nothing they wait for will change it, and the answer is another
+// engine or another product. An entry with no checksum means the release has
+// not been cut yet: it is coming, and a development build is the usual cause.
+func (e Engine) RootfsFor(arch string) (Rootfs, error) {
+	r, ok := e.Rootfs[arch]
+	if !ok {
+		return Rootfs{}, &ErrUnsupportedHostArch{Host: arch, Available: e.Architectures()}
+	}
+	if r.URL == "" || r.SHA256 == "" {
+		return Rootfs{}, &ErrNotPublished{Version: e.Version, Arch: arch}
+	}
+	return r, nil
+}
+
+// HostRootfs is RootfsFor(runtime.GOARCH), which is what every caller that is
+// about to install something actually wants.
+func (e Engine) HostRootfs() (Rootfs, error) { return e.RootfsFor(runtime.GOARCH) }
+
+// Published reports whether this entry can be installed ON THIS HOST.
+//
+// Host-relative on purpose. `skrog engine list` and `engine rollback` offer
+// what this machine can actually run; an amd64-only engine is not a rollback
+// target on an arm64 box, and listing it as one would fail at the download.
+func (e Engine) Published() bool {
+	_, err := e.HostRootfs()
+	return err == nil
+}
+
+// ErrNotPublished reports an engine entry whose rootfs release has not been
+// cut for this architecture yet.
+type ErrNotPublished struct {
+	Version string
+	Arch    string
+}
 
 func (e *ErrNotPublished) Error() string {
-	return fmt.Sprintf("engine %s has no published rootfs checksum in this build's manifest.\n"+
+	arch := e.Arch
+	if arch == "" {
+		arch = runtime.GOARCH
+	}
+	return fmt.Sprintf("engine %s has no published %s rootfs checksum in this build's manifest.\n"+
 		"This happens in a development build before the rootfs release is cut. Either:\n"+
 		"  - install a release build of skrog, or\n"+
 		"  - build the rootfs yourself (guest/rootfs/build.sh) and pass\n"+
 		"    --rootfs-url file:///... together with --rootfs-sha256 <digest>",
-		e.Version)
+		e.Version, arch)
 }
 
 // Load parses the embedded manifest.
@@ -65,13 +116,23 @@ func Load() (*Manifest, error) {
 	if err := json.Unmarshal(manifestJSON, &m); err != nil {
 		return nil, fmt.Errorf("parsing embedded release manifest: %w", err)
 	}
-	if m.SchemaVersion != 1 {
+	// 2 since #388: rootfs became a map keyed by GOARCH. Schema 1 had a single
+	// rootfs object, which json.Unmarshal would quietly decode into an empty
+	// map here -- an engine with no architectures at all, refusing every
+	// install with a message about the host rather than about the manifest.
+	// Rejecting the version outright is how that stays legible.
+	if m.SchemaVersion != 2 {
 		// A future binary reading an older embedded file cannot happen, but a
 		// hand-edited manifest can, and silently misreading it would be worse.
 		return nil, fmt.Errorf("unsupported manifest schemaVersion %d", m.SchemaVersion)
 	}
 	if len(m.Engines) == 0 {
 		return nil, fmt.Errorf("release manifest lists no engines")
+	}
+	for _, e := range m.Engines {
+		if len(e.Rootfs) == 0 {
+			return nil, fmt.Errorf("engine %s lists no rootfs for any architecture", e.Version)
+		}
 	}
 	return &m, nil
 }
