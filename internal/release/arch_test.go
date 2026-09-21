@@ -9,27 +9,33 @@ import (
 	"github.com/wslkit/skrog/internal/release"
 )
 
-// The manifest now has an architecture dimension, so selection replaces the
-// blanket refusal that was here before (#388). What is still true, and what
-// this pins, is that no arm64 rootfs has been PUBLISHED: the build produces
-// one but no release carries it yet.
+// The default engine must be installable on BOTH architectures (#388).
 //
-// When that changes, this fails and leads whoever cut the release to the
-// install-side tests below, which stop describing the arm64 machine as
-// unsupported.
-func TestNoArm64RootfsIsPublishedYet(t *testing.T) {
+// This replaces a tripwire that asserted the opposite -- that no arm64 rootfs
+// was published yet -- and which fired, as designed, the moment one was. It
+// is kept pointing the other way because the interesting failure is no longer
+// "arm64 appeared unannounced" but "arm64 quietly disappeared": an engine
+// bump that publishes only amd64 would otherwise silently drop Windows on ARM
+// back to a refusal, and nothing on an amd64 developer machine or an amd64 CI
+// runner would notice.
+//
+// Older engines are exempt. 29.8.0 and 29.7.2 were cut before the rootfs
+// build had an architecture matrix, and no arm64 tarball for them exists to
+// point at. They stay amd64-only, which is why this checks the default rather
+// than every entry.
+func TestTheDefaultEngineShipsBothArchitectures(t *testing.T) {
 	m, err := release.Load()
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if len(m.Engines) == 0 {
-		t.Fatal("the manifest has no engines; this test proves nothing")
+	def, err := m.Engine("")
+	if err != nil {
+		t.Fatalf("default: %v", err)
 	}
-	for _, e := range m.Engines {
-		if _, err := e.RootfsFor("arm64"); err == nil {
-			t.Errorf("engine %s now has a published arm64 rootfs. Good — but the "+
-				"tests below still describe arm64 as unsupported, and docs/install.md "+
-				"and internal/release/arch.go say so too. Update them.", e.Version)
+	for _, arch := range []string{"amd64", "arm64"} {
+		if _, err := def.RootfsFor(arch); err != nil {
+			t.Errorf("default engine %s cannot be installed on %s: %v",
+				def.Version, arch, err)
 		}
 	}
 }
@@ -117,26 +123,14 @@ func TestPublishedIsHostRelative(t *testing.T) {
 	}
 }
 
-// What the default engine offers THIS host.
+// The default engine resolves on whatever host the tests are running on.
 //
-// On amd64 it must at least have an entry -- a plain `skrog install` has to
-// resolve something on the architecture the product ships for. The checksum
-// may be empty, for the interim reason above.
-//
-// On the arm64 CI runner (#389) it must refuse. WHICH refusal has changed
-// over the life of #388 and will change again, so the test asserts the
-// invariant rather than a snapshot: whatever the reason, it must be an error
-// a caller can branch on, and it must name the architecture and a way
-// forward.
-//
-//	no arm64 entry at all  -> ErrUnsupportedHostArch  (before #456)
-//	entry, empty checksum  -> ErrNotPublished         (the interim, now)
-//	entry with a checksum  -> nil                     (once released)
-//
-// Pinning only the first of those is how this test failed on the arm64
-// runner the moment the manifest gained an arm64 entry -- correctly, since
-// arm64 HAD changed state, but for a reason that was not a regression.
-func TestTheDefaultEngineOnThisHost(t *testing.T) {
+// This is the one that runs on both CI runners, and since arm64 shipped it
+// asserts the same thing on each: `skrog install` finds a rootfs. It used to
+// encode "amd64 works, arm64 refuses", which meant the arm64 runner was
+// asserting the product was broken there -- useful while that was true, and
+// exactly the sort of test that keeps passing after it stops being true.
+func TestTheDefaultEngineResolvesOnThisHost(t *testing.T) {
 	m, err := release.Load()
 	if err != nil {
 		t.Fatalf("Load: %v", err)
@@ -145,63 +139,59 @@ func TestTheDefaultEngineOnThisHost(t *testing.T) {
 	if err != nil {
 		t.Fatalf("default: %v", err)
 	}
-	_, err = def.HostRootfs()
+	r, err := def.HostRootfs()
+	if err != nil {
+		t.Fatalf("the default engine has no rootfs for %s: %v", runtime.GOARCH, err)
+	}
+	// The URL must actually name this architecture. Selecting the wrong entry
+	// would pass the check above and fail at `wsl --import`, which is the
+	// original bug wearing a different hat.
+	if !strings.Contains(r.URL, runtime.GOARCH) {
+		t.Errorf("on %s the selected rootfs is %q, which does not name this architecture",
+			runtime.GOARCH, r.URL)
+	}
+}
+
+// An architecture nobody builds for still has to refuse well. This is the
+// path ErrUnsupportedHostArch is left serving now that amd64 and arm64 both
+// resolve.
+func TestAnUnbuiltArchitectureIsRefusedWithAReason(t *testing.T) {
+	m, err := release.Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	def, _ := m.Engine("")
+	_, err = def.RootfsFor("riscv64")
 	var unsupported *release.ErrUnsupportedHostArch
-	var notPublished *release.ErrNotPublished
-
-	if runtime.GOARCH == "amd64" {
-		if errors.As(err, &unsupported) {
-			t.Errorf("the default engine has no amd64 rootfs at all: %v", err)
-		}
-		return
+	if !errors.As(err, &unsupported) {
+		t.Fatalf("want *ErrUnsupportedHostArch so callers can branch, got %T: %v", err, err)
 	}
-
-	if err == nil {
-		t.Fatalf("resolved a rootfs on %s; no %s rootfs is published yet, and "+
-			"when one is, this test and docs/install.md both need updating",
-			runtime.GOARCH, runtime.GOARCH)
+	if unsupported.Host != "riscv64" {
+		t.Errorf("Host = %q, want riscv64", unsupported.Host)
 	}
-
-	switch {
-	case errors.As(err, &unsupported):
-		if unsupported.Host != runtime.GOARCH {
-			t.Errorf("Host = %q, want %q", unsupported.Host, runtime.GOARCH)
+	for _, want := range []string{"riscv64", "amd64", "arm64", "--rootfs-url"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the refusal never mentions %q:\n%s", want, err)
 		}
-		// The message is the whole deliverable: the bug was never a crash, it
-		// was a failure that did not say "architecture".
-		for _, want := range []string{"amd64", runtime.GOARCH, "--rootfs-url", "issues/388"} {
-			if !strings.Contains(err.Error(), want) {
-				t.Errorf("the refusal never mentions %q:\n%s", want, err)
-			}
-		}
-	case errors.As(err, &notPublished):
-		if notPublished.Arch != runtime.GOARCH {
-			t.Errorf("Arch = %q, want %q", notPublished.Arch, runtime.GOARCH)
-		}
-		for _, want := range []string{runtime.GOARCH, "--rootfs-url", "--rootfs-sha256"} {
-			if !strings.Contains(err.Error(), want) {
-				t.Errorf("the refusal never mentions %q:\n%s", want, err)
-			}
-		}
-	default:
-		t.Fatalf("error is neither *ErrUnsupportedHostArch nor *ErrNotPublished, "+
-			"so callers cannot branch on it: %T", err)
 	}
 }
 
 // The message is the whole deliverable here -- the bug was never a crash, it
-// was a failure that did not say "architecture". Check it on both hosts.
+// was a failure that did not say "architecture".
 func TestUnsupportedHostArchMessageIsActionable(t *testing.T) {
-	err := &release.ErrUnsupportedHostArch{Host: "arm64", Available: []string{"amd64"}}
+	err := &release.ErrUnsupportedHostArch{
+		Host:      "riscv64",
+		Available: []string{"amd64", "arm64"},
+	}
 	msg := err.Error()
 
 	for _, want := range []string{
-		"arm64",          // this machine
-		"amd64",          // what there is instead
+		"riscv64",        // this machine
+		"amd64, arm64",   // what there is instead
 		"runs natively",  // your skrog binary is not the problem
-		"Docker Desktop", // a real alternative today
+		"Docker Desktop", // a real alternative, where one exists
 		"--rootfs-url",   // the escape hatch, still open
-		"issues/388",     // where this is going
+		"issues",         // where to say this platform matters
 	} {
 		if !strings.Contains(msg, want) {
 			t.Errorf("message does not mention %q:\n%s", want, msg)
