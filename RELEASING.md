@@ -4,7 +4,7 @@ Two independent release streams, deliberately kept apart:
 
 | stream | tag | what it publishes | workflow |
 |---|---|---|---|
-| **rootfs** | `rootfs-vX.Y.Z` | the engine tarball, its `.sha256`, and an SPDX SBOM | `rootfs.yml` |
+| **rootfs** | `rootfs-vX.Y.Z` | one engine tarball **per architecture**, each with its `.sha256` and an SPDX SBOM | `rootfs.yml` |
 | **app** | `vX.Y.Z` | `skrog.exe` for amd64 and arm64, zipped, plus `SHA256SUMS` | `release.yml` |
 
 They are separate because the engine and the app version independently: an engine
@@ -51,8 +51,26 @@ has to exist first:
    checksum. Bump the revision for a content change, reset it to 1 on an
    engine bump. Publishing the tag triggers `rootfs.yml`, which rebuilds from
    source (or restores the cached binaries), runs the smoke test, and attaches
-   the three assets. (The first release predates the scheme and is tagged bare
+   the assets. (The first release predates the scheme and is tagged bare
    `rootfs-v29.7.2`.)
+
+   **Two architectures, one release (#388).** `rootfs.yml` builds amd64 and
+   arm64 on native runners and both sets of assets go onto the same tag:
+
+   ```
+   skrog-rootfs-<version>-<rev>-amd64.tar.gz{,.sha256,.cosign.bundle}
+   skrog-rootfs-<version>-<rev>-arm64.tar.gz{,.sha256,.cosign.bundle}
+   skrog-rootfs-<version>-<rev>-{amd64,arm64}.spdx.json
+   ```
+
+   The publish job waits for both builds, so a release is never half an
+   architecture. The matrix does **not** fail fast: if arm64 breaks, the amd64
+   result is what tells you whether the cause is the change or the
+   architecture. A tag published while one architecture is red attaches
+   nothing, which is the intended outcome — fix it and re-run.
+
+   Assets through `rootfs-v29.8.1-1` carry no `-<arch>` suffix and are amd64.
+   They are not renamed: `manifest.json` pins those exact bytes.
 
    **Always pass `--latest=false`:**
 
@@ -76,6 +94,12 @@ has to exist first:
    `engines[].rootfs.sha256`, confirming the `url` matches the tag you used.
    Merge that as a normal PR — a test asserts the manifest agrees with
    `versions.env`.
+
+   Today that is the **amd64** checksum, because `manifest.json` has one
+   `rootfs` per engine and no architecture dimension. The arm64 tarball is
+   published and attested but nothing installs it yet; `skrog install` still
+   refuses on arm64 with the message in `internal/release/arch.go`. Teaching
+   the manifest to carry both is the second half of #388.
 3. **Cut the app release.** Tag `v<app-version>`. `release.yml` builds both
    architectures, asserts the version stamp actually took, packages, and
    attaches the zips with `SHA256SUMS`.

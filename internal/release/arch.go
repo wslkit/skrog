@@ -7,10 +7,15 @@ import (
 
 // Host-architecture preflight (#388).
 //
-// Every rootfs in manifest.json is amd64. There is one build job in
-// rootfs.yml with no architecture matrix, guest/rootfs/reference-diff.sh and
-// sbom.sh hardcode x86_64, and the manifest schema has no architecture
-// dimension at all -- an Engine has exactly one rootfs.url.
+// Every rootfs in manifest.json is amd64, and the manifest schema has no
+// architecture dimension at all -- an Engine has exactly one rootfs.url.
+//
+// The BUILD side no longer has that limitation: rootfs.yml runs a native
+// matrix over amd64 and arm64, and the scripts name their output
+// skrog-rootfs-<version>-<arch>.tar.gz. What is missing is a published arm64
+// release and a manifest that can point at one. Until both exist this check
+// stays, because what it is really asserting is "the manifest cannot offer
+// this host an engine" -- and that is still true on arm64.
 //
 // Meanwhile skrog.exe itself IS published for arm64: release.yml builds it,
 // scripts/install.ps1 auto-selects it, docs/install.md tells Snapdragon and

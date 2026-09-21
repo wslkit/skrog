@@ -6,14 +6,17 @@
 #
 #   ./build.sh [output-dir]     default: ./out
 #
-# Output: skrog-rootfs-<version>.tar.gz, its .sha256, and an SPDX SBOM.
+# Output: skrog-rootfs-<version>-<arch>.tar.gz, its .sha256, and an SPDX SBOM.
+# The architecture is the host's: every component is compiled natively, so an
+# arm64 rootfs is built by running this on an arm64 Linux host (#388).
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 out="${1:-$here/out}"
 # shellcheck source=versions.env
 . "$here/versions.env"
-rootfs_version="${ENGINE_VERSION}-${ROOTFS_REVISION}"
+# shellcheck source=arch.sh
+. "$here/arch.sh"
 
 mkdir -p "$out"
 work="$(mktemp -d)"
@@ -192,10 +195,14 @@ CONF
 
 cp "$here/assemble.Dockerfile" "$ctx/Dockerfile"
 
-tag="skrog-rootfs:${ENGINE_VERSION}"
+tag="skrog-rootfs:${ENGINE_VERSION}-${ROOTFS_ARCH}"
+# No --platform: the alpine digest is a multi-arch index, so docker resolves
+# the host's architecture from it. Pinning a platform here would let the
+# tarball's contents disagree with the binaries staged above, which were built
+# natively.
 docker build --build-arg "ALPINE_TAG=${ALPINE_BRANCH#v}" --build-arg "ALPINE_DIGEST=${ALPINE_DIGEST}" -t "$tag" "$ctx"
 
-tarball="$out/skrog-rootfs-${rootfs_version}.tar.gz"
+tarball="$out/$rootfs_tarball_name"
 echo "==> exporting $tarball"
 # docker export writes the container filesystem with correct ownership and
 # without the pseudo-filesystems, which is exactly what `wsl --import` wants.
@@ -209,7 +216,7 @@ docker rm -f "$cid" >/dev/null
 (cd "$out" && sha256sum "$(basename "$tarball")" > "$(basename "$tarball").sha256")
 
 echo "==> SBOM"
-"$here/sbom.sh" "$here/versions.env" "$out/skrog-rootfs-${rootfs_version}.spdx.json"
+ROOTFS_ARCH="$ROOTFS_ARCH" "$here/sbom.sh" "$here/versions.env" "$out/${rootfs_name}.spdx.json"
 
 ls -la "$out"
 echo "OK"
