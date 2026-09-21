@@ -43,6 +43,14 @@ test -f "$reg" || { echo "missing $reg"; exit 1; }
 image="skrog-emulation-test:${ENGINE_VERSION}"
 name="skrog-emulation-test-$$"
 
+# The engine is driven from THIS host's docker CLI over a shared socket,
+# because the rootfs deliberately contains no docker CLI -- PLAN §04 keeps the
+# client a Windows-side concern, bundled beside skrog.exe rather than inside
+# the Linux image. `docker exec <engine> docker ...` is therefore exit 127,
+# which is how the first version of this script failed.
+sockdir="$(mktemp -d)"
+engine() { docker -H "unix://$sockdir/docker.sock" "$@"; }
+
 # Deregistering is part of cleanup, and it is not optional politeness.
 #
 # MEASURED, 2026-09-21: a binfmt_misc registration made inside a privileged
@@ -65,6 +73,7 @@ cleanup() {
     dereg
     docker rm -f "$name" >/dev/null 2>&1 || true
     docker rmi -f "$image" >/dev/null 2>&1 || true
+    rm -rf "$sockdir"
 }
 trap cleanup EXIT
 
@@ -87,31 +96,32 @@ fi
 echo "  nothing registered, as intended"
 
 echo "==> starting dockerd out of the rootfs"
-docker run -d --name "$name" --privileged "$image" \
-    /usr/local/bin/dockerd >/dev/null
+docker run -d --name "$name" --privileged -v "$sockdir:/shared" "$image" \
+    /usr/local/bin/dockerd -H unix:///shared/docker.sock >/dev/null
 for _ in $(seq 1 60); do
-    docker exec "$name" test -S /var/run/docker.sock 2>/dev/null && break
+    [ -S "$sockdir/docker.sock" ] && break
     sleep 1
 done
-docker exec "$name" test -S /var/run/docker.sock || {
-    echo "dockerd did not start. Log:" >&2
+[ -S "$sockdir/docker.sock" ] || {
+    echo "dockerd did not create its socket. Log:" >&2
     docker logs "$name" 2>&1 | tail -30 >&2
     exit 1
 }
+# dockerd makes the socket root-only; this script is not necessarily root.
+docker exec "$name" chmod 666 /shared/docker.sock
+engine version --format '  engine {{.Server.Version}} via {{.Server.Os}}/{{.Server.Arch}}'
 
 # Pulled as its own step so a network failure is a network failure, and not
 # mistaken for the negative control below succeeding.
 echo "==> pulling a $ARCH_EMULATE image into that engine"
-docker exec "$name" docker pull -q --platform "linux/$ARCH_EMULATE" "$test_image" >/dev/null
-docker exec "$name" docker image inspect "$test_image" \
-    --format '  pulled architecture: {{.Architecture}}'
+engine pull -q --platform "linux/$ARCH_EMULATE" "$test_image" >/dev/null
+engine image inspect "$test_image" --format '  pulled architecture: {{.Architecture}}'
 
 echo "==> it does NOT run yet"
 # The negative control, and the reason this test is worth anything. Without
 # it, green could mean "the rootfs made emulation work" or "the kernel already
 # had a handler and the rootfs contributed nothing".
-if docker exec "$name" docker run --rm --platform "linux/$ARCH_EMULATE" \
-       "$test_image" /bin/true 2>/dev/null; then
+if engine run --rm --platform "linux/$ARCH_EMULATE" "$test_image" /bin/true 2>/dev/null; then
     echo "FATAL: a $ARCH_EMULATE container ran with no interpreter registered." >&2
     echo "  Either this kernel already had one -- in which case this test proves" >&2
     echo "  nothing about the rootfs -- or the image is not really $ARCH_EMULATE." >&2
@@ -135,8 +145,7 @@ docker exec -i "$name" sh -c 'cat > /proc/sys/fs/binfmt_misc/register' < "$reg"
 docker exec "$name" sh -c 'cat /proc/sys/fs/binfmt_misc/qemu-*' | sed 's/^/  /'
 
 echo "==> the same container now runs"
-got=$(docker exec "$name" docker run --rm --platform "linux/$ARCH_EMULATE" \
-        "$test_image" uname -m)
+got=$(engine run --rm --platform "linux/$ARCH_EMULATE" "$test_image" uname -m)
 echo "  uname -m in a linux/$ARCH_EMULATE container: $got"
 case "$ARCH_EMULATE:$got" in
     arm64:aarch64|amd64:x86_64) ;;
@@ -147,8 +156,8 @@ echo "==> and a native container is still native"
 # The half everyone forgets. A registration whose mask also matched the host's
 # own ELFs would route every native binary through the emulator, and a test
 # that only checked the foreign case would still be green.
-docker exec "$name" docker pull -q "$test_image" >/dev/null
-native=$(docker exec "$name" docker run --rm "$test_image" uname -m)
+engine pull -q "$test_image" >/dev/null
+native=$(engine run --rm "$test_image" uname -m)
 echo "  uname -m in a default container: $native"
 case "$ROOTFS_ARCH:$native" in
     amd64:x86_64|arm64:aarch64) ;;
