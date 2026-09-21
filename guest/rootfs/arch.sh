@@ -43,6 +43,22 @@ case "$ROOTFS_ARCH" in
         exit 1
         ;;
 esac
+
+# The qemu-user emulator this rootfs carries for the OTHER architecture (#462).
+#
+# Each rootfs ships exactly one, and never one for itself: a binfmt_misc
+# handler registered for the host's own ELF type would intercept binaries the
+# CPU executes natively and route them through an emulator for no reason.
+#
+# ARCH_EMULATE is the foreign GOARCH, QEMU_PKG the Alpine package, QEMU_BIN the
+# interpreter path a registration points at. Shipping it costs 6.3 MB on amd64
+# and 3.6 MB on arm64 and does nothing until something registers it --
+# emulation is opt-in, and the rootfs carrying the binary is not the opt-in.
+# shellcheck disable=SC2034  # all read by the scripts that source this file
+case "$ROOTFS_ARCH" in
+    amd64) ARCH_EMULATE=arm64; QEMU_PKG=qemu-aarch64; QEMU_BIN=/usr/bin/qemu-aarch64 ;;
+    arm64) ARCH_EMULATE=amd64; QEMU_PKG=qemu-x86_64;  QEMU_BIN=/usr/bin/qemu-x86_64  ;;
+esac
 # Docker's static bundles use Alpine's spelling too
 # (download.docker.com/linux/static/stable/<arch>/).
 # shellcheck disable=SC2034  # read by the scripts that source this file

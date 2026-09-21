@@ -104,6 +104,15 @@ jobs:
       - name: compare against Docker's static bundle
         run: ./guest/rootfs/reference-diff.sh "$GITHUB_WORKSPACE/out"
 
+      # The one thing the Windows e2e suite cannot test (#462). It runs on
+      # windows-latest, which is amd64, and hosted arm64 Windows runners
+      # cannot start WSL2 at all. Here the rootfs is native on both
+      # architectures, so this proves BOTH directions for real: the amd64
+      # rootfs running an arm64 container on ubuntu-24.04, and the arm64
+      # rootfs running an amd64 container on ubuntu-24.04-arm.
+      - name: foreign-architecture containers run under emulation
+        run: ./guest/rootfs/emulation-test.sh "$GITHUB_WORKSPACE/out"
+
       - uses: actions/upload-artifact@v7
         with:
           name: skrog-rootfs-${{ matrix.arch }}

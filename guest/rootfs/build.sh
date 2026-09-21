@@ -218,7 +218,11 @@ tag="skrog-rootfs:${ENGINE_VERSION}-${ROOTFS_ARCH}"
 # the host's architecture from it. Pinning a platform here would let the
 # tarball's contents disagree with the binaries staged above, which were built
 # natively.
-docker build --build-arg "ALPINE_TAG=${ALPINE_BRANCH#v}" --build-arg "ALPINE_DIGEST=${ALPINE_DIGEST}" -t "$tag" "$ctx"
+docker build \
+  --build-arg "ALPINE_TAG=${ALPINE_BRANCH#v}" \
+  --build-arg "ALPINE_DIGEST=${ALPINE_DIGEST}" \
+  --build-arg "QEMU_PKG=${QEMU_PKG}" \
+  -t "$tag" "$ctx"
 
 tarball="$out/$rootfs_tarball_name"
 echo "==> exporting $tarball"
