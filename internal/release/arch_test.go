@@ -123,10 +123,19 @@ func TestPublishedIsHostRelative(t *testing.T) {
 // resolve something on the architecture the product ships for. The checksum
 // may be empty, for the interim reason above.
 //
-// On the arm64 CI runner (#389) it must refuse, and the refusal has to carry
-// the three things a user needs: what is wrong, that their skrog binary is
-// fine, and what to do instead. "unsupported" on its own sends people to the
-// issue tracker to ask.
+// On the arm64 CI runner (#389) it must refuse. WHICH refusal has changed
+// over the life of #388 and will change again, so the test asserts the
+// invariant rather than a snapshot: whatever the reason, it must be an error
+// a caller can branch on, and it must name the architecture and a way
+// forward.
+//
+//	no arm64 entry at all  -> ErrUnsupportedHostArch  (before #456)
+//	entry, empty checksum  -> ErrNotPublished         (the interim, now)
+//	entry with a checksum  -> nil                     (once released)
+//
+// Pinning only the first of those is how this test failed on the arm64
+// runner the moment the manifest gained an arm64 entry -- correctly, since
+// arm64 HAD changed state, but for a reason that was not a regression.
 func TestTheDefaultEngineOnThisHost(t *testing.T) {
 	m, err := release.Load()
 	if err != nil {
@@ -138,6 +147,7 @@ func TestTheDefaultEngineOnThisHost(t *testing.T) {
 	}
 	_, err = def.HostRootfs()
 	var unsupported *release.ErrUnsupportedHostArch
+	var notPublished *release.ErrNotPublished
 
 	if runtime.GOARCH == "amd64" {
 		if errors.As(err, &unsupported) {
@@ -147,19 +157,35 @@ func TestTheDefaultEngineOnThisHost(t *testing.T) {
 	}
 
 	if err == nil {
-		t.Fatalf("allowed a manifest install on %s; no %s rootfs is published",
+		t.Fatalf("resolved a rootfs on %s; no %s rootfs is published yet, and "+
+			"when one is, this test and docs/install.md both need updating",
 			runtime.GOARCH, runtime.GOARCH)
 	}
-	if !errors.As(err, &unsupported) {
-		t.Fatalf("error is not *ErrUnsupportedHostArch, so callers cannot branch on it: %T", err)
-	}
-	if unsupported.Host != runtime.GOARCH {
-		t.Errorf("Host = %q, want %q", unsupported.Host, runtime.GOARCH)
-	}
-	for _, want := range []string{"amd64", runtime.GOARCH, "--rootfs-url", "issues/388"} {
-		if !strings.Contains(err.Error(), want) {
-			t.Errorf("the refusal never mentions %q:\n%s", want, err)
+
+	switch {
+	case errors.As(err, &unsupported):
+		if unsupported.Host != runtime.GOARCH {
+			t.Errorf("Host = %q, want %q", unsupported.Host, runtime.GOARCH)
 		}
+		// The message is the whole deliverable: the bug was never a crash, it
+		// was a failure that did not say "architecture".
+		for _, want := range []string{"amd64", runtime.GOARCH, "--rootfs-url", "issues/388"} {
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("the refusal never mentions %q:\n%s", want, err)
+			}
+		}
+	case errors.As(err, &notPublished):
+		if notPublished.Arch != runtime.GOARCH {
+			t.Errorf("Arch = %q, want %q", notPublished.Arch, runtime.GOARCH)
+		}
+		for _, want := range []string{runtime.GOARCH, "--rootfs-url", "--rootfs-sha256"} {
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("the refusal never mentions %q:\n%s", want, err)
+			}
+		}
+	default:
+		t.Fatalf("error is neither *ErrUnsupportedHostArch nor *ErrNotPublished, "+
+			"so callers cannot branch on it: %T", err)
 	}
 }
 
