@@ -74,6 +74,39 @@ jobs:
           "version=$version" >> $env:GITHUB_OUTPUT
           Write-Host "building version $version"
 
+      # A release build must be able to install the engine it ships with.
+      #
+      # internal/release/manifest.json carries an empty sha256 between cutting
+      # a rootfs release and copying its digests in (RELEASING.md step 2).
+      # That state is legitimate on main and the unit tests tolerate it --
+      # otherwise every release would turn main red for the twenty minutes
+      # that takes, and a red main nobody is alarmed by is worse than no
+      # signal at all.
+      #
+      # It is never legitimate HERE. A published skrog whose default engine
+      # has no checksum refuses every `skrog install` with a message about
+      # development builds, and the manifest is compiled in, so the only fix
+      # is another release. The gate belongs at the point where "must be
+      # installable" is unambiguously true, which is this one.
+      - name: the shipped manifest can actually install
+        if: github.event_name == 'release'
+        shell: pwsh
+        run: |
+          $m = Get-Content internal/release/manifest.json -Raw | ConvertFrom-Json
+          $default = $m.engines | Where-Object { $_.default }
+          if (-not $default) { throw "manifest marks no default engine" }
+          $bad = @()
+          foreach ($arch in $default.rootfs.PSObject.Properties) {
+            if (-not $arch.Value.url -or -not $arch.Value.sha256) {
+              $bad += $arch.Name
+            }
+          }
+          if ($bad) {
+            throw ("default engine $($default.version) has no published checksum for: " +
+                   ($bad -join ', ') + ". Finish RELEASING.md step 2 before tagging an app release.")
+          }
+          Write-Host "default engine $($default.version): $(@($default.rootfs.PSObject.Properties).Count) architecture(s), all published"
+
       - name: build
         shell: pwsh
         env:

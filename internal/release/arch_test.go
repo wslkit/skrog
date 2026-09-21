@@ -34,17 +34,29 @@ func TestNoArm64RootfsIsPublishedYet(t *testing.T) {
 	}
 }
 
-// Every engine must offer amd64, which is the architecture the product is
-// actually shipped and tested on. An entry that lost it would be a typo in a
-// hand-edited JSON file that nothing else would catch until an install.
-func TestEveryEngineHasAnAmd64Rootfs(t *testing.T) {
+// Every engine must have an amd64 ENTRY, which is the architecture the
+// product is actually shipped and tested on. An entry that went missing would
+// be a typo in a hand-edited JSON file that nothing else catches until an
+// install.
+//
+// Deliberately tolerates an empty checksum. That is the documented interim
+// between cutting a rootfs release and copying its digests in (RELEASING.md
+// step 2), and main sits in it for as long as that takes. Asserting
+// installability here would make a normal, intended state look like a broken
+// repository -- and worse, would train someone to ignore a red main during
+// every release. What must never be empty is a checksum in a RELEASE build,
+// and release.yml gates that, where it is unambiguously true.
+func TestEveryEngineHasAnAmd64Entry(t *testing.T) {
 	m, err := release.Load()
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
 	for _, e := range m.Engines {
-		if _, err := e.RootfsFor("amd64"); err != nil {
-			t.Errorf("engine %s has no usable amd64 rootfs: %v", e.Version, err)
+		_, err := e.RootfsFor("amd64")
+		var unsupported *release.ErrUnsupportedHostArch
+		if errors.As(err, &unsupported) {
+			t.Errorf("engine %s lists no amd64 rootfs at all (architectures: %v)",
+				e.Version, e.Architectures())
 		}
 	}
 }
@@ -105,13 +117,16 @@ func TestPublishedIsHostRelative(t *testing.T) {
 	}
 }
 
-// The default engine must be installable on this host, or a plain
-// `skrog install` fails on a machine the release supports.
+// What the default engine offers THIS host.
 //
-// On the arm64 CI runner (#389) this is expected to refuse, and the refusal
-// has to carry the three things a user needs: what is wrong, that their skrog
-// binary is fine, and what to do instead. "unsupported" on its own sends
-// people to the issue tracker to ask.
+// On amd64 it must at least have an entry -- a plain `skrog install` has to
+// resolve something on the architecture the product ships for. The checksum
+// may be empty, for the interim reason above.
+//
+// On the arm64 CI runner (#389) it must refuse, and the refusal has to carry
+// the three things a user needs: what is wrong, that their skrog binary is
+// fine, and what to do instead. "unsupported" on its own sends people to the
+// issue tracker to ask.
 func TestTheDefaultEngineOnThisHost(t *testing.T) {
 	m, err := release.Load()
 	if err != nil {
@@ -122,10 +137,11 @@ func TestTheDefaultEngineOnThisHost(t *testing.T) {
 		t.Fatalf("default: %v", err)
 	}
 	_, err = def.HostRootfs()
+	var unsupported *release.ErrUnsupportedHostArch
 
 	if runtime.GOARCH == "amd64" {
-		if err != nil {
-			t.Errorf("refused on amd64, where the rootfs works: %v", err)
+		if errors.As(err, &unsupported) {
+			t.Errorf("the default engine has no amd64 rootfs at all: %v", err)
 		}
 		return
 	}
@@ -134,7 +150,6 @@ func TestTheDefaultEngineOnThisHost(t *testing.T) {
 		t.Fatalf("allowed a manifest install on %s; no %s rootfs is published",
 			runtime.GOARCH, runtime.GOARCH)
 	}
-	var unsupported *release.ErrUnsupportedHostArch
 	if !errors.As(err, &unsupported) {
 		t.Fatalf("error is not *ErrUnsupportedHostArch, so callers cannot branch on it: %T", err)
 	}
