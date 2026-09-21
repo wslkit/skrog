@@ -315,6 +315,11 @@ asks for one):
   network.import-host-cas   trust the host's root CA store inside the engine
                              (the fix for a TLS-inspecting proxy; on/off)
 
+WSL2 VM (wsl.memory, wsl.processors, wsl.swap, wsl.auto-memory-reclaim, wsl.virtiofs) are set here but written to
+~/.wslconfig, which every WSL2 distro on the machine shares. They need
+`skrog wsl-config apply` to be written and a `wsl --shutdown` to take effect,
+so they live under `skrog wsl-config --help` with the diff and the caveats.
+
 Exit codes: 0 ok, 1 error, 2 usage.
   -json
     	emit machine-readable JSON (list)

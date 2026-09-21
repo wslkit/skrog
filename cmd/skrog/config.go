@@ -88,6 +88,19 @@ asks for one):
   %s   trust the host's root CA store inside the engine
                              (the fix for a TLS-inspecting proxy; on/off)
 `, config.KeyProxy, config.KeyNoProxy, config.KeyImportHostCAs)
+		// wsl.* keys are settable HERE but land in ~/.wslconfig rather than
+		// Skrog's own settings, so they are documented under `skrog
+		// wsl-config` where the apply step and the machine-wide consequences
+		// are. Cross-referenced rather than duplicated: `skrog config set
+		// wsl.virtiofs true` is a real command, and a help page listing every
+		// other family but not this one reads as though it were not.
+		fmt.Fprintf(os.Stderr, `
+WSL2 VM (%s, %s, %s, %s, %s) are set here but written to
+~/.wslconfig, which every WSL2 distro on the machine shares. They need
+`+"`skrog wsl-config apply`"+` to be written and a `+"`wsl --shutdown`"+` to take effect,
+so they live under `+"`skrog wsl-config --help`"+` with the diff and the caveats.
+`, config.KeyWSLMemory, config.KeyWSLProcessors, config.KeyWSLSwap,
+			config.KeyWSLAutoMemoryReclaim, config.KeyWSLVirtiofs)
 		fmt.Fprintf(os.Stderr, "\nExit codes: 0 ok, %d error, %d usage.\n", exitError, exitUsage)
 		fs.PrintDefaults()
 	}
