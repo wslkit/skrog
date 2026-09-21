@@ -146,19 +146,53 @@ func mdCell(s string) string {
 
 // wrapIndent leaves the first line as-is and prefixes continuation lines with
 // indent, so a long remedy stays readable in a terminal without a wrapping lib.
+//
+// Line breaks the author wrote are PRESERVED. This used to run strings.Fields
+// over the whole string, which splits on newlines too, so a remedy written as
+// a sequence of commands came out as one paragraph:
+//
+//	fix: needs WSL 2.9 or newer: skrog config set wsl.virtiofs true skrog
+//	     wsl-config apply wsl --shutdown ~/.wslconfig is shared by every...
+//
+// That is worse than ugly. It looks copy-pasteable and is not, and the same
+// flattening ran the numbered steps of the injected-modules remedy together.
+// A remedy is the one part of a check output a user is meant to act on.
 func wrapIndent(s, indent string) string {
+	lines := strings.Split(s, "\n")
+	out := make([]string, 0, len(lines))
+	for i, line := range lines {
+		w := wrapLine(line, indent)
+		if i > 0 {
+			// Continuation lines carry the block indent; the first does not,
+			// because the caller has already printed a "fix: " prefix.
+			w = indent + w
+		}
+		out = append(out, w)
+	}
+	return strings.Join(out, "\n")
+}
+
+// wrapLine wraps one logical line, keeping its own leading whitespace on any
+// continuation it produces.
+//
+// The leading whitespace matters: remedies indent their command blocks, and a
+// wrapped command that lost its indent would sit flush against the prose and
+// read as if it were part of the sentence.
+func wrapLine(line, indent string) string {
 	const width = 76
-	words := strings.Fields(s)
+	lead := line[:len(line)-len(strings.TrimLeft(line, " \t"))]
+	words := strings.Fields(line)
 	if len(words) == 0 {
-		return s
+		return ""
 	}
 	var b strings.Builder
-	lineLen := 0
+	b.WriteString(lead)
+	lineLen := len(lead)
 	for i, word := range words {
 		if i > 0 {
 			if lineLen+1+len(word) > width {
-				b.WriteString("\n" + indent)
-				lineLen = 0
+				b.WriteString("\n" + indent + lead)
+				lineLen = len(lead)
 			} else {
 				b.WriteString(" ")
 				lineLen++

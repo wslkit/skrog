@@ -14,6 +14,26 @@ useful than saying where the real one is.
 
 ### Added
 
+- **`skrog doctor` says when the engine is still on 9p**
+  ([#327](https://github.com/wslkit/skrog/issues/327)). `wsl.virtiofs` has
+  existed as a setting, and `docs/vm-sizing.md` has carried the measurements —
+  reads **4.0×**, `ls -l` of 1000 files **3.1×** — since the evaluation that
+  added it. Nothing ever told anyone. The key was there for people who already
+  knew to look for it.
+
+  It warns rather than merely noting, unlike the multi-arch check next door,
+  and the difference is deliberate: every `docker run -v ${PWD}:/app` goes
+  through this mount, so it is the common path rather than a capability you
+  opt into — and the warning is permanently silenceable by taking the action,
+  so it is not the kind that trains people to skim.
+
+  The verdict comes from `/proc/mounts` in the running engine, not from
+  `~/.wslconfig`, because those two disagree exactly when someone would ask:
+  WSL below 2.9 ignores the key silently, and it takes effect only after
+  `wsl --shutdown`. Both look like success in the config file. Skipped
+  entirely when the engine is down — doctor never boots a distro to answer
+  (#82).
+
 - **Run containers built for another CPU architecture, if you ask**
   ([#462](https://github.com/wslkit/skrog/issues/462)).
 
@@ -188,6 +208,21 @@ useful than saying where the real one is.
   attributed.
 
 ### Fixed
+
+- **Doctor remedies no longer collapse into one paragraph.** `wrapIndent` ran
+  `strings.Fields` over the whole remedy, which splits on newlines too, so a
+  remedy written as a sequence of commands rendered as prose:
+
+  ```
+  fix: needs WSL 2.9 or newer: skrog config set wsl.virtiofs true skrog
+       wsl-config apply wsl --shutdown ~/.wslconfig is shared by every...
+  ```
+
+  Worse than ugly — it looks copy-pasteable and is not. The same flattening
+  ran the numbered steps of the injected-modules remedy together. Author line
+  breaks are preserved now, and each line wraps on its own keeping its
+  indentation. Found while adding the virtiofs check, whose fix is three
+  commands and was unusable as rendered.
 
 The concurrency findings from the pre-0.6.0 review, which were filed but not
 fixed in time for it, plus the first of the policy gaps.
