@@ -3,9 +3,9 @@ name: rootfs
 on:
   push:
     branches: [main]
-    paths: ['guest/rootfs/**', '.github/workflows/rootfs.yml']
+    paths: ['guest/rootfs/**', 'internal/emulation/*.reg', '.github/workflows/rootfs.yml']
   pull_request:
-    paths: ['guest/rootfs/**', '.github/workflows/rootfs.yml']
+    paths: ['guest/rootfs/**', 'internal/emulation/*.reg', '.github/workflows/rootfs.yml']
   # A rootfs release (tag: rootfs-vX.Y.Z) rebuilds and attaches its assets.
   # App releases are handled by release.yml and skip the publish job below.
   release:

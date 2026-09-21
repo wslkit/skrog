@@ -37,7 +37,11 @@ test_image="alpine@sha256:ce64758a109eb420d874a118f87920e625e12d3634e03b4a5573fd
 tarball="$out/$rootfs_tarball_name"
 test -f "$tarball" || { echo "missing $tarball"; exit 1; }
 
-reg="$here/binfmt-$ARCH_EMULATE.reg"
+# The SAME file internal/emulation embeds and registers at engine start.
+# One source of truth on purpose: a copy here would drift from the one the
+# product uses, and the failure mode is a handler that registers cleanly and
+# matches nothing.
+reg="$here/../../internal/emulation/binfmt-$ARCH_EMULATE.reg"
 test -f "$reg" || { echo "missing $reg"; exit 1; }
 
 image="skrog-emulation-test:${ENGINE_VERSION}"

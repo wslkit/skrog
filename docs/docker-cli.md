@@ -124,7 +124,7 @@ is **untouched** afterwards — the emulators live inside the builder container
 `skrog doctor` reports which case you are in, as information rather than a
 warning: most people never cross-build.
 
-### Why Skrog does not just register the handlers
+### Why Skrog does not register the handlers for you
 
 Docker Desktop does — its docs say multi-platform builds work "by default...
 using the QEMU that's bundled within the Docker Desktop VM" — so this is one
@@ -138,8 +138,51 @@ or your distro's `qemu-user-static` had put there. That is the same category as
 `~/.wslconfig`, which [`skrog wsl-config apply`](vm-sizing.md) treats as
 needing your consent rather than doing on your behalf.
 
-So it stays a thing you opt into, and the one command above is the answer for
-almost everyone.
+So it stays a thing you opt into — and for **builds**, the one command above
+is the answer for almost everyone and needs no opt-in at all.
+
+## Running a foreign-architecture container
+
+Everything above is about `docker build`. Running one is a different problem
+with a different answer, and the buildx recipe does nothing for it — a builder
+builds; it cannot run a container.
+
+```powershell
+docker run --rm --platform linux/amd64 alpine uname -m
+# exec /bin/uname: exec format error
+```
+
+This matters most on **Windows on ARM**, where the majority of images on
+Docker Hub are amd64-only. Pulling one works; starting it does not.
+
+Skrog can register the interpreter for you, and does not until asked:
+
+```powershell
+skrog config set emulation.platforms linux/amd64
+skrog restart
+```
+
+The engine rootfs already carries the emulator — `qemu-x86_64` in the arm64
+rootfs, `qemu-aarch64` in the amd64 one — so nothing is downloaded. The
+handler is registered on every engine start, because `binfmt_misc` lives in
+the kernel and `wsl --shutdown` wipes it, and it is **removed again on
+`skrog stop` and on uninstall**.
+
+Read the consent paragraph above before setting it: this is the change that
+reaches your other distros, which is exactly why it is a key you set rather
+than a default you discover.
+
+Two things worth knowing:
+
+- **It is slow.** QEMU user-mode emulation is several times slower than
+  native. Fine for `apk add` and a smoke test, painful for a compile.
+- **What changes is not only what you asked for.** An amd64-only image that
+  fails fast today will start succeeding *slowly* instead, with nothing
+  announcing it. `skrog doctor` reports which handlers are live.
+
+Skrog ships emulators for `linux/amd64` and `linux/arm64` only. Those are what
+images are really published for; the architectures below them are a list of
+things that exist rather than things anyone runs on a Windows laptop.
 
 ## Licensing
 

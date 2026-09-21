@@ -275,6 +275,13 @@ itself land when the engine next starts, which `skrog restart` asks for.
                  the key to restore the default.
   prune.build-cache also drop the BuildKit cache on an automatic prune; on/off
                  ("off" by default, because the cache is expensive to rebuild).
+  emulation.platforms run containers built for another CPU architecture, e.g.
+                 "linux/amd64" (empty by default). For docker run --platform;
+                 cross-architecture BUILDS already work without this, see
+                 docs/docker-cli.md. Registering an emulator affects EVERY WSL2
+                 distro on the machine, not just Skrog's -- they share one
+                 kernel -- which is why it is opt-in. Removed again on
+                 skrog stop and uninstall.
 
 Engine settings (engine.<key>) are written into the engine's daemon.json,
 validated with `dockerd --validate` before they replace the live file, and

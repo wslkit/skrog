@@ -51,6 +51,13 @@ itself land when the engine next starts, which `+"`skrog restart`"+` asks for.
                  the key to restore the default.
   %s also drop the BuildKit cache on an automatic prune; on/off
                  ("off" by default, because the cache is expensive to rebuild).
+  %s run containers built for another CPU architecture, e.g.
+                 "linux/amd64" (empty by default). For docker run --platform;
+                 cross-architecture BUILDS already work without this, see
+                 docs/docker-cli.md. Registering an emulator affects EVERY WSL2
+                 distro on the machine, not just Skrog's -- they share one
+                 kernel -- which is why it is opt-in. Removed again on
+                 skrog stop and uninstall.
 
 Engine settings (engine.<key>) are written into the engine's daemon.json,
 validated with `+"`dockerd --validate`"+` before they replace the live file, and
@@ -58,7 +65,8 @@ applied by bouncing the engine (rolled back if it does not come back). Set an
 empty value to clear a key. Lists are comma-separated; maps are k=v,k=v.
 
 `, config.KeyIdleTimeout, config.KeyAudit, config.KeyVerifySignature, config.KeyDiskWarnBelow,
-			config.KeyPruneEvery, config.KeyPruneKeepSince, config.KeyPruneBuildCache)
+			config.KeyPruneEvery, config.KeyPruneKeepSince, config.KeyPruneBuildCache,
+			config.KeyEmulationPlatforms)
 		for _, k := range engineconfig.KeyHelp() {
 			fmt.Fprintf(os.Stderr, "  engine.%-24s %s\n", k.Name, k.Help)
 		}

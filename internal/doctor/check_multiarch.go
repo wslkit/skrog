@@ -35,9 +35,11 @@ func checkMultiArch() Check {
 				strings.Join(f.MultiArch.Handlers, ", ")))
 			r.Detail = []string{
 				"  registered binfmt_misc handlers, so `docker buildx build --platform` works",
-				"  on the default builder.",
+				"  on the default builder AND `docker run --platform` can start a foreign",
+				"  container.",
 				"  These live in the shared WSL2 utility VM, so they may have been registered",
-				"  by another distro on this machine rather than by Skrog.",
+				"  by another distro on this machine, by tonistiigi/binfmt, or by Skrog's own",
+				"  `emulation.platforms` setting -- the table does not record who wrote it.",
 			}
 			return r
 		}
