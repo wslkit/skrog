@@ -14,6 +14,49 @@ useful than saying where the real one is.
 
 ### Added
 
+- **Run containers built for another CPU architecture, if you ask**
+  ([#462](https://github.com/wslkit/skrog/issues/462)).
+
+  ```
+  skrog config set emulation.platforms linux/amd64
+  skrog restart
+  ```
+
+  This is for `docker run --platform`. On Windows on ARM most of Docker Hub
+  is amd64-only: the pull succeeds and the container dies with `exec format
+  error`, which is an engine that can fetch an image and not start it.
+
+  Cross-architecture **builds** already worked and still need nothing — a
+  `docker-container` buildx builder bundles its own emulators.
+  `docs/docker-cli.md` has had that recipe since #384 and now covers both
+  cases side by side, because they look like one problem and are not.
+
+  **Off by default, and that is the substance of it.** `binfmt_misc` belongs
+  to the kernel, and on WSL2 one kernel is shared by every distro in the
+  utility VM — so a handler Skrog registers changes how your Ubuntu executes
+  foreign binaries too, and replaces any that `tonistiigi/binfmt` or a
+  distro's `qemu-user-static` had put there. `docs/docker-cli.md` argued from
+  exactly that to "Skrog does not do this unasked", on the same consent
+  grounds as `~/.wslconfig`; this key is the asking, and that section is
+  amended rather than contradicted.
+
+  Registered on every engine start, because `wsl --shutdown` wipes the table,
+  and **removed again on `skrog stop` and on uninstall** — unconditionally, so
+  that turning the setting off and stopping gives you your kernel back. When
+  the key is empty, which is the default, the start path runs no extra command
+  at all.
+
+  The emulators ship in the rootfs (`qemu-aarch64` at 6.3 MB in the amd64
+  image, `qemu-x86_64` at 3.6 MB in the arm64 one), so nothing is downloaded,
+  and CI proves both directions on native runners of each architecture — the
+  one thing the Windows e2e suite cannot test. `linux/amd64` and `linux/arm64`
+  only.
+
+  Worth knowing: it is slow, and the thing that changes is not only what you
+  asked for — an amd64-only image that fails fast today will start succeeding
+  *slowly* instead, with nothing announcing it. `skrog doctor` reports which
+  handlers are live.
+
 - **Windows on ARM: a `docker` CLI, built here because upstream ships none**
   ([#450](https://github.com/wslkit/skrog/issues/450)). `skrog cli install` on
   arm64 laid down compose, buildx and the credential helper — all of which

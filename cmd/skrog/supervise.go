@@ -60,6 +60,7 @@ func (e *engineAdapter) Start(ctx context.Context) error {
 	opts := e.opts
 	c := e.cfg.Config()
 	opts.GPUEnabled = c.GPU
+	opts.EmulationPlatforms = c.EmulationPlatforms
 	opts.GPUVendor = c.GPUVendor
 	opts.Network = provision.NetConfig{Proxy: c.Proxy, NoProxy: c.NoProxy}
 	if c.ImportHostCAs {

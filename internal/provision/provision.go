@@ -90,6 +90,13 @@ type Options struct {
 	// the GPU (#83). Like Network, applied on every engine start so a rootfs
 	// re-import keeps it.
 	GPUEnabled bool
+	// EmulationPlatforms are the foreign architectures to register QEMU
+	// interpreters for (#462), comma-separated GOARCH values. Empty -- the
+	// default -- registers nothing and costs nothing.
+	//
+	// Applied on every engine start, like GPU and Network, because
+	// binfmt_misc lives in the kernel and `wsl --shutdown` wipes it.
+	EmulationPlatforms string
 	// GPUVendor picks which vendor's CDI spec applyGPU writes (#185).
 	// Empty means gpu.DefaultVendor, so an install that predates this stays
 	// NVIDIA.
@@ -566,6 +573,11 @@ func (p *Provisioner) StartEngine(ctx context.Context, opts Options) error {
 		p.ensureAgentSecret(ctx, opts)
 		p.startAgent(ctx, opts)
 		p.shareEngineSocket(ctx, opts)
+		// Also on this path, for the same reason the agent is: binfmt_misc is
+		// kernel state, not dockerd state, so a supervisor that finds a
+		// healthy engine cannot assume the handlers are still there. A
+		// `wsl --shutdown` takes them with it.
+		p.applyEmulation(ctx, opts)
 		return nil
 	}
 
@@ -577,6 +589,10 @@ func (p *Provisioner) StartEngine(ctx context.Context, opts Options) error {
 	// GPU CDI spec, likewise applied before launch so the engine picks it up on
 	// startup and a rootfs re-import keeps GPU access (#83).
 	p.applyGPU(ctx, opts)
+
+	// QEMU interpreters for foreign architectures (#462). Before launch so a
+	// container started immediately afterwards already has them.
+	p.applyEmulation(ctx, opts)
 
 	// Engine defaults Skrog holds an opinion on (engineconfig.Defaults), for
 	// installs whose daemon.json predates them. Only absent keys are written,
@@ -836,6 +852,12 @@ func (p *Provisioner) Uninstall(ctx context.Context, opts Options) error {
 		}
 	}
 
+	// Kernel-wide state Skrog registered, removed while there is still a
+	// distro to run the removal in (#462). "Nothing left behind" has to
+	// include the handlers, because they outlive the distro and change how
+	// every other distro on the machine executes foreign binaries.
+	p.RemoveEmulation(ctx, opts)
+
 	var errs []error
 
 	distros, err := p.wsl().List(ctx)
@@ -972,6 +994,24 @@ func (p *Provisioner) EngineRunningErr(ctx context.Context, opts Options) (bool,
 // never called (PLAN §02; the coexistence note on #35).
 func (p *Provisioner) StopEngine(ctx context.Context, opts Options) error {
 	opts = opts.withDefaults()
+
+	// Emulation handlers go BEFORE the distro does, and unconditionally (#462).
+	//
+	// Before, because they are kernel state: terminating the distro does not
+	// clear them, and with the F flag the interpreter is already loaded into
+	// the kernel, so they keep working with nothing behind them. Once the
+	// distro is gone there is nowhere left to run the deregistration from.
+	//
+	// Unconditionally, rather than only when emulation is configured, because
+	// the case that matters is the one where it is NOT: someone who turns the
+	// key off and stops the engine should get their kernel back. Checking the
+	// current setting would clean up in every case except that one.
+	//
+	// The cost is one wsl round trip on stop. #398 is about how long START
+	// takes; nobody is waiting on a stop, and the alternative is leaving a
+	// machine-wide change behind after Skrog stopped running.
+	p.RemoveEmulation(ctx, opts)
+
 	p.logger().Info("terminating distro", "distro", opts.Distro)
 	return p.wsl().Terminate(ctx, opts.Distro)
 }

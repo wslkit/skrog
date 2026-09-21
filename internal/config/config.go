@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/wslkit/skrog/internal/emulation"
 	"github.com/wslkit/skrog/internal/gpu"
 	"github.com/wslkit/skrog/internal/wslconfig"
 )
@@ -114,6 +115,25 @@ var WSLKeys = map[string]string{
 // flagged before pulls start failing.
 const KeyDiskWarnBelow = "disk.warn-below"
 
+// KeyEmulationPlatforms lets the engine run containers built for another CPU
+// architecture (#462): a comma-separated list such as "linux/amd64", or empty
+// (the default) for none.
+//
+// Off by default, and the default is the substance of it. Registering a QEMU
+// interpreter is not a distro-local act: binfmt_misc belongs to the KERNEL,
+// and on WSL2 one kernel is shared by every distro in the utility VM. Handlers
+// Skrog registers change how the user's Ubuntu executes foreign binaries too,
+// and replace any that tonistiigi/binfmt or a distro's qemu-user-static put
+// there. docs/docker-cli.md reasoned from exactly that to "Skrog does not do
+// this unasked", on the same consent grounds as ~/.wslconfig; this key is the
+// asking.
+//
+// It exists for `docker run --platform`. Cross-architecture BUILDS already
+// work with nothing installed -- a docker-container buildx builder bundles
+// its own emulators -- so anyone setting this to fix a build is solving the
+// wrong problem, and docs/docker-cli.md says which command to use instead.
+const KeyEmulationPlatforms = "emulation.platforms"
+
 // KeyPruneEvery is how often the supervisor reclaims disk on its own (#393):
 // a duration like 168h, or "off" (the default). Automatic deletion is opt-in
 // and stays that way — a tool that removes a user's images because a timer
@@ -162,6 +182,10 @@ type Config struct {
 	VerifySignature bool
 	// DiskWarnBelow is the doctor free-space floor in bytes; 0 means default.
 	DiskWarnBelow uint64
+	// EmulationPlatforms are the foreign architectures the engine may run
+	// containers for (#462), comma-separated GOARCH values. Empty means none,
+	// which is the default.
+	EmulationPlatforms string
 	// PruneEvery of zero means the supervisor never prunes on its own (#393).
 	PruneEvery time.Duration
 	// PruneKeepSince is the age guard on an automatic prune; zero means the
@@ -230,6 +254,7 @@ func Load(stateDir string) (Config, error) {
 		}
 		c.PruneKeepSince = d
 	}
+	c.EmulationPlatforms = raw[KeyEmulationPlatforms]
 	c.PruneBuildCache = raw[KeyPruneBuildCache] == "on"
 	return c, nil
 }
@@ -262,21 +287,22 @@ var validators = map[string]func(string) (string, error){
 		}
 		return d.String(), nil
 	},
-	KeyHookPostStart:   validateHookPath,
-	KeyHookPreStop:     validateHookPath,
-	KeyHookOnIdleStop:  validateHookPath,
-	KeyHookOnWake:      validateHookPath,
-	KeyAudit:           validateOnOff,
-	KeyProxy:           validateProxy,
-	KeyNoProxy:         func(v string) (string, error) { return strings.TrimSpace(v), nil },
-	KeyImportHostCAs:   validateOnOff,
-	KeyGPU:             validateOnOff,
-	KeyGPUVendor:       validateGPUVendor,
-	KeyDiskWarnBelow:   validateSize,
-	KeyPruneEvery:      validateDurationOrOff,
-	KeyPruneKeepSince:  validatePruneKeepSince,
-	KeyPruneBuildCache: validateOnOff,
-	KeyVerifySignature: validateOnOff,
+	KeyHookPostStart:      validateHookPath,
+	KeyHookPreStop:        validateHookPath,
+	KeyHookOnIdleStop:     validateHookPath,
+	KeyHookOnWake:         validateHookPath,
+	KeyAudit:              validateOnOff,
+	KeyProxy:              validateProxy,
+	KeyNoProxy:            func(v string) (string, error) { return strings.TrimSpace(v), nil },
+	KeyImportHostCAs:      validateOnOff,
+	KeyGPU:                validateOnOff,
+	KeyGPUVendor:          validateGPUVendor,
+	KeyDiskWarnBelow:      validateSize,
+	KeyEmulationPlatforms: validateEmulationPlatforms,
+	KeyPruneEvery:         validateDurationOrOff,
+	KeyPruneKeepSince:     validatePruneKeepSince,
+	KeyPruneBuildCache:    validateOnOff,
+	KeyVerifySignature:    validateOnOff,
 
 	// Validated the way WSL reads them, so a typo fails here rather than
 	// silently sizing the VM as something else (#148).
@@ -297,6 +323,26 @@ func validateProxy(v string) (string, error) {
 		return "", fmt.Errorf("%q must be an http:// or https:// URL", v)
 	}
 	return v, nil
+}
+
+// validateEmulationPlatforms accepts the platforms the engine may emulate
+// (#462), normalised to the GOARCH spelling the rest of the code uses.
+//
+// Rejecting here rather than at engine start is the point. A typo in this key
+// would otherwise surface as "my arm64 containers still do not run", hours
+// later, with the supervisor log as the only clue -- and the failure mode of
+// emulation is silence, not an error, because an unregistered handler simply
+// never matches.
+func validateEmulationPlatforms(v string) (string, error) {
+	handlers, err := emulation.Parse(v)
+	if err != nil {
+		return "", err
+	}
+	archs := make([]string, 0, len(handlers))
+	for _, h := range handlers {
+		archs = append(archs, h.Arch)
+	}
+	return strings.Join(archs, ","), nil
 }
 
 // validateOnOff normalizes a boolean-ish setting to "on" or "off".
