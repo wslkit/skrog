@@ -145,6 +145,25 @@ func TestAcceptance(t *testing.T) {
 func run(t *testing.T, timeout time.Duration, name string, args ...string) (string, error) {
 	t.Helper()
 	cmd := exec.Command(name, args...)
+	// wsl.exe writes its own messages as UTF-16LE -- distro lists, --version,
+	// the "no installed distributions" notice -- so a raw CombinedOutput of
+	// them lands in the test log with a NUL between every character:
+	//
+	//   W^@i^@n^@d^@o^@w^@s^@ ^@S^@u^@b^@s^@y^@s^@t^@e^@m^@...
+	//
+	// The suite calls wsl.exe directly in several places, and a failure
+	// message nobody can read is a failure nobody can act on.
+	//
+	// WSL_UTF8=1 makes it emit UTF-8 (WSL 0.64.0+). Set for every command
+	// rather than only the wsl ones: it is inert everywhere else, and a list
+	// of "which commands are really wsl underneath" is the kind of thing that
+	// goes stale silently.
+	//
+	// The product itself does not need this -- internal/wsl/decode.go detects
+	// and converts UTF-16 already. This is for the test harness, which
+	// bypasses that package by design: it drives the real binaries the way a
+	// user does.
+	cmd.Env = append(os.Environ(), "WSL_UTF8=1")
 	done := make(chan struct{})
 	var out []byte
 	var err error

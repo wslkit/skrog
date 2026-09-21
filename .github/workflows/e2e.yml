@@ -51,6 +51,25 @@ on:
 permissions:
   contents: read
 
+# wsl.exe writes its OWN messages as UTF-16LE -- distro lists, --version, the
+# "no installed distributions" notice -- so anything that shells out to it and
+# logs the result raw produces one NUL between every character:
+#
+#   W^@i^@n^@d^@o^@w^@s^@ ^@S^@u^@b^@s^@y^@s^@t^@e^@m^@ ^@f^@o^@r^@ ^@L^@i^@n^@u^@x^@
+#
+# That is what the leftovers step has been putting in the job log, and it is
+# the one place a red run is supposed to be readable.
+#
+# WSL_UTF8=1 makes wsl.exe emit UTF-8 instead (WSL 0.64.0+). Set for the whole
+# workflow rather than per step, because every step here may reach wsl.exe --
+# including the suite itself, which calls `wsl.exe --list` directly.
+#
+# The product does not need this: internal/wsl/decode.go detects and converts
+# UTF-16 already, honouring a BOM and falling through to UTF-8 untouched. This
+# is for the callers that bypass it, which are all test and CI plumbing.
+env:
+  WSL_UTF8: '1'
+
 jobs:
   acceptance:
     name: acceptance suite (windows-latest)
