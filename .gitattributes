@@ -13,3 +13,11 @@ versions.env text eol=lf
 # "$'\r': command not found" the moment it is sourced, and only for people who
 # cloned on Windows -- which is everyone here.
 *.bash text eol=lf
+
+# binfmt_misc registration lines, written byte-for-byte into
+# /proc/sys/fs/binfmt_misc/register (#462). The kernel parses the line by
+# splitting on ':' and takes the last field as the flags -- so a trailing \r
+# becomes part of the flags, and the register write fails with EINVAL for a
+# reason that names nothing. Same class as the versions.env trap above, with
+# a worse error message.
+*.reg text eol=lf

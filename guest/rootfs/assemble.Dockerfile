@@ -14,6 +14,18 @@ ARG ALPINE_TAG=3.24
 ARG ALPINE_DIGEST=sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b
 FROM alpine:${ALPINE_TAG}@${ALPINE_DIGEST}
 
+# The qemu-user emulator for the OTHER architecture (#462), so a foreign
+# container can run under binfmt_misc. build.sh passes the package name from
+# arch.sh: qemu-aarch64 in an amd64 rootfs, qemu-x86_64 in an arm64 one, and
+# never one for the host's own architecture.
+#
+# Present but INERT. Nothing registers it here; emulation is opt-in per
+# install, and shipping the binary is not the opt-in. An unregistered
+# interpreter is 6.3 MB of file that never executes.
+ARG QEMU_PKG
+RUN test -n "$QEMU_PKG" || { echo "QEMU_PKG build-arg is required" >&2; exit 1; } \
+    && apk add --no-cache "$QEMU_PKG"
+
 # Runtime dependencies. None of these are in the Alpine minirootfs, and their
 # absence only surfaces when the engine is actually booted:
 #   iptables/ip6tables  dockerd cannot build container networking without them
