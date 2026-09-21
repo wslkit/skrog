@@ -14,6 +14,32 @@ useful than saying where the real one is.
 
 ### Added
 
+- **Windows on ARM: a `docker` CLI, built here because upstream ships none**
+  ([#450](https://github.com/wslkit/skrog/issues/450)). `skrog cli install` on
+  arm64 laid down compose, buildx and the credential helper — all of which
+  have real arm64 builds — and skipped the one command anybody types.
+  `download.docker.com`'s static tree has exactly one directory, `x86_64/`,
+  and `docker/cli` attaches no release assets.
+
+  So Skrog builds it: `docker/cli` at a commit-pinned tag, in the same pinned
+  Go toolchain as the engine, with SLSA provenance and a cosign-signed
+  checksum, published as a `dockercli-v*` release of this repository. The
+  build asserts the PE machine type is really `0xaa64` before anything is
+  attached — a cross-compile that quietly produced an x86-64 binary would
+  pass every other check and fail only on a user's ARM machine.
+
+  **amd64 still comes from Docker**, deliberately. Those bytes are verifiable
+  by anyone against the pinned digest with no reference to Skrog, and building
+  them too would put every user behind our build rather than only the arm64
+  users who have no alternative. It is not about code signing: Docker's
+  published Windows CLI is not Authenticode-signed either. `docs/docker-cli.md`
+  has the table and the reasoning, and the asymmetry ends when upstream ships
+  an arm64 build. This amends the CLI-repackaging line in PLAN §09.
+
+  The arm64 binary reports its version and upstream commit, and deliberately
+  does **not** claim `Docker Engine - Community` — that is Docker's build
+  string for Docker's builds.
+
 - **Windows on ARM: `skrog install` works**
   ([#388](https://github.com/wslkit/skrog/issues/388)). `skrog.exe` has
   shipped an arm64 build for months while the engine was amd64-only, so

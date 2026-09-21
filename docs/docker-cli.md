@@ -159,11 +159,60 @@ removes the bundled tools and takes the `bin` directory back off your PATH. (Pla
 `skrog uninstall` removes the engine; the CLI bundle is managed separately so you
 can keep the CLI while reinstalling the engine.)
 
-## Architecture note
+## Architecture note: where each binary comes from
 
-Windows **amd64** gets all four tools. On Windows **arm64**, compose, buildx, and
-the credential helper are available, but upstream does not yet publish a Windows
-arm64 `docker.exe`; `skrog cli install` reports it as unavailable and installs
-the rest. Use Docker Desktop's `docker` (which is arm64-native) until an upstream
-arm64 CLI ships.
+Both architectures get all four tools, but **not from the same place**, and the
+difference is worth knowing before you audit them.
+
+| tool | amd64 | arm64 |
+|---|---|---|
+| `docker` | Docker's published static build | **built by Skrog** from `docker/cli` source |
+| `compose` | upstream release | upstream release |
+| `buildx` | upstream release | upstream release |
+| `docker-credential-wincred` | upstream release | upstream release |
+
+### Why one of them is ours
+
+Upstream publishes no Windows arm64 `docker.exe`. `download.docker.com`'s
+static tree contains exactly one directory, `x86_64/`, and `docker/cli`
+attaches no binaries to its releases at all. So on Windows on ARM,
+`skrog cli install` used to lay down compose, buildx and the credential helper
+— all of which *do* have real arm64 builds — and skip the one command anybody
+types ([#450](https://github.com/wslkit/skrog/issues/450)).
+
+`docker/cli` is Apache-2.0, pure Go and fully vendored, so Skrog builds it:
+from a tag pinned to an exact commit, in the same pinned Go toolchain as the
+engine, with SLSA build provenance and a cosign-signed checksum, published as
+a `dockercli-v*` release of this repository. `third_party/docker-cli/` is the
+whole of it.
+
+### Why the other one is not
+
+amd64 keeps coming from Docker, deliberately:
+
+- **Anyone can check it.** Those bytes are Docker's own. Re-download the zip
+  and compare it against the `sha256` pinned in
+  `internal/dockercli/manifest.json`, with no reference to Skrog. A binary we
+  build can only be checked against us.
+- **Blast radius.** Building it ourselves would put every user behind our
+  build, rather than only the arm64 users who have no alternative.
+- **A bump stays a URL and a hash**, not a rebuild.
+
+It is **not** about code signing. Docker's published Windows CLI is not
+Authenticode-signed either — measured on the binary `skrog cli install` places
+— so nothing is being preserved on one side and lost on the other.
+
+### It is meant to end
+
+When upstream publishes a Windows arm64 `docker.exe`, the manifest points at
+it, `third_party/docker-cli/` is deleted, and both architectures are Docker's
+again. This is a stopgap with an exit condition, not a component Skrog has
+taken ownership of.
+
+### What `docker version` shows
+
+The arm64 build reports the pinned version and the upstream commit it was
+built from. It deliberately does **not** claim `Docker Engine - Community`,
+which is Docker's build string for Docker's builds — that field is left empty
+rather than filled in with something untrue.
 
