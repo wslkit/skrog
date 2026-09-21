@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 	"text/tabwriter"
 	"time"
 
@@ -188,12 +189,14 @@ func restoreWithEngine(ctx context.Context, mgr *snapshot.Manager, p *provision.
 			return err
 		}
 		if !waitFor(ctx, settle, func() bool { return !p.EngineRunning(ctx, opts) }) {
-			return fmt.Errorf("engine did not stop within %s", settle)
+			return fmt.Errorf("engine did not stop within %s: %s",
+				settle, restoreDiagnosis(ctx, p, opts, held))
 		}
 	} else if err := p.StopEngine(ctx, opts); err != nil {
 		return err
 	}
 
+	started := time.Now()
 	if err := mgr.Restore(ctx, name); err != nil {
 		// Best-effort: bring the engine back up whatever happened.
 		if held {
@@ -203,17 +206,64 @@ func restoreWithEngine(ctx context.Context, mgr *snapshot.Manager, p *provision.
 		}
 		return err
 	}
+	// Timed and reported because the phases have very different costs and the
+	// failure below gives no hint which one was slow. An import is minutes of
+	// disk on a cold runner; the engine coming back afterwards should be
+	// seconds. #468 could not be diagnosed from its own error message.
+	fmt.Fprintf(os.Stderr, "  distro replaced from the snapshot in %s\n",
+		time.Since(started).Round(time.Second))
 
 	if held {
 		if err := supervise.WriteDesired(opts.StateDir, supervise.DesiredRunning); err != nil {
 			return err
 		}
 		if !waitFor(ctx, settle, func() bool { return p.EngineRunning(ctx, opts) }) {
-			return fmt.Errorf("restored engine did not come back within %s", settle)
+			return fmt.Errorf("restored engine did not come back within %s: %s",
+				settle, restoreDiagnosis(ctx, p, opts, held))
 		}
 		return nil
 	}
 	return p.StartEngine(ctx, opts)
+}
+
+// restoreDiagnosis describes what was actually observed when a restore wait
+// expired (#468).
+//
+// "restored engine did not come back within 2m0s" names nothing: not the
+// distro, not what the last probe saw, not whether the supervisor was even
+// reconciling. For a two-minute wait that ends in a failed restore -- on a
+// path that has just unregistered and re-imported the user's engine -- that
+// is not enough to act on, and it is the reason the first CI failure here
+// produced a bug report full of hypotheses rather than a cause.
+//
+// Deliberately uses EngineRunningErr rather than EngineRunning. The plain
+// form collapses a failed probe into "not running" (#437), which is the right
+// answer for a poll and the wrong one here: "the probe kept erroring" and
+// "the engine never started" call for completely different fixes, and this
+// path is the one most likely to produce the former, since the distro was
+// unregistered and re-imported moments earlier.
+func restoreDiagnosis(ctx context.Context, p *provision.Provisioner, opts provision.Options, held bool) string {
+	var parts []string
+	parts = append(parts, fmt.Sprintf("distro %q", opts.Distro))
+
+	if running, err := p.EngineRunningErr(ctx, opts); err != nil {
+		parts = append(parts, fmt.Sprintf("the engine probe is FAILING (%v), which is not the "+
+			"same as the engine being down", err))
+	} else if running {
+		parts = append(parts, "the probe now says it IS running, so it came back just after "+
+			"the wait expired -- the timeout is too short for this machine rather than the "+
+			"restore being broken")
+	} else {
+		parts = append(parts, "the probe says it is not running")
+	}
+
+	if held {
+		parts = append(parts, fmt.Sprintf("a supervisor is running and was asked to start it; "+
+			"see supervisor.log in %s", opts.StateDir))
+	} else {
+		parts = append(parts, "no supervisor is running, so nothing was going to start it")
+	}
+	return strings.Join(parts, "; ")
 }
 
 // containersRunning reports whether the engine has running containers, reusing
