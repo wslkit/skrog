@@ -802,8 +802,31 @@ func (p *Provisioner) ensureAgentSecret(ctx context.Context, opts Options) {
 // already ships (socat): a stale socket file left by a crashed dockerd must
 // read as DOWN, not up (#82 — `test -S` said "running" forever after an
 // OOM-kill, so the supervisor never repaired and status lied).
+//
+// `|| true` is load-bearing (#468). Without it, socat exits non-zero whenever
+// dockerd is not listening -- a missing socket, a refused connection -- and
+// that non-zero exit reaches engineRunning as an ERROR rather than as the
+// answer "no".
+//
+// Those are not the same, and since #437 the supervisor treats them very
+// differently: it skips the tick entirely on a probe error, on the reasoning
+// that "cannot tell" must not cause it to start an engine that is probably
+// already running. Correct reasoning, applied to a value that was lying.
+// "dockerd is not listening" IS the answer, definitively, and it was arriving
+// dressed as "I could not ask".
+//
+// The effect was that the supervisor stopped repairing a dead engine whenever
+// the distro stayed up -- which is its whole job, and the exact case this
+// comment has claimed to handle since #82. It surfaced through a snapshot
+// restore, the one routine path that reliably produces distro-up/dockerd-down,
+// and it sat behind a stage that had never run in CI.
+//
+// With `|| true` the shell exits 0, the output carries no "200 OK", and the
+// probe answers (false, nil): down, definitely, ask again next tick. A real
+// inability to ask -- the distro gone, wsl.exe failing, the exec timing out --
+// still errors, because those never reach the shell at all.
 const enginePing = `printf 'GET /_ping HTTP/1.1\r\nHost: skrog\r\nConnection: close\r\n\r\n'` +
-	` | socat -t 2 - UNIX-CONNECT:` + EngineSocket
+	` | socat -t 2 - UNIX-CONNECT:` + EngineSocket + ` || true`
 
 func (p *Provisioner) engineRunning(ctx context.Context, opts Options) (bool, error) {
 	// Never exec into the distro without knowing it is already running:
