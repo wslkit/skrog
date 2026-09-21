@@ -20,6 +20,7 @@ import (
 	"github.com/wslkit/skrog/internal/pipeproxy"
 	"github.com/wslkit/skrog/internal/provision"
 	"github.com/wslkit/skrog/internal/release"
+	"github.com/wslkit/skrog/internal/supervise"
 	"github.com/wslkit/skrog/internal/wsl"
 )
 
@@ -437,7 +438,7 @@ flags:
 	// not found`) looked like Skrog was broken rather than like a cleanup
 	// that reached too far (#217). So: only if it is still ours.
 	mgr := &dockerctx.Manager{}
-	switch ours, why := contextIsOurs(ctx, mgr, ownManifest); {
+	switch ours, why := contextIsOurs(ctx, mgr, ownManifest, optsWithResolvedStateDir(opts).StateDir); {
 	case !ours:
 		log.Info("leaving the `skrog` docker context alone", "reason", why)
 
@@ -485,7 +486,7 @@ flags:
 // possibility, so the context almost certainly is theirs, and leaving a
 // context pointed at a pipe nobody serves would break every later docker
 // command — the worse of the two failures.
-func contextIsOurs(ctx context.Context, mgr *dockerctx.Manager, m *provision.Manifest) (bool, string) {
+func contextIsOurs(ctx context.Context, mgr *dockerctx.Manager, m *provision.Manifest, stateDir string) (bool, string) {
 	if m == nil || m.DockerContextHost == "" {
 		return true, ""
 	}
@@ -497,6 +498,26 @@ func contextIsOurs(ctx context.Context, mgr *dockerctx.Manager, m *provision.Man
 	}
 	if current == m.DockerContextHost {
 		return true, ""
+	}
+	// The manifest records what INSTALL wired, and the supervisor can have
+	// re-pointed the same context since: `skrog supervise --pipe custom`
+	// calls Ensure with its own endpoint, and nothing writes that back to the
+	// manifest.
+	//
+	// Uninstall then compared a context its own supervisor had set against
+	// the install-time value, decided another install owned it, and left a
+	// context pointing at a pipe it was about to delete. "Nothing left
+	// behind" (#217) was reaching too far in one direction and not far
+	// enough in the other.
+	//
+	// served-pipe is the durable record of what this install last asked to
+	// serve (#429) -- written at supervisor start and deliberately not
+	// cleared on exit, which is exactly what makes it readable here, after
+	// the supervisor has gone.
+	if served := supervise.ReadServedPipe(stateDir); served != "" {
+		if current == pipeproxy.DockerHostFor(served) {
+			return true, ""
+		}
 	}
 	return false, fmt.Sprintf(
 		"it points at %s, not this install's %s — another install owns it now",
