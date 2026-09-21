@@ -154,6 +154,12 @@ docker context. Nothing else on the system is touched.
 - **Bundled docker CLI**: `skrog cli install` installs the upstream docker CLI + compose +
   buildx + credential helper — checksum-pinned, nothing fetched as "latest" — so you can
   uninstall Docker Desktop entirely ([docs/docker-cli.md](docs/docker-cli.md))
+- **amd64 and Windows on ARM**, both native end to end — `skrog.exe`, the engine rootfs,
+  dockerd and the containers. Upstream publishes no Windows arm64 `docker.exe`, so Skrog
+  builds that one from source, reproducibly. Foreign-architecture containers
+  (`docker run --platform`) work on request via `skrog config set emulation.platforms`;
+  cross-architecture *builds* need nothing at all
+  ([docs/docker-cli.md](docs/docker-cli.md))
 - **Remote engine over mutual TLS**: `skrog serve --tcp` exposes the engine to a
   teammate or CI runner, reachable only by holders of a client cert this machine's CA
   signed — off by default; on the client, `skrog remote add/use` makes it docker's default
