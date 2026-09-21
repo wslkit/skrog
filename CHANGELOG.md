@@ -14,10 +14,24 @@ useful than saying where the real one is.
 
 ### Added
 
-- **The engine rootfs is built for arm64, and the manifest can carry it**
-  ([#388](https://github.com/wslkit/skrog/issues/388)). Two halves of the same
-  gap, neither of which makes `skrog install` work on Windows on ARM yet —
-  that needs a published arm64 rootfs release, which is next.
+- **Windows on ARM: `skrog install` works**
+  ([#388](https://github.com/wslkit/skrog/issues/388)). `skrog.exe` has
+  shipped an arm64 build for months while the engine was amd64-only, so
+  `install` on a Snapdragon or Surface machine downloaded a rootfs whose every
+  binary was the wrong ISA — the SHA-256 passed, `wsl --import` succeeded, and
+  then dockerd could not exec. As of `rootfs-v29.8.1-2` there is an arm64
+  engine, and `skrog install` selects by host architecture with no flag.
+
+  **Not verified on real hardware.** The arm64 engine is compiled natively
+  from the same pinned sources as amd64 and CI boots it, but that is in a
+  container on arm64 Linux — it has never run inside a WSL2 utility VM on
+  Windows on ARM, because hosted arm64 Windows runners expose no nested
+  virtualization and WSL2 cannot start there at all. `docs/install.md` says
+  so, and [#458](https://github.com/wslkit/skrog/issues/458) collects the
+  first report. The docker **CLI** on arm64 is still missing upstream
+  ([#450](https://github.com/wslkit/skrog/issues/450)).
+
+  The two halves, for anyone reading the diff:
 
   The build: `rootfs.yml` runs a matrix over native amd64 and arm64 runners,
   compiling the whole engine from upstream source on each and naming the
