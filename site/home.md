@@ -15,8 +15,9 @@ docker run --rm hello-world
 New here? The [README](https://github.com/wslkit/skrog#install) has the
 install steps and the current status, and
 [how it compares](https://github.com/wslkit/skrog#how-it-compares) says where
-Docker Desktop, Rancher Desktop, Podman Desktop and Microsoft's own `wslc` each
-win — including when to use one of them instead. These pages are the detail behind them —
+Docker Desktop, Rancher Desktop, Podman Desktop and Microsoft's own WSL
+container tooling each win — including when to use one of them instead. These
+pages are the detail behind them —
 each one is a markdown file in
 [`docs/`](https://github.com/wslkit/skrog/tree/main/docs), so anything wrong
 on this site is a pull request away from being right.

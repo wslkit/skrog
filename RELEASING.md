@@ -169,11 +169,10 @@ preview:
   change to what an existing command does on success.
 - **Minor** (`0.6.0`) — new commands, flags and config keys, and **behaviour
   changes are allowed here**, including ones that turn a previously working
-  call into a refusal. v0.6.0 has several: policy now judges pull and push,
-  the machine layer can only be tightened, `upgrade --apply` refuses inside a
-  package-manager directory, and wslc refuses to serve with WSL plugins
-  registered. Each needs a CHANGELOG line under **Changed** or **Removed**,
-  not **Added**.
+  call into a refusal. v0.6.0 had several: policy now judges pull and push,
+  the machine layer can only be tightened, and `upgrade --apply` refuses
+  inside a package-manager directory. Each needs a CHANGELOG line under
+  **Changed** or **Removed**, not **Added**.
 - **Major** — reserved for 1.0, which additionally commits to a stable CLI
   surface. [docs/cli-json.md](docs/cli-json.md) is the only compatibility
   contract that exists today, and it covers the JSON and the exit codes, not

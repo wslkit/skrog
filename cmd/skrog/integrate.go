@@ -78,7 +78,7 @@ Exit codes: 0 ok, %d error, %d usage.
 	}
 
 	p := &provision.Provisioner{Logger: log}
-	engineDistro, ok := requireDistroInstall(p, opts, "wsl-integrate", "a session has no /mnt/wsl socket to share with your other distros.")
+	engineDistro, ok := requireDistroInstall(p, opts)
 	if !ok {
 		return exitNotFound
 	}

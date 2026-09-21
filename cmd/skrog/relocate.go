@@ -87,7 +87,7 @@ flags:
 
 	opts := optsWithResolvedStateDir(provision.Options{StateDir: *stateDir, Distro: *distro})
 	p := &provision.Provisioner{Logger: cliLogger(false)}
-	name, ok := requireDistroInstall(p, opts, "relocate", "there is no distro to move; WSLC owns where a session stores its VHD.")
+	name, ok := requireDistroInstall(p, opts)
 	if !ok {
 		return exitNotFound
 	}

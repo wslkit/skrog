@@ -18,15 +18,6 @@ import (
 // Name is the context Skrog creates.
 const Name = "skrog"
 
-// WslcName is the context for the experimental wslc backend (#335).
-//
-// Separate from Name on purpose: the two backends coexist rather than
-// replacing each other, so `docker context use skrog` and `docker context use
-// skrog-wslc` pick an engine. Pointing one context at whichever bridge started
-// last was the behaviour this replaces, and it silently changed which engine a
-// user's `docker` was talking to.
-const WslcName = "skrog-wslc"
-
 // Runner executes the docker CLI. Injectable so tests need no docker binary.
 type Runner interface {
 	Run(ctx context.Context, name string, args ...string) ([]byte, error)
@@ -160,11 +151,10 @@ func (m *Manager) Ensure(ctx context.Context, dockerHost string) error {
 
 // EnsureNamed is Ensure for a context other than the default one.
 //
-// It exists so a second backend can have its own context instead of
-// repointing the first one's (#335). The `skrog` context names the distro
-// engine; `skrog-wslc` names a wslc session. Both can exist at once, and
-// `docker context use` is how a user chooses — which is the vocabulary they
-// already have for switching engines.
+// Ensure is its only caller now that there is one backend (#451). It stays
+// separate because the naming, the create/update split and the "never
+// repoint someone else's context" rule are the substance of Ensure, and
+// folding them together would hide that behind a constant.
 func (m *Manager) EnsureNamed(ctx context.Context, name, description, dockerHost string) error {
 	if name == "" {
 		return errors.New("dockerctx: name is required")

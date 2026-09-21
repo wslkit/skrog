@@ -53,14 +53,11 @@ flags:
 			Supervisor: "stopped", Engine: "stopped", Reason: "not installed; run `skrog install`",
 		}, *asJSON, exitNotFound)
 	}
-	// A readiness probe has to work on both backends, and reporting a wslc
-	// install as "not installed" would fail every liveness check on one (#335).
 	opts.Distro = target.Distro
-	wslcBacked := target.isWslc()
 
 	deadline := time.Now().Add(*wait)
 	for {
-		hc := probeHealth(context.Background(), p, opts, wslcBacked)
+		hc := probeHealth(context.Background(), p, opts)
 		if hc.Ready {
 			return healthcheckReport(hc, *asJSON, exitOK)
 		}
@@ -73,20 +70,14 @@ flags:
 
 // probeHealth reads the same facts `skrog status` does and applies the one
 // readiness rule.
-func probeHealth(ctx context.Context, p *provision.Provisioner, opts provision.Options, wslcBacked bool) healthcheckJSON {
+func probeHealth(ctx context.Context, p *provision.Provisioner, opts provision.Options) healthcheckJSON {
 	hc := healthcheckJSON{Installed: true, Supervisor: "stopped", Engine: "stopped"}
 	if supervise.Held(opts.StateDir) {
 		hc.Supervisor = "running"
 	}
+	// Never boots the engine to answer: a probe that did would defeat the
+	// idle timeout it is supposed to observe (#82).
 	switch {
-	case wslcBacked:
-		// Never creates a session: a probe that boots a VM to answer would
-		// defeat the idle timeout it is supposed to observe (#82).
-		state, _ := wslcStatus(ctx)
-		hc.Engine = state
-		if hc.Engine == "stopped" && supervise.ReadEngineState(opts.StateDir) == supervise.EngineIdle {
-			hc.Engine = "idle"
-		}
 	case p.EngineRunning(ctx, opts):
 		hc.Engine = "running"
 	case supervise.ReadEngineState(opts.StateDir) == supervise.EngineIdle:

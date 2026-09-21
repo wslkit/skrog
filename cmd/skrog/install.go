@@ -55,8 +55,6 @@ func runInstall(args []string) int {
 		configPath    = fs.String("config", "", "declarative install from a skrog.yaml (see `skrog config export`)")
 		locked        = fs.String("locked", "", "install the exact engine pinned in a skrog.lock (see `skrog lock`)")
 		offline       = fs.String("offline", "", "install entirely from an air-gap bundle .zip (see `skrog bundle`)")
-		engineBackend = fs.String("engine", provision.BackendDistro, "engine backend: distro (a WSL2 distro Skrog owns) or wslc (a WSL container session) [experimental]")
-		agentPath     = fs.String("agent", "", "linux skrog-agent for the wslc backend (default: the one shipped beside skrog.exe)")
 	)
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, `usage: skrog install [flags]
@@ -95,27 +93,6 @@ flags:
 		StateDir: *stateDir,
 		DataDir:  *dataDir,
 		Headless: *headless,
-	}
-
-	// The wslc backend forks here, before anything rootfs-shaped happens. It
-	// downloads nothing and imports nothing, so every flag below this point is
-	// about an artifact it does not have -- saying so is better than accepting
-	// a flag and ignoring it (#335).
-	switch *engineBackend {
-	case provision.BackendDistro:
-	case provision.BackendWslc:
-		if n := boolCount(*locked != "", *rootfsURL != "", *offline != "", *engineVersion != "", *distro != ""); n > 0 {
-			fmt.Fprintln(os.Stderr, "skrog: --engine wslc installs no rootfs, so --locked, --offline, "+
-				"--rootfs-url, --engine-version and --distro do not apply to it")
-			return exitUsage
-		}
-		ctx, stop := interruptible()
-		defer stop()
-		return runInstallWslc(ctx, opts, *agentPath, *noAutostart, *asJSON, log)
-	default:
-		fmt.Fprintf(os.Stderr, "skrog: unknown --engine %q (want %s or %s)\n",
-			*engineBackend, provision.BackendDistro, provision.BackendWslc)
-		return exitUsage
 	}
 
 	if n := boolCount(*locked != "", *rootfsURL != "", *offline != ""); n > 1 {

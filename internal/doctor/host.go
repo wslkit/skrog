@@ -33,10 +33,6 @@ type Facts struct {
 	// AppVersion is Skrog's own build version.
 	AppVersion string
 
-	// Wslc describes the WSL container session backend, gathered only on an
-	// install that uses it (#335).
-	Wslc WslcInfo
-
 	// WSL is the host's WSL status. WSLErr is set when querying it failed.
 	WSL    wsl.Status
 	WSLErr string
@@ -261,10 +257,8 @@ func Gather(ctx context.Context, opts GatherOptions) Facts {
 		Options:     pOpts,
 	}).Collect(ctx)
 
-	f.Wslc = gatherWslc(ctx, f.Report.Engine.Backend)
-
 	// Reachability is a host-side probe that never boots a stopped distro (#82).
-	if f.Report.Engine.Installed && !f.Wslc.Applicable {
+	if f.Report.Engine.Installed {
 		pOpts.Distro = f.Report.Engine.Distro
 		f.EngineReachable = p.EngineRunning(ctx, pOpts)
 		f.EngineIdle = supervise.ReadEngineState(stateDir) == supervise.EngineIdle

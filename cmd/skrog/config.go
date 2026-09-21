@@ -51,10 +51,6 @@ itself land when the engine next starts, which `+"`skrog restart`"+` asks for.
                  the key to restore the default.
   %s also drop the BuildKit cache on an automatic prune; on/off
                  ("off" by default, because the cache is expensive to rebuild).
-  %s serve the wslc backend even though WSL plugins are registered
-                 on this machine; on/off ("off" by default). Their hooks do NOT
-                 fire through the relay, so the default is to refuse rather
-                 than silently disable an administrator's tooling. wslc only.
 
 Engine settings (engine.<key>) are written into the engine's daemon.json,
 validated with `+"`dockerd --validate`"+` before they replace the live file, and
@@ -62,8 +58,7 @@ applied by bouncing the engine (rolled back if it does not come back). Set an
 empty value to clear a key. Lists are comma-separated; maps are k=v,k=v.
 
 `, config.KeyIdleTimeout, config.KeyAudit, config.KeyVerifySignature, config.KeyDiskWarnBelow,
-			config.KeyPruneEvery, config.KeyPruneKeepSince, config.KeyPruneBuildCache,
-			config.KeyWslcIgnorePlugins)
+			config.KeyPruneEvery, config.KeyPruneKeepSince, config.KeyPruneBuildCache)
 		for _, k := range engineconfig.KeyHelp() {
 			fmt.Fprintf(os.Stderr, "  engine.%-24s %s\n", k.Name, k.Help)
 		}

@@ -24,15 +24,23 @@ import (
 // so it never collides with a user's own Ubuntu (PLAN §04).
 const DefaultDistro = "skrog-engine"
 
-// Engine backends an install can use (#335).
+// BackendDistro is the engine backend: a WSL2 distro Skrog imports, owns and
+// can pin. It is the only one.
 //
-// BackendDistro is a WSL2 distro Skrog imports, owns and can pin. BackendWslc
-// is a WSL container session, where Microsoft ships the engine -- so there is
-// no rootfs, no version to pin, and several commands have nothing to act on.
-const (
-	BackendDistro = "distro"
-	BackendWslc   = "wslc"
-)
+// There was briefly a second (#335), a WSL container session where Microsoft
+// shipped the engine. It was removed in #451 -- it served a different engine
+// with a different API surface, which is the one thing Skrog exists not to
+// do. See backendLegacySession for the only trace that remains.
+const BackendDistro = "distro"
+
+// backendLegacySession is the value the removed backend wrote into the
+// manifest (#451). Nothing produces it any more; it is matched so that an
+// install created by Skrog 0.6.x is recognised and told what to do, rather
+// than reported as "no install found" -- which is both wrong and unactionable
+// when there plainly is one.
+//
+// Unexported on purpose: it is a migration detail, not a backend.
+const backendLegacySession = "wslc"
 
 // distroNameRE bounds what a distro name may contain (#93). Names flow into
 // shells (the /mnt/wsl share/unshare scripts pass them as positional args, but
@@ -137,9 +145,11 @@ func defaultStateDir() string {
 // exactly that and `skrog version` can report it without re-deriving anything.
 type Manifest struct {
 	// Backend is which engine this install uses (#335). Empty or
-	// BackendDistro means Skrog's own WSL2 distro; BackendWslc means a WSL
-	// container session, in which case Distro, RootfsURL and the engine
-	// version fields are all empty — Microsoft ships that engine.
+	// BackendDistro means Skrog's own WSL2 distro, which is now the only
+	// thing it can mean for an install this version created.
+	//
+	// It is still read, because an install written by 0.6.x may hold the
+	// removed session backend's value; see Manifest.IsLegacySession.
 	//
 	// Empty rather than "distro" on existing installs, and omitempty on the
 	// way out, so the manifest of a distro install is byte-identical to what
@@ -1019,7 +1029,8 @@ const signingRepo = "wslkit/skrog"
 // install written before #335 carries.
 //
 // A nil receiver reports the distro backend too: callers reach this from a
-// manifest that may not have loaded, and "no manifest" has never meant "wslc".
+// manifest that may not have loaded, and "no manifest" has never meant
+// anything else.
 func (m *Manifest) BackendName() string {
 	if m == nil || m.Backend == "" {
 		return BackendDistro
@@ -1027,5 +1038,10 @@ func (m *Manifest) BackendName() string {
 	return m.Backend
 }
 
-// IsWslc reports whether this install serves a WSL container session.
-func (m *Manifest) IsWslc() bool { return m.BackendName() == BackendWslc }
+// IsLegacySession reports whether this manifest was written by an install
+// using the backend removed in #451.
+//
+// Such an install cannot be served: the code that talked to that engine is
+// gone. It can only be uninstalled and replaced, and the point of detecting
+// it is to say exactly that.
+func (m *Manifest) IsLegacySession() bool { return m.BackendName() == backendLegacySession }

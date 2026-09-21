@@ -33,9 +33,7 @@ func runProxy(args []string) int {
 		// reader of the command reference that the pipe is open to every
 		// interactive account on the machine: the exact vulnerability
 		// docs/security.md describes as fixed.
-		sddl      = fs.String("sddl", "", "security descriptor for the pipe (advanced; default restricts to SYSTEM, administrators and the owning user)")
-		engine    = fs.String("engine", "distro", "engine backend: distro (a WSL2 distro Skrog owns) or wslc (a WSL container session) [experimental]")
-		agentPath = fs.String("agent", "", "linux skrog-agent to place in the wslc session (default: the one shipped beside skrog.exe, else lifted from the engine distro)")
+		sddl = fs.String("sddl", "", "security descriptor for the pipe (advanced; default restricts to SYSTEM, administrators and the owning user)")
 	)
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, `usage: skrog proxy [flags]
@@ -65,16 +63,6 @@ flags:
 
 	log := cliLogger(false)
 	opts := provision.Options{Distro: *distro, StateDir: *stateDir}
-
-	switch *engine {
-	case "distro", "wslc":
-	default:
-		fmt.Fprintf(os.Stderr, "skrog: unknown --engine %q (want distro or wslc)\n", *engine)
-		return exitUsage
-	}
-	if *engine == "wslc" {
-		return runProxyWslc(*agentPath, *pipeName, *sddl, *noContext, opts, log)
-	}
 
 	// The manifest knows which distro this machine actually has, which matters
 	// when it was installed under a custom name.

@@ -21,8 +21,7 @@
 // the cache would silently disable idle stops (#41) and scheduled prunes
 // (#393) — the engine would hold its RAM forever because of a container the
 // user did not think of as work. So the container carries a well-known name
-// and the busy probe skips it, the same treatment wslc's skrog-share-* holders
-// already get. It is infrastructure, not work.
+// and the busy probe skips it. It is infrastructure, not work.
 //
 // # Why it does not weaken admission control
 //

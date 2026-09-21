@@ -187,7 +187,7 @@ Three of four are open, which is the answer to "is 1.0 close?": no. Dropping the
 | ~~Spike B fails all patterns~~ | **fired, week 1** | done: CI headline demoted, PLAN §03/§06/§09 rewritten before v0.1 published |
 | WSL gains service-context support | continuous | would restore true sessionless operation and remove the auto-logon requirement for every WSL-based engine at once — revisit PLAN §06 if it ships |
 | wslc GA announcement | fall 2026 (during v0.2) | publish comparison post same week; no roadmap change |
-| **microsoft/WSL#40976** gets a maintainer reply, milestone, or shipped endpoint | continuous | deliberate positioning review: Skrog's glue layer (doctor, service, policy, path-translating pipe) can sit atop wslc's endpoint |
+| ~~**microsoft/WSL#40976** gets a maintainer reply, milestone, or shipped endpoint~~ | **answered, Sep 2026** | Skrog serves one engine: Docker Engine in a WSL2 distro it owns (#451). The alternative backend that sat on Microsoft's session is removed. A first-party endpoint would still be interesting, but it is no longer a pivot Skrog is holding a position for — the Docker API is the product, and serving a different engine underneath it was the one thing that put that promise at risk |
 | virtiofs reaches standard WSL distros | continuous | adopt immediately — attacks slow-9P bind mounts for free |
 | WSL platform memory-reclaim ships broadly | continuous | shrink `compact` to a thin wrapper |
 | Windows Insider feature-update flights | before each Windows FU | run e2e suite on Insider before the update GAs |
