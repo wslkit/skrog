@@ -92,7 +92,7 @@ func TestEmbeddedManifestMatchesRootfsPins(t *testing.T) {
 		stem := "skrog-rootfs-" + pins["ENGINE_VERSION"] + "-" + rev
 		accepted := []string{
 			stem + "-" + release.EngineArch + ".tar.gz", // cut after #388
-			stem + ".tar.gz",                            // cut before it
+			stem + ".tar.gz", // cut before it
 		}
 		ok := false
 		for _, name := range accepted {

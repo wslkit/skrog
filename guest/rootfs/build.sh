@@ -113,7 +113,25 @@ docker run --rm \
     fi
     [ -n "$HOOK_SHA" ] || echo "    WARNING: no expected SHA pinned for nvidia-cdi-hook; resolved $sha" >&2
     cd /src/toolkit
-    CGO_ENABLED=1 go build -trimpath \
+    # -Wno-deprecated-declarations, and nothing else, for a reason.
+    #
+    # nvidia-container-toolkit vendors the NVIDIA go-nvml bindings, whose nvml.h marks
+    # ~60 functions DEPRECATED(13.0) while the Go bindings still wrap all of
+    # them. cgo compiles a shim per wrapped function, so every build prints
+    # ~60 -Wdeprecated-declarations warnings and buries the rest of the log --
+    # including the version line this script checks by eye.
+    #
+    # Upstream C calling its own deprecated C. There is
+    # nothing here to fix and no version to move to; the deprecations are
+    # resolved when NVIDIA drops the wrappers. Suppressing exactly that one
+    # diagnostic is honest. Suppressing warnings generally would not be, so
+    # this does not reach for -w.
+    #
+    # -O2 -g are the CGO_CFLAGS defaults go itself uses, restated because setting the
+    # variable REPLACES them rather than appending -- dropping optimisation
+    # from a shipped binary by accident is exactly the kind of thing a
+    # one-line build tweak does.
+    CGO_ENABLED=1 CGO_CFLAGS="-O2 -g -Wno-deprecated-declarations" go build -trimpath \
       -ldflags "-s -w -linkmode external -extldflags -static -X github.com/NVIDIA/nvidia-container-toolkit/internal/info.version=${HOOK_TAG#v}" \
       -o /out/nvidia-cdi-hook ./cmd/nvidia-cdi-hook 2>&1 | grep -v "statically linked applications" || true
     [ -x /out/nvidia-cdi-hook ] || { echo "nvidia-cdi-hook build produced no binary" >&2; exit 1; }
