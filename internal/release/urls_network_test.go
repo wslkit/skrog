@@ -33,30 +33,41 @@ func TestPublishedRootfsURLsResolve(t *testing.T) {
 	client := &http.Client{Timeout: 30 * time.Second}
 	checked := 0
 	for _, e := range m.Engines {
-		// An empty checksum is the documented interim state between cutting a
-		// rootfs release and copying its digest in (RELEASING.md step 2). The
-		// URL genuinely does not exist yet, and `skrog install` already refuses
-		// on it, so there is nothing here to verify.
-		if !e.Published() {
-			t.Logf("engine %s: not published yet, skipped", e.Version)
-			continue
-		}
-		checked++
+		// EVERY architecture, not just this runner's (#388).
+		//
+		// Published() and HostRootfs() are host-relative, and using either
+		// here would leave the arm64 URLs unchecked on an amd64 runner --
+		// which is precisely the 404-in-the-manifest class this test exists
+		// for, just aimed at the architecture CI does not happen to be.
+		for _, arch := range e.Architectures() {
+			r := e.Rootfs[arch]
 
-		req, err := http.NewRequest(http.MethodHead, e.Rootfs.URL, nil)
-		if err != nil {
-			t.Errorf("engine %s: bad URL %q: %v", e.Version, e.Rootfs.URL, err)
-			continue
-		}
-		resp, err := client.Do(req)
-		if err != nil {
-			t.Errorf("engine %s: %s: %v", e.Version, e.Rootfs.URL, err)
-			continue
-		}
-		resp.Body.Close()
-		if resp.StatusCode != http.StatusOK {
-			t.Errorf("engine %s: %s returned %s -- an install or rollback to this engine would fail",
-				e.Version, e.Rootfs.URL, resp.Status)
+			// An empty checksum is the documented interim state between
+			// cutting a rootfs release and copying its digest in
+			// (RELEASING.md step 2). The URL genuinely does not exist yet,
+			// and `skrog install` already refuses on it, so there is nothing
+			// here to verify.
+			if r.URL == "" || r.SHA256 == "" {
+				t.Logf("engine %s (%s): not published yet, skipped", e.Version, arch)
+				continue
+			}
+			checked++
+
+			req, err := http.NewRequest(http.MethodHead, r.URL, nil)
+			if err != nil {
+				t.Errorf("engine %s (%s): bad URL %q: %v", e.Version, arch, r.URL, err)
+				continue
+			}
+			resp, err := client.Do(req)
+			if err != nil {
+				t.Errorf("engine %s (%s): %s: %v", e.Version, arch, r.URL, err)
+				continue
+			}
+			resp.Body.Close()
+			if resp.StatusCode != http.StatusOK {
+				t.Errorf("engine %s (%s): %s returned %s -- an install or rollback to this engine would fail",
+					e.Version, arch, r.URL, resp.Status)
+			}
 		}
 	}
 
