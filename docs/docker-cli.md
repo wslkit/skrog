@@ -186,6 +186,17 @@ engine, with SLSA build provenance and a cosign-signed checksum, published as
 a `dockercli-v*` release of this repository. `third_party/docker-cli/` is the
 whole of it.
 
+**And you can reproduce it.** The build is deterministic — no timestamp, no
+build host in the output — so running `third_party/docker-cli/build.sh` on
+any machine with Docker produces a byte-identical binary. First verified
+2026-09-21: a local build and the CI build of commit `4a63305d` both came out
+at `910087c0d9a80ac0e7802f8c48b98cdc7fd890c78e0dab5f0472bee856ac50a0`,
+28,319,232 bytes.
+
+That is a stronger answer than the provenance attestation on its own. The
+attestation says *we* built it; reproducibility means you do not have to take
+our word for what from.
+
 ### Why the other one is not
 
 amd64 keeps coming from Docker, deliberately:

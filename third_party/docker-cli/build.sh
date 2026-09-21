@@ -90,8 +90,11 @@ docker run --rm \
     # `docker version` and keeps the output honest.
     #
     # No BuildTime either: a timestamp is the one input that makes two builds
-    # of the same commit differ, and a reproducible binary is worth more than
-    # a date nobody reads.
+    # of the same commit differ. Leaving it out makes this reproducible, and
+    # it is -- a local build and the CI build of 4a63305d both came out at
+    # 910087c0d9a80ac0e7802f8c48b98cdc7fd890c78e0dab5f0472bee856ac50a0. That
+    # is worth more than a date nobody reads: it means nobody has to take our
+    # word for what these bytes are.
     pkg=github.com/docker/cli/cli/version
     GOOS=windows GOARCH=arm64 CGO_ENABLED=0 \
       go build -mod=vendor -trimpath \
