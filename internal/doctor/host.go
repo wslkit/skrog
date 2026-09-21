@@ -86,6 +86,12 @@ type Facts struct {
 	// MultiArch is whether the default buildx driver can cross-build (#384).
 	MultiArch MultiArchInfo
 
+	// MountTransport is what the engine distro actually mounts Windows drives
+	// over: "virtiofs", "9p", or "" when the engine was down and nothing was
+	// measured (#327). Read live rather than inferred from ~/.wslconfig,
+	// which disagrees with reality in both directions that matter.
+	MountTransport string
+
 	// Session0 is advisory guidance about unattended (no-logon) operation; see
 	// checkSession0.
 	Session0 Session0Info
@@ -297,6 +303,10 @@ func Gather(ctx context.Context, opts GatherOptions) Facts {
 		// distro, and doctor must never boot a stopped one to answer.
 		f.MultiArch.Probed = true
 		f.MultiArch.Handlers = p.BinfmtHandlers(ctx, pOpts)
+		// Same gate again (#82). One grep of /proc/mounts, and the only
+		// honest way to answer "am I on virtiofs": the config file says what
+		// was asked for, not what took.
+		f.MountTransport = p.MountTransport(ctx, pOpts)
 	}
 
 	f.VPNs = vpnfingerprint.Detect(gatherAdapters(ctx))

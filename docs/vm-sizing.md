@@ -46,6 +46,12 @@ skrog wsl-config apply
 wsl --shutdown          # required, and it stops every distro on the machine
 ```
 
+`skrog doctor` warns when the engine is still on 9p, with those three commands
+as its remedy. It reads `/proc/mounts` in the running engine rather than this
+file, because the two disagree exactly when it matters: WSL below 2.9 ignores
+the key silently, and setting it without the shutdown changes nothing. Both
+look like success in `~/.wslconfig`.
+
 ### Measured
 
 A Windows folder bind-mounted into a container through Skrog, timed inside the
