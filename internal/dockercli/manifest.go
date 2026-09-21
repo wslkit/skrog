@@ -58,10 +58,6 @@ type Component struct {
 	// Target is the installed filename, e.g. "docker.exe",
 	// "docker-compose.exe", "docker-credential-wincred.exe".
 	Target string `json:"target"`
-	// ZipEntry, when set, means the asset is a .zip and this slash-separated
-	// path inside it is the file to extract (the docker CLI ships in a zip);
-	// empty means the asset is the binary itself.
-	ZipEntry string `json:"zipEntry,omitempty"`
 	// License is the SPDX id; LicenseURL is the raw URL of the project's LICENSE.
 	License    string `json:"license"`
 	LicenseURL string `json:"licenseURL,omitempty"`
@@ -73,6 +69,15 @@ type Component struct {
 type Asset struct {
 	URL    string `json:"url"`
 	SHA256 string `json:"sha256"`
+	// ZipEntry, when set, means this asset is a .zip and this
+	// slash-separated path inside it is the file to extract; empty means the
+	// asset is the binary itself.
+	//
+	// Per ASSET, not per component, since #450. Docker publishes its amd64
+	// CLI as a zip containing docker/docker.exe, and the arm64 binary Skrog
+	// builds is a bare .exe -- one component, two shapes. While this lived on
+	// the Component, staging arm64 would have tried to unzip an executable.
+	ZipEntry string `json:"zipEntry,omitempty"`
 }
 
 // Published reports whether the component can be installed for the given arch:
