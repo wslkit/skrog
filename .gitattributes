@@ -21,3 +21,10 @@ versions.env text eol=lf
 # reason that names nothing. Same class as the versions.env trap above, with
 # a worse error message.
 *.reg text eol=lf
+
+# Captured kernel and engine output used as test fixtures (#511). A checkout
+# that rewrites them to CRLF changes the bytes a test edits with
+# strings.Replace, and the edit silently stops matching -- which is how
+# vmtop's fixture failed only on CI. The parser's own CRLF handling has its
+# own test; the fixture stays byte-for-byte what the machine printed.
+internal/vmtop/testdata/* -text

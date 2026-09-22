@@ -22,7 +22,10 @@ func fixture(t *testing.T) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return string(b)
+	// LF regardless of how the file was checked out: the tests below edit it
+	// with strings.Replace, and an edit that silently fails to match tests
+	// nothing.
+	return strings.ReplaceAll(string(b), "\r\n", "\n")
 }
 
 func TestComputeAttributesTheVMFromARealSample(t *testing.T) {
@@ -168,5 +171,36 @@ func TestParseGroupReadsIOAndPressure(t *testing.T) {
 	}
 	if g.psi.Memory != 12.5 {
 		t.Errorf("memory pressure = %v, want 12.5", g.psi.Memory)
+	}
+}
+
+// wsl.exe hands back CRLF for the engine's HTTP headers at least, and a
+// checkout may turn the whole thing into CRLF. The reading must not change.
+func TestParseSampleAcceptsCRLF(t *testing.T) {
+	lf := fixture(t)
+	want := Compute(ParseSample(lf), ParseSample(lf))
+	crlf := strings.ReplaceAll(lf, "\n", "\r\n")
+	got := Compute(ParseSample(crlf), ParseSample(crlf))
+	if len(got.Errors) != 0 {
+		t.Fatalf("CRLF sample errors: %v", got.Errors)
+	}
+	if got.VM.MemUsedBytes != want.VM.MemUsedBytes || len(got.Containers) != len(want.Containers) ||
+		got.Engine.MemoryBytes != want.Engine.MemoryBytes || got.UnchargedBytes != want.UnchargedBytes {
+		t.Errorf("CRLF reading differs: got %+v, want %+v", got, want)
+	}
+}
+
+// Every edit the tests make to the fixture has to land, or the test passes
+// for the wrong reason. This is the guard the CRLF checkout slipped past.
+func TestFixtureEditsApply(t *testing.T) {
+	text := fixture(t)
+	for _, old := range []string{
+		"usage_usec 1072885",
+		"==cg docker/3fd324679410832744b4d25ce56af4dc4057399070c80ba612fc1c65afcb0026/\nmemory.current 0",
+		"==api",
+	} {
+		if !strings.Contains(text, old) {
+			t.Errorf("fixture no longer contains %q", old)
+		}
 	}
 }
