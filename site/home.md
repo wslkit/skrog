@@ -22,9 +22,12 @@ each one is a markdown file in
 [`docs/`](https://github.com/wslkit/skrog/tree/main/docs), so anything wrong
 on this site is a pull request away from being right.
 
-Binaries are not Authenticode-signed yet, so SmartScreen warns on first run. Code
-signing is applied for through the [SignPath Foundation](https://signpath.org),
-with signing by [SignPath.io](https://about.signpath.io); the
-[code signing policy](https://wslkit.github.io/skrog/code-signing/) says who can produce a signed binary and
+Binaries are not Authenticode-signed yet, so SmartScreen warns on first run. The
+[SignPath Foundation](https://signpath.org)'s free programme declined for now — it
+is for projects with an established user base — and invited a reapplication as
+visibility grows; paying for a certificate is the other route and needs nobody's
+approval. Which one, and when, is
+[#358](https://github.com/wslkit/skrog/issues/358). The
+[code signing policy](https://wslkit.github.io/skrog/code-signing/) says who could produce a signed binary and
 how. Every release does carry SLSA build provenance and a cosign-signed
 `SHA256SUMS` today — see [verifying a download](https://wslkit.github.io/skrog/security/#verifying-a-download).
