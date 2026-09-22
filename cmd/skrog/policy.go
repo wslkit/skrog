@@ -7,6 +7,7 @@ import (
 	"os"
 
 	"github.com/wslkit/skrog/internal/policy"
+	"github.com/wslkit/skrog/internal/provenance"
 	"github.com/wslkit/skrog/internal/provision"
 )
 
@@ -50,13 +51,15 @@ elevation, no engine change, no daemon plugin.
 Rules live in %s inside the state dir. A missing file means no rules.
 Edits take effect on the next container create -- nothing to restart.
 
-  deny-privileged:          true        # refuse --privileged
-  deny-added-capabilities:  true        # refuse any --cap-add
-  deny-capabilities:        [SYS_ADMIN] # ...or only these
-  deny-host-namespaces:     true        # refuse --network/--pid/--ipc/--uts=host
-  allow-bind-sources:       [C:\work]   # bind mounts may only come from here
-  allow-registries:         [registry.example.com, "*.internal"]
-  require-digest:           true        # images must be pinned by digest
+  deny-privileged:            true        # refuse --privileged
+  deny-added-capabilities:    true        # refuse any --cap-add
+  deny-capabilities:          [SYS_ADMIN] # ...or only these
+  deny-host-namespaces:       true        # refuse --network/--pid/--ipc/--uts=host
+  allow-bind-sources:         [C:\work]   # bind mounts may only come from here
+  allow-registries:           [registry.example.com, "*.internal"]
+  require-digest:             true        # images must be pinned by digest
+  deny-unattributable-builds: true        # refuse docker build while images are restricted
+  deny-unattributable-images: true        # ...and images with no recorded origin
 
 This is a guardrail, not a security boundary: whoever owns the machine can
 edit the file or bypass the bridge. It is for catching mistakes and for
@@ -175,6 +178,28 @@ func runPolicyShow(args []string) int {
 			fmt.Printf("  %s\n", line)
 		}
 	}
+
+	// Provenance coverage, reported BEFORE anything is refused for the lack of
+	// it (#343). Turning deny-unattributable-images on without knowing how
+	// much of a machine's image set has a record is how a security feature
+	// gets switched off again an hour later.
+	if st := provenance.Summarize(dir); st.Total > 0 || rules.DenyUnattributableImages {
+		fmt.Printf("\nimage provenance: %d image(s) recorded", st.Total)
+		if st.Total > 0 {
+			fmt.Printf(" — %d pulled, %d pre-existing", st.Pulled, st.PreExisting)
+		}
+		fmt.Println()
+		if st.PreExisting > 0 {
+			fmt.Println("  pre-existing means it was already here when recording started, so its")
+			fmt.Println("  origin is unknown and it is trusted anyway. That is deliberate, and it")
+			fmt.Println("  is the honest reading of what this machine can prove.")
+		}
+		if !rules.DenyUnattributableImages {
+			fmt.Println("  Nothing is refused for missing provenance: set deny-unattributable-images")
+			fmt.Println("  (with allow-registries) to make it bite.")
+		}
+	}
+
 	fmt.Println("\nedits take effect on the next container create")
 	return exitOK
 }
@@ -338,6 +363,14 @@ func describe(r policy.Rules) []string {
 			out = append(out, "deny `docker build` (unattributable while images are restricted)")
 		} else {
 			out = append(out, "deny unattributable builds — INERT: it needs allow-registries to bite")
+		}
+	}
+	if r.DenyUnattributableImages {
+		// Same treatment, same reason (#343).
+		if len(r.AllowRegistries) > 0 {
+			out = append(out, "deny images with no recorded provenance (loaded, imported or built locally)")
+		} else {
+			out = append(out, "deny unattributable images — INERT: it needs allow-registries to bite")
 		}
 	}
 	return out

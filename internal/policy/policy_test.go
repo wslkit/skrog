@@ -2,6 +2,7 @@ package policy
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -516,5 +517,132 @@ func TestDenyMirrorFollowsThePortRule(t *testing.T) {
 func TestDenyMirrorIsSilentWithoutAnAllowlist(t *testing.T) {
 	if _, denied := (Rules{}).DenyMirror("anything.example.com"); denied {
 		t.Error("refused a mirror with no allow-registries set")
+	}
+}
+
+// The judgement half of #343: an image this machine has no record of, while
+// the rule and an allowlist are both in force.
+func TestDenyUnattributableImage(t *testing.T) {
+	strict := Rules{
+		AllowRegistries:          []string{"contoso.azurecr.io"},
+		DenyUnattributableImages: true,
+	}
+
+	reason, denied := strict.DenyUnattributableImage("contoso.azurecr.io/x:1", "sha256:abc", false)
+	if !denied {
+		t.Fatal("an image with no provenance was allowed under the strict rule")
+	}
+	// The refusal has to say what to do, or it reads as Skrog being broken:
+	// the reference passes allow-registries, so the user's mental model says
+	// this should work.
+	for _, want := range []string{"contoso.azurecr.io/x:1", "no record", "built locally", "contoso.azurecr.io"} {
+		if !strings.Contains(reason, want) {
+			t.Errorf("reason should mention %q: %q", want, reason)
+		}
+	}
+
+	// A recorded image passes.
+	if _, denied := strict.DenyUnattributableImage("contoso.azurecr.io/x:1", "sha256:abc", true); denied {
+		t.Error("an image with provenance was refused")
+	}
+}
+
+// Unresolvable is not unattributable. `docker run` of an image that is not
+// here yet resolves to nothing, and the pull that follows is judged by
+// DenyPull -- refusing here as well would break the ordinary case.
+func TestDenyUnattributableImageAllowsAnUnresolvedReference(t *testing.T) {
+	strict := Rules{
+		AllowRegistries:          []string{"contoso.azurecr.io"},
+		DenyUnattributableImages: true,
+	}
+	if _, denied := strict.DenyUnattributableImage("contoso.azurecr.io/x:1", "", false); denied {
+		t.Error("refused an image that is simply not present yet")
+	}
+}
+
+// Opt-in, and inert without an allowlist -- the same two guards
+// deny-unattributable-builds has, for the same reasons.
+func TestDenyUnattributableImageIsOptInAndNeedsAnAllowlist(t *testing.T) {
+	off := Rules{AllowRegistries: []string{"contoso.azurecr.io"}}
+	if _, denied := off.DenyUnattributableImage("x", "sha256:a", false); denied {
+		t.Error("refused with the rule off")
+	}
+
+	noList := Rules{DenyUnattributableImages: true}
+	if _, denied := noList.DenyUnattributableImage("x", "sha256:a", false); denied {
+		t.Error("refused with no allow-registries; the rule has nothing to protect")
+	}
+}
+
+// Either layer may turn it on, and the user layer may only tighten.
+func TestMergeCarriesDenyUnattributableImages(t *testing.T) {
+	if got := Merge(Rules{DenyUnattributableImages: true}, Rules{}); !got.DenyUnattributableImages {
+		t.Error("the machine layer could not turn it on")
+	}
+	if got := Merge(Rules{}, Rules{DenyUnattributableImages: true}); !got.DenyUnattributableImages {
+		t.Error("the user layer could not turn it on")
+	}
+	// A user layer cannot turn OFF what the machine set: that is the whole
+	// point of the merge algebra.
+	if got := Merge(Rules{DenyUnattributableImages: true}, Rules{DenyUnattributableImages: false}); !got.DenyUnattributableImages {
+		t.Error("the user layer loosened a machine rule")
+	}
+}
+
+// A file that sets only this key is a configured file, and reporting "no
+// policy" for it would be the kind of lie this package exists to avoid.
+func TestRulesWithOnlyTheImageRuleAreNotEmpty(t *testing.T) {
+	if (Rules{DenyUnattributableImages: true}).Empty() {
+		t.Error("a rule set with deny-unattributable-images reads as empty")
+	}
+}
+
+// The key has to parse, or the documentation describes a file skrog ignores.
+func TestDenyUnattributableImagesParses(t *testing.T) {
+	r, err := Parse([]byte("deny-unattributable-images: true\nallow-registries:\n  - r.example.com\n"))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if !r.DenyUnattributableImages {
+		t.Fatal("the key did not parse")
+	}
+	if _, denied := r.DenyUnattributableImage("r.example.com/x:1", "sha256:abc", false); !denied {
+		t.Error("parsed rules did not refuse an unattributable image")
+	}
+}
+
+// The Watcher is what the supervisor installs as the bridge's gate, and the
+// bridge finds the provenance half by TYPE ASSERTION -- so a Watcher without
+// this method leaves the rule parsing, reporting as active, and doing nothing.
+// That is not hypothetical here: deny-unattributable-builds shipped exactly
+// that way, and this is the test that was missing then.
+func TestWatcherDenyUnattributableImageConsultsTheRules(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv(MachineDirEnv, t.TempDir())
+	write(t, filepath.Join(dir, FileName),
+		"allow-registries:\n  - registry.example.com\ndeny-unattributable-images: true\n")
+
+	w := NewWatcher(dir)
+	reason, denied := w.DenyUnattributableImage("registry.example.com/x:1", "sha256:abc", false)
+	if !denied {
+		t.Fatal("Watcher.DenyUnattributableImage allowed an unattributable image with the rule set; the gate is a no-op")
+	}
+	if !strings.Contains(reason, "registry.example.com") {
+		t.Errorf("reason does not name the allowlist in force: %q", reason)
+	}
+	if _, denied := w.DenyUnattributableImage("registry.example.com/x:1", "sha256:abc", true); denied {
+		t.Error("Watcher refused an image this machine has a record of")
+	}
+}
+
+// ...and allows by default, so turning the feature on stays the operator's
+// decision rather than something an upgrade does to them.
+func TestWatcherDenyUnattributableImageAllowsByDefault(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv(MachineDirEnv, t.TempDir())
+	write(t, filepath.Join(dir, FileName), "allow-registries:\n  - registry.example.com\n")
+
+	if _, denied := NewWatcher(dir).DenyUnattributableImage("registry.example.com/x:1", "sha256:abc", false); denied {
+		t.Error("Watcher refused without deny-unattributable-images set")
 	}
 }

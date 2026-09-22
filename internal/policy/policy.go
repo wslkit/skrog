@@ -101,6 +101,28 @@ type Rules struct {
 	// a build to get around, and refusing every build on a machine with no
 	// registry restriction would be superstition rather than policy.
 	DenyUnattributableBuilds bool `yaml:"deny-unattributable-builds,omitempty" json:"denyUnattributableBuilds,omitempty"`
+
+	// DenyUnattributableImages refuses to run an image whose provenance this
+	// machine did not record (#343).
+	//
+	// The allowlist judges the REFERENCE in a request, and a reference is a
+	// mutable label: `docker load` an image, `docker tag` it into an allowed
+	// name, and the check passes on a name that was never fetched from
+	// anywhere. Provenance judges the image ID instead, which is
+	// content-addressed and is what a container create resolves to.
+	//
+	// Opt-in, for the reason DenyUnattributableBuilds is: every `docker build`
+	// produces an image with no provenance, so refusing by default would break
+	// every local build and be turned off within a day. Allowing by default
+	// closes nothing, which is the state before this existed and is honest
+	// about what it is. The strict reading is available to whoever wants it.
+	//
+	// Like the rest, it needs AllowRegistries to bite. Refusing unattributable
+	// images on a machine that does not restrict registries would be closing a
+	// hole that is not open.
+	//
+	// It is not a boundary: see internal/provenance, and #418 route 3.
+	DenyUnattributableImages bool `yaml:"deny-unattributable-images,omitempty" json:"denyUnattributableImages,omitempty"`
 }
 
 // Empty reports whether the rule set forbids nothing, so callers can skip the
@@ -112,7 +134,7 @@ func (r Rules) Empty() bool {
 		// Counted even though it only bites alongside allow-registries: a file
 		// that sets it is a configured file, and reporting "no policy" for it
 		// would be a lie of the kind this package exists to avoid.
-		!r.DenyUnattributableBuilds
+		!r.DenyUnattributableBuilds && !r.DenyUnattributableImages
 }
 
 // Load reads the rule set for an install. A missing file is an empty rule set,
@@ -793,6 +815,20 @@ func (w *Watcher) DenyPush(image string) (string, bool) {
 	return w.Rules().DenyPush(image)
 }
 
+// DenyUnattributableImage makes the Watcher a pipeproxy.ProvenanceGate (#343).
+//
+// Without this method the whole feature is a no-op in the product: the bridge
+// finds its gate through a type assertion, and the Watcher -- not Rules -- is
+// what the supervisor installs. That is exactly how deny-unattributable-builds
+// shipped documented, reported active, and doing nothing; see DenyBuild.
+//
+// No unreadable-file refusal here, for the same reason DenyBuild has none, and
+// because it would be redundant anyway: DenyCreate judges the same request
+// first and already refuses when the rule file cannot be read.
+func (w *Watcher) DenyUnattributableImage(ref, id string, known bool) (string, bool) {
+	return w.Rules().DenyUnattributableImage(ref, id, known)
+}
+
 func unreadableRules(err error) string {
 	return "policy is configured but its rule file cannot be read, so this request is refused " +
 		"rather than allowed unjudged (" + err.Error() + "). Fix the file, or remove it to run without rules."
@@ -806,6 +842,12 @@ var (
 	_ pipeproxy.ImageGate = (*Watcher)(nil)
 	_ pipeproxy.Gate      = Rules{}
 	_ pipeproxy.ImageGate = Rules{}
+
+	// Same hazard, one release later (#343): the provenance check reaches the
+	// gate through its own type assertion, so dropping this method would turn
+	// deny-unattributable-images off without a single test failing.
+	_ pipeproxy.ProvenanceGate = (*Watcher)(nil)
+	_ pipeproxy.ProvenanceGate = Rules{}
 )
 
 // DenyMirror judges a registry MIRROR host against the allowlist (#421).
@@ -837,4 +879,44 @@ func (r Rules) DenyMirror(host string) (reason string, denied bool) {
 				"(allowed: %s)", host, strings.Join(r.AllowRegistries, ", ")), true
 	}
 	return "", false
+}
+
+// DenyUnattributableImage judges a container create against what this machine
+// recorded about where the image came from (#343).
+//
+// It takes the lookup RESULT rather than doing the lookup, so this package
+// stays pure and testable: the caller owns the state dir and the engine query
+// that resolves a reference to an ID.
+//
+// An empty id means the reference could not be resolved at all -- the engine
+// did not answer, or the image is not present locally yet. That is NOT treated
+// as unattributable. A create for an image docker is about to pull implicitly
+// is judged by DenyPull on the pull itself, and refusing here as well would
+// refuse the ordinary `docker run` of an image nobody has yet, which is not
+// what this rule is for.
+func (r Rules) DenyUnattributableImage(ref, id string, known bool) (reason string, denied bool) {
+	if !r.DenyUnattributableImages || len(r.AllowRegistries) == 0 {
+		return "", false
+	}
+	if id == "" || known {
+		return "", false
+	}
+	return fmt.Sprintf(
+		"policy refuses %s: this machine has no record of where it came from. "+
+			"An image that was built locally, loaded from a tarball or imported "+
+			"outside Skrog carries no provenance, and deny-unattributable-images "+
+			"is set. Pull it from an allowed registry (%s), or clear the rule",
+		displayRef(ref, id), strings.Join(r.AllowRegistries, ", ")), true
+}
+
+// displayRef names the image in a refusal the way the user typed it, falling
+// back to the ID when a create carried no readable reference.
+func displayRef(ref, id string) string {
+	if strings.TrimSpace(ref) != "" {
+		return ref
+	}
+	if len(id) > 19 {
+		return id[:19] + "..."
+	}
+	return id
 }

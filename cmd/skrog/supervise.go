@@ -350,7 +350,16 @@ flags:
 	}
 
 	// A Windows bind source maps to /mnt/<drive> inside the engine distro.
-	handler := pipeproxy.RewriteBindsGuarded(auditor, watcher)
+	//
+	// Provenance rides along on the same handler (#343): the bridge is the one
+	// place that sees both the pull that brings an image in and the create
+	// that runs it. `skrog serve` and `skrog proxy` install it too, for the
+	// #257 reason -- a rule must not stop at one listener. What still walks
+	// around it is `proxy --no-path-translation`, which takes the whole HTTP
+	// layer out of the path, and talking to the engine inside the distro
+	// directly (#418).
+	prov := &imageProvenance{stateDir: opts.StateDir, dialer: dialer, log: log}
+	handler := pipeproxy.RewriteBindsProvenanced(auditor, watcher, prov)
 
 	metrics := &pipeproxy.Metrics{}
 	srv := &pipeproxy.Server{
@@ -395,6 +404,12 @@ flags:
 	// to a timestamped file so `skrog status --stats` can report both the
 	// numbers and how old they are.
 	go flushStats(ctx, opts.StateDir, sup, srv, metrics, dialer, log)
+
+	// Seed provenance for images that were already here, once (#343). Off the
+	// startup path: it needs the engine, which may still be coming up, and
+	// nothing waits on the answer. An engine that is down now simply means the
+	// next supervisor start does the seeding instead.
+	go prov.SeedExisting(ctx)
 
 	// The pipe server carries traffic; both stop together.
 	if err := srv.Serve(ctx, listener); err != nil {

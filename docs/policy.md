@@ -148,6 +148,7 @@ allow-registries:                     # images may only come from here
   - "*.internal"
 require-digest: true                  # images must be pinned by digest
 deny-unattributable-builds: true      # refuse `docker build` while the above is set
+deny-unattributable-images: true      # ...and an image this machine has no record of
 ```
 
 Changing the file takes effect on the **next container create** — no
@@ -219,6 +220,7 @@ letting it be *fetched onto the machine*, which is not what either rule says.
 | `deny-privileged`, `deny-added-capabilities`, `deny-capabilities`, `deny-host-namespaces`, `allow-bind-sources` | `create` / `run` |
 | `allow-registries` | `create` / `run`, **`pull`**, **`push`** |
 | `require-digest` | `create` / `run`, **`pull`** |
+| `deny-unattributable-images` | `create` / `run` |
 
 `require-digest` does **not** apply to a push. It exists to stop unpinned images
 being *consumed*; a push publishes something you just built, and requiring a
@@ -302,8 +304,92 @@ wherever the mirror points.
 **The network.** This is admission control at the Docker API. A running
 container can reach any registry it likes, and `docker load` plus `docker tag`
 will launder an image past a reference-based rule
-([#343](https://github.com/wslkit/skrog/issues/343)). The rules are a guardrail
-against mistakes, which is the claim this page has always made.
+([#343](https://github.com/wslkit/skrog/issues/343)). `deny-unattributable-images`
+narrows that last one — see below — but only to the extent that the request
+comes through the bridge at all. The rules are a guardrail against mistakes,
+which is the claim this page has always made.
+
+### Images this machine has no record of
+
+`allow-registries` judges a **reference**, and a reference is a label anyone can
+reattach. `docker load` a tarball, `docker tag` it `registry.example.com/app:1`,
+and every reference-based rule passes on bytes that never came from
+`registry.example.com` ([#343](https://github.com/wslkit/skrog/issues/343)).
+
+With `deny-unattributable-images` set, Skrog keeps a record of where each image
+came from and refuses to run one it has no record of:
+
+```yaml
+allow-registries:
+  - registry.example.com
+deny-unattributable-images: true
+```
+
+```
+$ docker run registry.example.com/app:1
+docker: Error response from daemon: policy refuses registry.example.com/app:1:
+this machine has no record of where it came from. An image that was built
+locally, loaded from a tarball or imported outside Skrog carries no provenance,
+and deny-unattributable-images is set. Pull it from an allowed registry
+(registry.example.com), or clear the rule
+```
+
+The record is written when a pull **Skrog allowed** completes, keyed by image
+ID rather than by reference — so retagging does not create provenance, which is
+the whole point.
+
+**What it does and does not buy you.** This is drift protection, not a
+boundary. Anyone who can run `wsl -d skrog-engine -u root docker load` talks to
+the engine directly, and nothing at the pipe sees it
+([#418](https://github.com/wslkit/skrog/issues/418)). What it catches is the
+ordinary way images get laundered by accident: a tarball copied off a laptop, a
+`docker save` from a machine with different rules, an image left behind by a
+setup nobody remembers.
+
+**Images you already had are trusted.** The first time a Skrog bridge starts
+with this feature present it records every image already on the machine as
+`pre-existing`, once. Without that, turning the rule on would refuse the entire
+existing cache. `skrog policy show` reports the split so the trust is visible
+rather than implied:
+
+```
+image provenance: 41 image(s) recorded — 12 pulled, 29 pre-existing
+```
+
+**It is opt-in and inert without `allow-registries`**, exactly like
+`deny-unattributable-builds`, and `skrog policy show` says so:
+
+```
+deny unattributable images — INERT: it needs allow-registries to bite
+```
+
+**It fails open.** If the engine cannot be reached to resolve a reference, or
+the record cannot be read, the request is **allowed**. A container that will not
+start because a lookup timed out is a worse outcome than an unattributed image
+running on a cooperating machine — and unlike the other rules, this one answers
+a question that has a legitimate "cannot say".
+
+**It refuses your own builds too, and that is the catch.** The build itself is
+not judged — `docker build` runs — but the image it produces has no recorded
+origin, so the `docker run` that follows is refused:
+
+```
+$ docker build -t app:1 .
+=> naming to docker.io/library/app:1     done
+$ docker run --rm app:1
+docker: Error response from daemon: policy refuses app:1: this machine has no
+record of where it came from. ...
+```
+
+At the pipe a BuildKit build is an opaque gRPC stream, so there is nothing to
+attribute it to — the same reason `allow-registries` lets builds through. This
+rule is therefore for machines that **consume** images, not ones that build
+them: a CI runner or a locked-down workstation that pulls from one registry and
+runs what it pulled. On a developer machine that builds and runs its own
+images, leave it off.
+
+(If what you want is builds *refused*, that is `deny-unattributable-builds` —
+a different rule with a different answer.)
 
 ## What a denial looks like
 
@@ -434,9 +520,20 @@ Also judged: `POST /plugins/pull` and `/plugins/{name}/upgrade`, against
 `allow-registries`, because a plugin names the registry it comes from
 ([#420](https://github.com/wslkit/skrog/issues/420)).
 
+Also judged: `POST /containers/create` a second time, against the provenance
+record, when `deny-unattributable-images` is set
+([#343](https://github.com/wslkit/skrog/issues/343)). The record itself is
+written after a successful `POST /images/create`, and lives in
+`image-provenance.jsonl` in the state dir.
+
 Not judged: the swarm and service endpoints, which run an image from a
 TaskSpec this gate does not parse and so are refused only when
 `deny-unattributable-builds` is on.
+
+Every listener that serves the engine applies all of this — the supervisor's
+pipe, `skrog serve` and `skrog proxy` — for the reason
+[#257](https://github.com/wslkit/skrog/issues/257) gives: a rule that stopped
+at one listener would not be the rule the operator wrote.
 
 Resource caps on an unset container — the one *mutating* rule in the original
 proposal — are deliberately not implemented: mutating a user's request

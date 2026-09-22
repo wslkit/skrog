@@ -66,19 +66,52 @@ type Gate interface {
 // The handler therefore proxies HTTP only until the engine signals a hijack,
 // then reverts to a raw byte relay for the life of the connection.
 func RewriteBinds(client net.Conn, engine io.ReadWriteCloser) error {
-	return rewriteBinds(client, engine, nil, nil)
+	return rewriteBinds(client, engine, nil, nil, nil)
 }
 
 // RewriteBindsAudited is RewriteBinds with an audit sink wired in, for use as a
 // Server.Handler when the audit log is enabled.
 func RewriteBindsAudited(sink AuditSink) func(net.Conn, io.ReadWriteCloser) error {
-	return func(c net.Conn, e io.ReadWriteCloser) error { return rewriteBinds(c, e, sink, nil) }
+	return func(c net.Conn, e io.ReadWriteCloser) error { return rewriteBinds(c, e, sink, nil, nil) }
 }
 
 // RewriteBindsGuarded is RewriteBinds with an audit sink and an admission gate
 // (#120). Either may be nil.
 func RewriteBindsGuarded(sink AuditSink, gate Gate) func(net.Conn, io.ReadWriteCloser) error {
-	return func(c net.Conn, e io.ReadWriteCloser) error { return rewriteBinds(c, e, sink, gate) }
+	return func(c net.Conn, e io.ReadWriteCloser) error { return rewriteBinds(c, e, sink, gate, nil) }
+}
+
+// RewriteBindsProvenanced adds image provenance (#343): the bridge records
+// where an image came from when a pull it allowed completes, and consults that
+// record when a container create names one. Any of the three may be nil.
+func RewriteBindsProvenanced(sink AuditSink, gate Gate, prov Provenance) func(net.Conn, io.ReadWriteCloser) error {
+	return func(c net.Conn, e io.ReadWriteCloser) error { return rewriteBinds(c, e, sink, gate, prov) }
+}
+
+// Provenance is the optional hook that records and answers "where did this
+// image come from" (#343).
+//
+// An interface here, implemented in cmd/skrog, because answering needs two
+// things this package deliberately does not own: the state dir the record
+// lives in, and a second connection to the engine to resolve a reference to an
+// image ID. The gate stays a pure judgement over values.
+type Provenance interface {
+	// RecordPull is called after a pull this gate ALLOWED has been relayed
+	// with a success status. The reference is as the client wrote it.
+	RecordPull(ref string)
+
+	// Attributable resolves a reference to an image ID and reports whether
+	// this machine has a record of where it came from. An empty id means the
+	// reference could not be resolved -- usually because the image is not
+	// present yet, which is not the same as unattributable.
+	Attributable(ref string) (id string, known bool)
+}
+
+// ProvenanceGate is the judgement half, asserted separately from ImageGate so
+// that adding it cannot silently un-implement that interface -- see the NOTE
+// on ImageGate, which is about exactly this hazard.
+type ProvenanceGate interface {
+	DenyUnattributableImage(ref, id string, known bool) (reason string, denied bool)
 }
 
 const (
@@ -140,7 +173,7 @@ func abandonBody(client net.Conn, engine io.ReadWriteCloser, bodySent <-chan err
 	}
 }
 
-func rewriteBinds(client net.Conn, engine io.ReadWriteCloser, audit AuditSink, gate Gate) error {
+func rewriteBinds(client net.Conn, engine io.ReadWriteCloser, audit AuditSink, gate Gate, prov Provenance) error {
 	clientR := bufio.NewReader(client)
 	engineR := bufio.NewReader(engine)
 
@@ -200,7 +233,7 @@ func rewriteBinds(client net.Conn, engine io.ReadWriteCloser, audit AuditSink, g
 		}
 
 		if isContainerCreate(req) {
-			denied, err := rewriteCreateBody(req, gate)
+			denied, err := rewriteCreateBody(req, gate, prov)
 			switch {
 			case denied != nil:
 				// Admission control refused it (#120). 403 rather than 400:
@@ -395,6 +428,23 @@ func rewriteBinds(client net.Conn, engine io.ReadWriteCloser, audit AuditSink, g
 		resp.Body.Close()
 		trace("DONE %s (close=%v)", req.URL.Path, resp.Close || req.Close)
 
+		// A pull the gate allowed has now been relayed in full. Record where
+		// it came from (#343).
+		//
+		// Here rather than at the response headers, because a pull is a stream
+		// and the status says only that it started. Even so this is not proof
+		// the image arrived -- docker reports a mid-stream pull failure inside
+		// a 200 -- which is why RecordPull RESOLVES the reference against the
+		// engine and records nothing when it cannot. A failed pull of an image
+		// that is not present leaves no record; one that overwrote an existing
+		// tag records the image that is actually there, which is the honest
+		// answer to "what would a create run".
+		if prov != nil && resp.StatusCode >= 200 && resp.StatusCode < 300 {
+			if image, isPull := pullTarget(req); isPull {
+				prov.RecordPull(image)
+			}
+		}
+
 		if resp.Close || req.Close {
 			// The pending Peek goroutine unblocks when the caller closes the
 			// client conn; its channel is buffered, so nothing leaks.
@@ -529,7 +579,7 @@ func isHijack(resp *http.Response) bool {
 // every release, and silently dropping a caller's option would be far worse
 // than not translating a path. json.Number likewise preserves numeric literals
 // exactly instead of round-tripping them through float64.
-func rewriteCreateBody(req *http.Request, gate Gate) (denied, err error) {
+func rewriteCreateBody(req *http.Request, gate Gate, prov Provenance) (denied, err error) {
 	if req.Body == nil {
 		return nil, nil
 	}
@@ -568,6 +618,24 @@ func rewriteCreateBody(req *http.Request, gate Gate) (denied, err error) {
 	if gate != nil {
 		if reason, no := gate.DenyCreate(body); no {
 			return errors.New(reason), nil
+		}
+	}
+
+	// Provenance judges the same create on a different question: not "is this
+	// reference allowed" but "does this machine know where these BYTES came
+	// from" (#343). A reference is a mutable label, so the first question
+	// passes for an image that was loaded from a tarball and renamed.
+	//
+	// Read through apibody for the reason the Gate doc gives at length: dockerd
+	// honours `image`, `Image` and `IMAGE` identically, and an exact-key lookup
+	// misses two of the three.
+	if prov != nil {
+		if pg, ok := gate.(ProvenanceGate); ok && gate != nil {
+			ref := apibody.String(body, "Image")
+			id, known := prov.Attributable(ref)
+			if reason, no := pg.DenyUnattributableImage(ref, id, known); no {
+				return errors.New(reason), nil
+			}
 		}
 	}
 

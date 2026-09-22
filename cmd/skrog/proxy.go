@@ -120,8 +120,9 @@ flags:
 		}
 	}
 
+	dialer := engineDialer(targetDistro, *socketPath, opts.StateDir, log)
 	srv := &pipeproxy.Server{
-		Dialer: engineDialer(targetDistro, *socketPath, opts.StateDir, log),
+		Dialer: dialer,
 		Logger: log,
 	}
 	if !*noRewrite {
@@ -147,7 +148,12 @@ flags:
 			},
 		}
 		defer auditor.Close()
-		srv.Handler = pipeproxy.RewriteBindsGuarded(auditor, watcher)
+		// Provenance too, for the same reason the gate is here: this bridge
+		// serves the same engine, so a rule that stopped at the supervisor's
+		// pipe would be one `skrog proxy` away from not applying (#343).
+		prov := &imageProvenance{stateDir: sd, dialer: dialer, log: log}
+		go prov.SeedExisting(interruptCtx())
+		srv.Handler = pipeproxy.RewriteBindsProvenanced(auditor, watcher, prov)
 	}
 
 	fmt.Fprintf(os.Stderr, `
