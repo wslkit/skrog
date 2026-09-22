@@ -66,6 +66,7 @@ func publishedPorts(dialer pipeproxy.Dialer, log *slog.Logger) func(context.Cont
 		}
 
 		var containers []struct {
+			ID    string   `json:"Id"`
 			Names []string `json:"Names"`
 			Ports []struct {
 				IP          string `json:"IP"`
@@ -97,10 +98,12 @@ func publishedPorts(dialer pipeproxy.Dialer, log *slog.Logger) func(context.Cont
 				}
 				seen[key] = true
 				out = append(out, doctor.PublishedPort{
-					Container: name,
-					HostIP:    p.IP,
-					HostPort:  p.PublicPort,
-					Proto:     p.Type,
+					Container:     name,
+					HostIP:        p.IP,
+					HostPort:      p.PublicPort,
+					Proto:         p.Type,
+					ContainerID:   c.ID,
+					ContainerPort: p.PrivatePort,
 				})
 			}
 		}

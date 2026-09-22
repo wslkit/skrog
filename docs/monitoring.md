@@ -112,4 +112,5 @@ skrog_supervisor_reading_fresh == 0
 ## See also
 
 [JSON output contract](cli-json.md) for the `--json` shapes ·
-[Housekeeping](housekeeping.md) for acting on the disk numbers
+[Housekeeping](housekeeping.md) for acting on the disk numbers ·
+[`skrog top`](memory.md) for where one machine's VM memory goes, live

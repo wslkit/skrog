@@ -66,6 +66,7 @@ func commands() []command {
 		{"status", "report supervisor, engine and desired state", runStatus},
 		{"stop", "stop the engine; it stays stopped until start", runStop},
 		{"supervise", "serve the pipe and keep the engine alive (the always-on layer)", runSupervise},
+		{"top", "where the WSL VM's memory and CPU go: containers, engine, page cache, Vmmem", runTop},
 		{"uninstall", "remove the engine distro and Skrog's state", runUninstall},
 		{"upgrade", "am I current? app, engine and bundled CLI in one answer", runUpgrade},
 		{"wsl-integrate", "point docker inside your own WSL distros at the engine", runWSLIntegrate},

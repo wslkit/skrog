@@ -61,6 +61,62 @@ useful than saying where the real one is.
   was mirrored networking breaking loopback itself, and it is fixed — here
   loopback is the only thing that works).
 
+  **The relay follows container events** rather than a 5 s poll
+  ([#510](https://github.com/wslkit/skrog/issues/510)), so a port is relayed
+  when its container starts. Measured on the reference host, `docker run -p`
+  to the first answer on the LAN address: 1.3–1.8 s, against 1.3–3.4 s on the
+  poll and 0.5–1.1 s for the same server over `localhost` — most of it is the
+  server starting.
+
+  **Found before release, fixed in the same change:** with the scope at `lan`,
+  the relay's poll could reach an idle-stopped engine through the socat
+  fallback, and `wsl.exe` booted the distro straight back up — so turning the
+  relay on quietly cancelled idle-stop. Driven on the reference host: the
+  engine idle-stopped and was running again 6 s later. Every relay dial now
+  waits for the supervisor to report the engine serving; the same run with the
+  fix stayed stopped.
+
+- **`skrog doctor` names the port trap `localhost` cannot fix**
+  ([#510](https://github.com/wslkit/skrog/issues/510)). A dev server bound to
+  `127.0.0.1` *inside* the container — the default for Vite, Next.js's dev
+  server, Flask — cannot be reached through `-p` at all, and neither can a
+  mapping whose right-hand side names a port nothing listens on. `docker ps`
+  shows the mapping either way. The new `container-listeners` check reads each
+  publishing container's sockets from its own network namespace, with nothing
+  installed in the image:
+
+  ```
+  [warn] published ports have something -p can reach: web: port 8000 listens on 127.0.0.1 only, inside the container (published as 18081)
+  ```
+
+  Measured: `python -m http.server --bind 127.0.0.1` published with `-p`
+  answered nothing, and `--bind ::` answered `200`.
+
+- **`skrog top`: where the VM's memory and CPU go**
+  ([#511](https://github.com/wslkit/skrog/issues/511)). `docker stats` shows
+  containers; the number people worry about is Vmmem, and most of it is
+  usually not a container. `top` shows each container, the engine's own
+  daemons, page cache, other WSL distros sharing the VM, WSL itself and the
+  kernel, next to what Windows says Vmmem holds (Task Manager's figure, read
+  without elevation), with PSI stall figures that say whether anything is
+  actually short. It refreshes like `docker stats`; `--once` (or
+  `--no-stream`) and `--json` take one reading, and `--json --stream` prints
+  one JSON object per line for `jq` or a log shipper.
+
+  The VM's "used" is split into four parts that add up to it, including the
+  share `/proc/meminfo` does not itemise at all — about 245 MiB on the
+  reference host, most likely driver allocations. The first draft left that
+  out and its parts summed to 319 of 592 MiB. When Windows holds much more
+  for the VM than the VM uses (288 MiB on the reference host), `top` says so.
+
+  It never starts the engine and never keeps it from idling: it reads inside
+  the distro, not through the pipe. Driven on the reference host: with `top`
+  refreshing every 2 s and a 1 minute idle timeout, the engine idle-stopped at
+  66 s and stayed down, and `top` waited for it. Other distros are measured,
+  not inferred — a running Ubuntu showed up as its own group. One refresh
+  costs one `wsl.exe` round trip, about 0.2 s. [docs/memory.md](docs/memory.md)
+  has how to read it and how it differs from `docker stats`.
+
 ## [0.8.0] — 2026-09-22
 
 Admission control learns to ask where an image came from, the engine start path

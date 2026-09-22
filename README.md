@@ -163,7 +163,10 @@ docker context. Nothing else on the system is touched.
 - **Published ports that reach further than `localhost`**: under WSL2's default networking
   `docker run -p 8080:80` binds `127.0.0.1` on the Windows side and nothing else, so your
   phone gets connection refused. `skrog doctor` says so, and one opt-in key relays the port
-  to every interface — tied to container lifetime, so nothing outlives what it points at
+  to every interface — the moment its container starts, tied to container lifetime so
+  nothing outlives what it points at. When even `localhost` fails, `skrog doctor` reads what
+  the container itself listens on and names the usual culprit: a dev server bound to
+  `127.0.0.1` inside the container, which `-p` can never reach
   ([docs/ports.md](docs/ports.md))
 
   ```powershell
@@ -198,6 +201,11 @@ docker context. Nothing else on the system is touched.
   emits the same numbers for node_exporter's textfile collector, so a fleet's health
   lands in the dashboard you already run — local only, still no telemetry
   ([docs/monitoring.md](docs/monitoring.md))
+- **`skrog top`: where Vmmem's memory went**. `docker stats` shows the containers; this
+  shows the VM they run in — each container, the engine's own daemons, page cache, other
+  WSL distros sharing the VM and the kernel, next to what Windows says Vmmem holds, with
+  PSI stall figures that say whether anything is actually short. It never starts the
+  engine and never keeps it from idling ([docs/memory.md](docs/memory.md))
 - **Right-size the VM with consent**: `skrog config set wsl.memory 4GB` then
   `skrog wsl-config apply` shows the diff to the GLOBAL ~/.wslconfig and writes only on
   a yes (`--yes` for runners, idempotent) — [docs/vm-sizing.md](docs/vm-sizing.md)
@@ -353,6 +361,7 @@ page is reachable from here.
 
 **Keep it healthy**
 [Housekeeping: prune, compact, relocate](docs/housekeeping.md) ·
+[Where the VM's memory goes](docs/memory.md) ·
 [Snapshots](docs/snapshots.md) ·
 [Staying current](docs/upgrading.md) ·
 [Engine upgrade and rollback](docs/engine-upgrade.md) ·

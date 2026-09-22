@@ -646,3 +646,23 @@ func (s *Supervisor) EngineStatus() string {
 	}
 	return "stopped"
 }
+
+// Serving reports whether a background reader may dial the engine right now
+// without being the thing that boots it.
+//
+// Stricter than EngineStatus() == "running", on purpose. lastUp is what the
+// reconciler saw on its LAST tick, so for up to one tick after an idle stop or
+// a `skrog stop` it still says up -- and a background dial in that window goes
+// to a stopped distro, where the socat fallback's wsl.exe boots it again (#82).
+// The idle state is written before the engine is stopped and the desired state
+// before the reconciler acts on it, so reading both closes that window from the
+// side that matters. Two small file reads, and no mutex, like EngineStatus.
+func (s *Supervisor) Serving() bool {
+	if !s.lastUp.Load() {
+		return false
+	}
+	if ReadEngineState(s.Config.StateDir) == EngineIdle {
+		return false
+	}
+	return ReadDesired(s.Config.StateDir) != DesiredStopped
+}

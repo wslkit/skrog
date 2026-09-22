@@ -80,6 +80,29 @@ listener on every interface, forwarding into the distro. Listeners appear and
 disappear with the containers that published them, so nothing outlives the
 thing it was pointing at.
 
+It follows the engine's container events, so a port is relayed when its
+container starts rather than on the next poll
+([#510](https://github.com/wslkit/skrog/issues/510)). Measured on the reference
+host (Windows 10 22H2, WSL 2.9.12), from `docker run -d -p` returning to the
+first `200` on the machine's LAN address, for a `python:3-alpine` web server,
+four runs each:
+
+| | first answer |
+|---|---|
+| over `localhost` (WSL's own forwarder, no relay) | 0.5 – 1.1 s |
+| over the LAN address, relayed | 1.3 – 1.8 s |
+| over the LAN address, before #510 (a 5 s poll) | 1.3 – 3.4 s |
+
+Most of that is the server starting; what the relay adds is the gap between
+the first two rows. A 5 s poll still runs underneath, as a backstop for an
+event stream that dropped.
+
+The relay never wakes an idle-stopped engine. It dials the engine only while
+the supervisor reports it serving — before #510 its poll could reach a stopped
+distro through the socat fallback, and `wsl.exe` booted it straight back up,
+which quietly cancelled [idle-stop](housekeeping.md) whenever the scope was
+`lan`.
+
 ```powershell
 docker run -d --rm -p 18080:80 nginx:alpine
 curl http://192.168.1.121:18080    # 200 OK
@@ -146,6 +169,48 @@ doctor` will say so.
 `publish-scope` is the narrower tool: it touches Skrog's engine and nothing
 else on the machine.
 
+## When `localhost` does not work either
+
+Everything above assumes the port answers on `localhost`. If it does not — the
+mapping is in `docker ps`, the container is healthy, and the connection is
+reset — the problem is usually inside the container, and neither setting
+above will help:
+
+- **The server listens on `127.0.0.1` inside the container.** That is the
+  container's *own* loopback. `-p` forwards to the container's network
+  interface, so nothing published can ever reach it. It is the default for
+  Vite, the Next.js dev server, Flask and most tooling written for a laptop.
+- **Nothing listens on the container port at all.** The right-hand side of
+  `-p 8080:80` names a port the app does not use.
+
+Measured on the reference host: `python -m http.server --bind 127.0.0.1 8000`
+published with `-p 18081:8000` answered nothing on `localhost:18081`, and the
+same server with `--bind ::` answered `200`.
+
+`skrog doctor` reads what each publishing container actually listens on — from
+the container's own network namespace, so nothing has to be installed in the
+image — and says which one it is
+([#510](https://github.com/wslkit/skrog/issues/510)):
+
+```
+[warn] published ports have something -p can reach: web: port 8000 listens on 127.0.0.1 only, inside the container (published as 18081)
+       fix: Make the server listen on 0.0.0.0 (or ::) inside the container: 127.0.0.1
+            there is the container's own loopback, which -p cannot reach. For example
+            `vite --host 0.0.0.0`, `next dev -H 0.0.0.0`, `flask run --host=0.0.0.0`,
+            `python -m http.server --bind 0.0.0.0`.
+```
+
+```
+[warn] published ports have something -p can reach: api: nothing listens on container port 80 (published as 8080)
+       fix: Check that the right-hand side of -p is the port the app listens on
+            (`docker logs <container>` usually says), or give it a moment if it is still
+            starting.
+```
+
+Like the check above, it is silent unless a container publishes a TCP port,
+and a container whose sockets could not be read is left out rather than
+reported as listening on nothing.
+
 ## What this is not
 
 It is not a general port forwarder. It relays exactly what the engine reports
@@ -162,6 +227,8 @@ the mapping changes.
 
 - **[#507](https://github.com/wslkit/skrog/issues/507)** — the doctor check
 - **[#508](https://github.com/wslkit/skrog/issues/508)** — the relay design
+- **[#510](https://github.com/wslkit/skrog/issues/510)** — event-driven
+  relaying, and the check for what a container listens on
 - **[#163](https://github.com/wslkit/skrog/issues/163)** — a different port
   failure, worth not confusing with this one: under *mirrored* networking a
   published port used to be unreachable **even from `localhost`**, because
