@@ -33,6 +33,20 @@ func TestLogSafeBoundsLength(t *testing.T) {
 	}
 }
 
+// ...and the bound is on BYTES, which plain ASCII does not test.
+//
+// logSafe truncates at 256 bytes and then replaces each control character
+// with U+FFFD, which is three bytes. A reference made entirely of control
+// characters therefore expands threefold AFTER the cut, so the ASCII test
+// above passes a bound three times looser than it claims to pin.
+func TestLogSafeBoundsBytesNotRunes(t *testing.T) {
+	got := logSafe(strings.Repeat("", 10_000))
+	if len(got) > 300 {
+		t.Errorf("logSafe returned %d bytes for a control-character reference; "+
+			"the cut happens before the expansion", len(got))
+	}
+}
+
 // An ordinary reference passes through untouched, or the log becomes useless.
 func TestLogSafeLeavesAnOrdinaryReferenceAlone(t *testing.T) {
 	const ref = "contoso.azurecr.io/team/app:1.2.3"

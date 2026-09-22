@@ -16,6 +16,16 @@ starting point:
 skrog config export > skrog.yaml
 ```
 
+> **It does not capture everything.** The schema carries `distro`, `data-dir`,
+> `engine-version`, `idle-timeout`, `engine.*`, `hooks`, `integrations` and
+> `autostart`. It does **not** carry `network.proxy`, `network.no-proxy`,
+> `network.import-host-cas`, `emulation.platforms`, `gpu`, `gpu.vendor`,
+> `audit`, `disk.warn-below`, `install.verify-signature`, `prune.*` or the
+> `wsl.*` keys — so an export from a machine configured per
+> [corporate-network.md](corporate-network.md) loses the proxy and the CA
+> import, with no error at either end. Set those separately (`skrog config
+> set`) until the schema covers them.
+
 > Docker Desktop paywalls Settings Management behind Docker Business. This is
 > free, and it is just a file.
 

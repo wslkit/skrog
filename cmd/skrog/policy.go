@@ -183,7 +183,17 @@ func runPolicyShow(args []string) int {
 	// it (#343). Turning deny-unattributable-images on without knowing how
 	// much of a machine's image set has a record is how a security feature
 	// gets switched off again an hour later.
-	if st := provenance.Summarize(dir); st.Total > 0 || rules.DenyUnattributableImages {
+	st, provErr := provenance.Summarize(dir)
+	switch {
+	case provErr != nil:
+		// Said out loud rather than shown as zero. The count is exactly what
+		// someone uses to decide whether it is safe to turn the rule on, and a
+		// silent under-count is worse than an error.
+		fmt.Printf("\nimage provenance: could not be read (%v)\n", provErr)
+		if rules.DenyUnattributableImages {
+			fmt.Println("  Requests are still ALLOWED while it cannot be read; the rule fails open.")
+		}
+	case st.Total > 0 || rules.DenyUnattributableImages:
 		fmt.Printf("\nimage provenance: %d image(s) recorded", st.Total)
 		if st.Total > 0 {
 			fmt.Printf(" — %d pulled, %d pre-existing", st.Pulled, st.PreExisting)

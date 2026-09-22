@@ -4,7 +4,9 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"os"
+	"strings"
 )
 
 // buildVersion is stamped by the release build (-ldflags "-X main.buildVersion=...").
@@ -72,6 +74,40 @@ func commands() []command {
 	}
 }
 
+// helpGap is the blank space between a name and its description in every help
+// listing. Three, not one: at one space a long name and its summary read as a
+// single sentence, and the eye has nothing to run down.
+const helpGap = 3
+
+// helpColumn is the width to pad names to so their descriptions line up.
+//
+// Derived from the longest name rather than hardcoded, which is the bug this
+// replaces: the list was padded to a fixed 10 and `healthcheck` is 11, so that
+// one row lost its gap entirely and ran its name into its summary. A fixed
+// width is wrong the moment someone adds a longer command, and nothing would
+// have said so.
+func helpColumn(names []string) int {
+	widest := 0
+	for _, n := range names {
+		if len(n) > widest {
+			widest = len(n)
+		}
+	}
+	return widest + helpGap
+}
+
+// helpList renders aligned "name  description" rows for a help screen.
+func helpList(w io.Writer, rows [][2]string) {
+	names := make([]string, 0, len(rows))
+	for _, r := range rows {
+		names = append(names, r[0])
+	}
+	col := helpColumn(names)
+	for _, r := range rows {
+		fmt.Fprintf(w, "  %-*s%s\n", col, r[0], r[1])
+	}
+}
+
 func usage(w *os.File) {
 	fmt.Fprintf(w, `skrog %s - upstream Docker Engine on Windows via WSL2
 
@@ -79,9 +115,11 @@ usage: skrog <command> [flags]
 
 commands:
 `, buildVersion)
+	rows := make([][2]string, 0, len(commands()))
 	for _, c := range commands() {
-		fmt.Fprintf(w, "  %-10s %s\n", c.name, c.summary)
+		rows = append(rows, [2]string{c.name, c.summary})
 	}
+	helpList(w, rows)
 	fmt.Fprintf(w, `
 Commands still in development are tracked at
 https://github.com/wslkit/skrog/issues
@@ -174,4 +212,32 @@ func helpIndex() []helpEntry {
 		out = append(out, helpEntry{Name: c.name, Summary: c.summary, Subs: subcommands[c.name]})
 	}
 	return out
+}
+
+// helpRows renders "name  description" where a description may be several
+// lines, indenting the continuation lines to the same column.
+//
+// The alternative, and what this replaces, is baking the column into a format
+// string per row: `  %s   ...` for one key and `  %s  ...` for a longer one,
+// with every wrapped line padded by hand. That drifts the moment a key is
+// added or renamed, and it had: the settings list had columns at 22 and 26
+// depending on the row, and two keys were missing from it entirely because
+// adding one meant editing a format string, a variadic argument list and a
+// column of spaces in three places.
+func helpRows(w io.Writer, rows [][2]string) {
+	names := make([]string, 0, len(rows))
+	for _, r := range rows {
+		names = append(names, r[0])
+	}
+	col := helpColumn(names)
+	indent := strings.Repeat(" ", col+2)
+	for _, r := range rows {
+		for i, line := range strings.Split(r[1], "\n") {
+			if i == 0 {
+				fmt.Fprintf(w, "  %-*s%s\n", col, r[0], line)
+				continue
+			}
+			fmt.Fprintf(w, "%s%s\n", indent, line)
+		}
+	}
 }

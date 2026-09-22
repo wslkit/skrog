@@ -72,8 +72,6 @@ an issue, but it is not a vulnerability report:
   ([#77](https://github.com/wslkit/skrog/issues/77)). Every release carries
   SLSA provenance and a cosign-signed `SHA256SUMS`; see
   [verifying a download](docs/security.md#verifying-a-download).
-- **The sibling-distro vsock boundary is authenticated by a handshake, not a
-  secret** ([#81](https://github.com/wslkit/skrog/issues/81)).
 
 ## Supported versions
 

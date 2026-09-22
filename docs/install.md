@@ -17,8 +17,8 @@ clean machine you do need it, and `skrog install` now says so when it finishes.
 ## Requirements
 
 - **Windows 11**, or **Windows 10 22H2** (build 19045) — both tested.
-- **An x64 machine.** The engine rootfs is built amd64-only, so **Windows on
-  ARM cannot run the engine** — see below.
+- **x64 or ARM64.** Both are native end to end, engine included — see
+  [Windows on ARM](#windows-on-arm) below.
 - **WSL 2.x**, from the Microsoft Store or the MSI. `wsl --version` should
   print something; if it errors, run `wsl --update`.
 - Virtualization enabled in firmware.
@@ -133,7 +133,7 @@ and `README.md`. Keep them together.
 > programme declined for now — it is for projects with an established user base
 > — and invited a reapplication as visibility grows; paying for a certificate
 > is the other route. Which one, and when, is
-> [#77](https://github.com/wslkit/skrog/issues/77), so no date is promised here.
+> [#358](https://github.com/wslkit/skrog/issues/358), so no date is promised here.
 >
 > An **MSI** waits on the same answer, because an installer that asks for
 > elevation unsigned is a worse experience than a zip, not a better one. A
@@ -224,7 +224,7 @@ skrog` shows it at any time.
 
 ## Tab completion
 
-Optional, and worth the one line: `skrog` has 35 commands and a config surface
+Optional, and worth the one line: `skrog` has 36 commands and a config surface
 of around 25 dotted keys, which is more than anyone should type from memory.
 
 The release zip contains a `completions` folder.

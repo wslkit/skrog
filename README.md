@@ -88,7 +88,7 @@ Binaries are **not Authenticode-signed**, so SmartScreen warns on first run. The
 [SignPath Foundation](https://signpath.org)'s free programme declined for now — it is
 for projects with an established user base — and invited a reapplication as visibility
 grows; paying for a certificate is the other route and needs nobody's approval. Which
-one, and when, is [#77](https://github.com/wslkit/skrog/issues/77). An MSI waits on the
+one, and when, is [#358](https://github.com/wslkit/skrog/issues/358). An MSI waits on the
 same answer, since an unsigned installer asking for elevation is worse than a zip; a
 winget package does not, and one is on the way. The
 [code signing policy](docs/code-signing.md) says who could produce

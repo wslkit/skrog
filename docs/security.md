@@ -38,8 +38,16 @@ can use docker without sudo. Two consequences worth understanding:
 **The vsock transport.** On a normal install the bridge reaches the engine
 over an AF_HYPERV vsock connection to an in-distro agent, not socat. The agent
 accepts connections only from the host partition (CID 2), and every connection
-must pass a handshake before any byte reaches dockerd. Hardening of this path
-against a hostile *sibling distro impersonating the agent* is tracked in #81.
+must pass a handshake before any byte reaches dockerd.
+
+That handshake is **mutual and keyed on a per-install secret** — HMAC-SHA256
+over a nonce, in both directions, and a side that holds a secret refuses to
+downgrade to the older unauthenticated exchange
+([#81](https://github.com/wslkit/skrog/issues/81), closed). The secret is
+generated in-distro from `/dev/urandom` and mirrored into the state dir, so a
+sibling distro on the same utility VM can neither impersonate the agent nor
+drive it. This page said the opposite for two releases; `internal/vsockproto`
+is the answer to anyone who read that version.
 
 ## What Skrog deliberately does not do
 
@@ -202,8 +210,6 @@ substitutes for the other.
   enforced; signature verification is opt-in
   (`skrog config set install.verify-signature on`) because it needs `cosign`
   on PATH and cannot work on an air-gapped install (above).
-- **The sibling-distro vsock boundary** is authenticated only by a handshake,
-  not a secret, today; see #81.
 
 Found a security issue?
 **[Report it privately](https://github.com/wslkit/skrog/security/advisories/new)** —

@@ -39,6 +39,7 @@ per switch (and not at all if the config already matches).
 
 Switching on a network/VPN change — detect the adapter, apply the mapped profile
 automatically, with consent configured up front and a log line every time — is
-tracked in [#63](https://github.com/wslkit/skrog/issues/63) and builds on
-the VPN fingerprinting there. For now, `skrog profile switch` is manual (a
-one-liner for a login script or a shortcut).
+not implemented. [#63](https://github.com/wslkit/skrog/issues/63) is closed --
+it shipped the VPN fingerprinting this would build on, not the switching -- so
+do not read that link as "it exists now". `skrog profile switch` is manual: a
+one-liner for a login script or a shortcut.

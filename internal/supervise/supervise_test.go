@@ -30,6 +30,11 @@ type fakeEngine struct {
 	probes       int
 	reapplies    int
 	reapplyErr   error
+	// reapplyBlock holds Reapply in flight so a test can check what else can
+	// still make progress -- the same shape probeGate uses for the probe.
+	reapplyBlock   chan struct{}
+	reapplyIn      bool
+	reapplyDeadDur time.Duration
 }
 
 func (f *fakeEngine) Running(context.Context) (bool, error) {
@@ -56,11 +61,31 @@ func (f *fakeEngine) Running(context.Context) (bool, error) {
 // Reapply is counted separately from Start, which is the whole point of it
 // being a separate method: several tests assert the loop did not START the
 // engine, and a repair of a healthy one must not look like a start (#501).
-func (f *fakeEngine) Reapply(context.Context) error {
+func (f *fakeEngine) Reapply(ctx context.Context) error {
+	f.mu.Lock()
+	f.reapplies++
+	f.reapplyIn = true
+	if dl, ok := ctx.Deadline(); ok {
+		f.reapplyDeadDur = time.Until(dl)
+	}
+	block, err := f.reapplyBlock, f.reapplyErr
+	f.mu.Unlock()
+	if block != nil {
+		<-block
+	}
+	return err
+}
+
+func (f *fakeEngine) reapplyEntered() bool {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.reapplies++
-	return f.reapplyErr
+	return f.reapplyIn
+}
+
+func (f *fakeEngine) reapplyDeadline() time.Duration {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.reapplyDeadDur
 }
 
 func (f *fakeEngine) reapplyCount() int {
@@ -684,4 +709,48 @@ func TestAnEngineThisSupervisorStartedIsNotReApplied(t *testing.T) {
 	if n := e.reapplyCount(); n != 0 {
 		t.Errorf("Reapply called %d times on an engine this supervisor started", n)
 	}
+}
+
+// The adopted-engine repair must not run under s.mu, and must be bounded.
+//
+// This is #437 all over again, on a path added two releases later. The probe
+// was moved out of the lock and given a timeout because a wslservice that
+// stops answering otherwise parks the reconciler WHILE HOLDING mu: every
+// Demand blocks, so every docker command hangs instead of failing, and
+// LifecycleSnapshot freezes so the tray cannot even show that it is stuck.
+// Reapply is four wsl round trips and had neither property.
+func TestReapplyDoesNotHoldTheLockOrRunUnbounded(t *testing.T) {
+	release := make(chan struct{})
+	e := &fakeEngine{running: true, reapplyBlock: release}
+	sup, _ := newSup(t, e, 10*time.Millisecond)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go sup.Run(ctx)
+
+	waitFor(t, 3*time.Second, func() bool { return e.reapplyEntered() },
+		"Reapply was never called on the adopted engine")
+
+	// While it is in flight, everything that takes mu must still answer.
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		sup.LifecycleSnapshot()
+		_ = sup.Demand(context.Background())
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		close(release)
+		t.Fatal("Demand/LifecycleSnapshot blocked while Reapply was in flight: " +
+			"the reconciler is holding mu across a wsl round trip, so every docker " +
+			"command hangs instead of failing")
+	}
+
+	// And the call itself is bounded, so a wedged wslservice cannot park the
+	// repair forever either.
+	if got := e.reapplyDeadline(); got == 0 {
+		t.Error("Reapply was given a context with no deadline")
+	}
+	close(release)
 }

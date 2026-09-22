@@ -211,7 +211,7 @@ previous binaries are restored and the engine started again before the failure
 is reported.
 
   skrog engine upgrade --dry-run        # what it would do
-  skrog engine upgrade --to 29.7.3      # a specific engine
+  skrog engine upgrade --to 29.8.0      # a specific engine
   skrog engine rollback                 # back to the previous one
 
 flags:
