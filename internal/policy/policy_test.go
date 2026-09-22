@@ -480,3 +480,41 @@ func TestBuildsAreNotRefusedByPolicyYAML(t *testing.T) {
 		t.Errorf("policy.yaml does not refuse builds (#376); got %q", reason)
 	}
 }
+
+// A mirror is a registry this machine fetches image content from, and the
+// allowlist had no view on it: the reference is untouched by a mirror, so the
+// reference check passed whatever the mirror pointed at (#421).
+func TestDenyMirrorJudgesTheMirrorHost(t *testing.T) {
+	r := Rules{AllowRegistries: []string{"docker.io", "contoso.azurecr.io"}}
+
+	if _, denied := r.DenyMirror("contoso.azurecr.io"); denied {
+		t.Error("an allowed registry was refused as a mirror")
+	}
+	reason, denied := r.DenyMirror("evil.example.com")
+	if !denied {
+		t.Fatal("a registry outside the allowlist was accepted as a mirror")
+	}
+	for _, want := range []string{"evil.example.com", "mirror", "docker.io"} {
+		if !strings.Contains(reason, want) {
+			t.Errorf("reason %q should mention %q", reason, want)
+		}
+	}
+}
+
+// A port on the mirror host follows the same rule as everywhere else: an entry
+// without a port means that host on any port.
+func TestDenyMirrorFollowsThePortRule(t *testing.T) {
+	r := Rules{AllowRegistries: []string{"registry.example.com"}}
+	if _, denied := r.DenyMirror("registry.example.com:5000"); denied {
+		t.Error("a port made an allowed host fail; the allowlist treats a portless entry as any port")
+	}
+}
+
+// No allowlist, no opinion — the same rule the rest of the package follows.
+// Refusing mirrors on a machine that does not restrict registries would break
+// working setups to close a hole that is not open.
+func TestDenyMirrorIsSilentWithoutAnAllowlist(t *testing.T) {
+	if _, denied := (Rules{}).DenyMirror("anything.example.com"); denied {
+		t.Error("refused a mirror with no allow-registries set")
+	}
+}

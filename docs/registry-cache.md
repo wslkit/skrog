@@ -85,11 +85,29 @@ both [idle-stop](../README.md) and [scheduled prune](housekeeping.md) veto on
 engine would hold its RAM forever because of a container you never think of as
 work. The busy probe skips it by name; it is infrastructure, not work.
 
-**It does not weaken [admission control](policy.md).** A mirror changes where
-bytes come from, not which image was asked for. `allow-registries` and
-`require-digest` judge the reference in the request, and that reference is
-identical whether or not a mirror serves it. The cache cannot become a route to
-a registry your policy forbids.
+**The mirror is judged by [admission control](policy.md) too.** This section
+used to say the cache "cannot become a route to a registry your policy
+forbids", and that was wrong ([#421](https://github.com/wslkit/skrog/issues/421)).
+
+A mirror changes where bytes come from, not which image was asked for — that
+part is true, and `allow-registries` and `require-digest` do judge the
+reference in the request. The conclusion did not follow. Where the bytes come
+from is exactly what a registry allowlist is for, and dockerd applies
+`registry-mirrors` to every unpinned Docker Hub pull without touching the
+reference. So a mirror pointed at a forbidden host served that host's content
+under an allowed name, and the reference check passed because the reference was
+never the thing in question.
+
+Now:
+
+- `skrog cache enable --upstream <url>` refuses an upstream your
+  `allow-registries` does not allow.
+- An `http://` upstream is refused unless you pass `--insecure`, and warns
+  loudly when you do. A plaintext mirror for Docker Hub is a
+  content-substitution position on every unpinned pull on the machine.
+
+What is still true: the cache does not let a *reference* through that policy
+would refuse, and it binds to loopback, so nothing is exposed off-host.
 
 **It does not make the engine depend on it.** `registry-mirrors` is a hint:
 when the cache is down, dockerd goes to the upstream. A broken cache costs you

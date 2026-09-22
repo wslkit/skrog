@@ -92,6 +92,66 @@ before.
   when it was written and now has four, and a rule with four copies is a rule
   that drifts.
 
+### Security
+
+- **The registry cache's upstream is judged by policy, and may not be plain
+  HTTP** ([#421](https://github.com/wslkit/skrog/issues/421)).
+  `skrog cache enable --upstream <url>` wires a mirror into the engine, and
+  dockerd applies `registry-mirrors` to **every unpinned Docker Hub pull**
+  without changing the reference. So a mirror aimed at any host served that
+  host's content under an allowed name, and `allow-registries` passed because
+  the reference was never the thing in question.
+
+  The upstream is now checked against the effective allowlist, and `http://` is
+  refused unless `--insecure` is passed — a plaintext mirror for Docker Hub is
+  a content-substitution position on every unpinned pull on the machine, held
+  by anyone on the network path.
+
+  Three places in the code and docs asserted this could not happen, on the
+  ground that "a mirror changes where bytes come from, not which image was
+  asked for". The premise is true and the conclusion does not follow: where the
+  bytes come from is what a registry allowlist is for. All three are corrected
+  rather than deleted.
+
+- **A machine policy file that a standard user could have written is refused**
+  ([#418](https://github.com/wslkit/skrog/issues/418)). `C:\ProgramData` ships
+  with `BUILTIN\Users:(CI)(WD,AD)` and `CREATOR OWNER:(OI)(CI)(IO)(F)`, so on
+  any machine where a fleet policy has not landed yet a standard user can
+  create `ProgramData\skrog` first and own it. Loading was a bare `os.ReadFile`
+  with no owner check, so the "machine layer" could be the user's own rules
+  wearing its authority — worse than no machine layer, because `skrog policy
+  show` reported it as in force.
+
+  The owner must be `Administrators` or `SYSTEM`. Owner and not the full DACL,
+  deliberately: the hole is an ownership one, and a hand-written ACE walker
+  that gets an edge case wrong fails a correctly deployed fleet silently.
+
+  **`skrog policy show` reports provenance now**, which is the honest half of
+  the promise. The layer cannot be made unbypassable — the supervisor runs as
+  the user — so what it can do is not lie about which bypass happened:
+
+  ```
+  machine rules: C:\ProgramData\skrog\policy.yaml  REFUSED
+    ignored because it is owned by CONTOSO\alice, not by Administrators or SYSTEM.
+  ```
+
+  and the documented `SKROG_MACHINE_POLICY_DIR` redirect, which used to be
+  indistinguishable from a machine that simply had no fleet policy:
+
+  ```
+  machine rules: none found
+    SKROG_MACHINE_POLICY_DIR redirects the machine layer to C:\Users\me\empty,
+    which holds no policy.yaml.
+  ```
+
+  `policy show --json` gains `machineProvenance` for the fleet-dashboard case:
+  a machine whose policy was *refused* is the one worth an alert, and it looked
+  identical to one that never had any.
+
+  The third route in #418 — `wsl -d <distro> -u root`, `proxy
+  --no-path-translation`, `wsl-integrate` — is unchanged and still documented
+  as a limit. It is not fixable in this package.
+
 ### Fixed
 
 - **`skrog engine upgrade` no longer races the supervisor**

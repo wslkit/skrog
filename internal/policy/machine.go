@@ -86,8 +86,24 @@ func MachinePath() string {
 	return filepath.Join(dir, FileName)
 }
 
+// trustMachineFile is the ownership check, indirected so tests can drive the
+// refusal path without needing a real ProgramData and an administrator to
+// create it. Production never replaces it.
+var trustMachineFile = checkOwner
+
 // LoadMachine reads the machine-wide rule set. A missing file is an empty rule
 // set, not an error: most machines have no fleet policy.
+//
+// The file's provenance is checked before it is trusted (#418). A machine
+// layer is only fleet configuration if the fleet wrote it; one a standard user
+// could have written is the user's own rules wearing the machine layer's
+// authority, which is worse than having no machine layer at all, because
+// `skrog policy show` would report it as in force.
+//
+// An untrusted file is REFUSED rather than merged, and the refusal is
+// reported: see MachineProvenance and `skrog policy show`. Refusing makes the
+// effective rules the user's own, which is what they already were in
+// substance -- the difference is that it now says so.
 func LoadMachine() (Rules, error) {
 	path := MachinePath()
 	if path == "" {
@@ -100,7 +116,54 @@ func LoadMachine() (Rules, error) {
 	if err != nil {
 		return Rules{}, fmt.Errorf("policy: reading %s: %w", path, err)
 	}
+	if ok, _ := trustMachineFile(path); !ok {
+		return Rules{}, nil
+	}
 	return Parse(b)
+}
+
+// Provenance describes where the machine layer came from and whether it was
+// trusted, so the answer is visible rather than implied (#418).
+//
+// Tamper-evidence is the honest promise here. The layer cannot be made
+// unbypassable — the supervisor runs as the user, and three routes around it
+// are recorded in this file's opening comment — so the thing worth building is
+// a report that does not lie about which of them happened.
+type Provenance struct {
+	// Path is the machine file that was considered, empty when there is none.
+	Path string
+	// Redirected is true when MachineDirEnv pointed somewhere other than the
+	// default. On its own that is not an accusation: a fleet may keep
+	// ProgramData elsewhere. It is reported because it is also the cheapest
+	// way to retire the layer, and a reader deserves to know which they are
+	// looking at.
+	Redirected bool
+	// RedirectedTo is the directory the variable named.
+	RedirectedTo string
+	// Trusted says whether the file passed the ownership check. False with a
+	// non-empty Why means the layer was refused.
+	Trusted bool
+	// Why explains a refusal, in a sentence that completes "the machine
+	// policy at <path> was ignored because ...".
+	Why string
+}
+
+// MachineProvenance reports how the machine layer was resolved and whether it
+// was trusted. It performs the same checks LoadMachine does, so the two cannot
+// disagree.
+func MachineProvenance() Provenance {
+	var p Provenance
+	if v := strings.TrimSpace(os.Getenv(MachineDirEnv)); v != "" {
+		p.Redirected, p.RedirectedTo = true, v
+	}
+	p.Path = MachinePath()
+	if p.Path == "" || !fileExists(p.Path) {
+		p.Path = ""
+		return p
+	}
+	ok, why := trustMachineFile(p.Path)
+	p.Trusted, p.Why = ok, why
+	return p
 }
 
 // Merge returns the effective rules: the machine layer, tightened by the user
@@ -220,9 +283,16 @@ func LoadLayered(stateDir string) (Rules, Source, error) {
 	if err != nil {
 		return Rules{}, src, err
 	}
+	// Only a file that was actually trusted is reported as a contributing
+	// layer (#418). Source describes what shaped the effective rules, and a
+	// refused file shaped nothing -- listing it anyway made `policy show`
+	// print the refusal and then, three lines later, "deployed machine-wide;
+	// you cannot loosen these" about the same path.
 	if p := MachinePath(); p != "" && fileExists(p) {
-		src.MachinePath = p
-		src.Machine = machine
+		if ok, _ := trustMachineFile(p); ok {
+			src.MachinePath = p
+			src.Machine = machine
+		}
 	}
 
 	user, err := Load(stateDir)

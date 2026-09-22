@@ -23,12 +23,29 @@
 // user did not think of as work. So the container carries a well-known name
 // and the busy probe skips it. It is infrastructure, not work.
 //
-// # Why it does not weaken admission control
+// # How it interacts with admission control
 //
-// A mirror changes where bytes come from, not which image was asked for.
-// `allow-registries` and `require-digest` judge the reference in the request
-// (#343, #374), and that reference is identical whether or not a mirror
-// serves it. So the cache cannot become a route to a registry policy forbids.
+// This section used to end "so the cache cannot become a route to a registry
+// policy forbids", and that conclusion was wrong (#421).
+//
+// The premise is still true: a mirror changes where bytes come from, not which
+// image was asked for, and `allow-registries` and `require-digest` judge the
+// reference in the request (#343, #374). What does not follow is the
+// conclusion. Where the bytes come from is precisely what a registry allowlist
+// exists to constrain, and dockerd applies `registry-mirrors` to every
+// unpinned Docker Hub pull without touching the reference — so a mirror aimed
+// at a host the allowlist forbids served that host's content under an allowed
+// name, and the reference check passed because the reference was never the
+// thing in question.
+//
+// So the mirror is now judged on its own terms: `cache enable` asks
+// policy.Rules.DenyMirror about the upstream host, and refuses an `http://`
+// upstream unless `--insecure` says otherwise. A plaintext mirror for Docker
+// Hub is a content-substitution position on every unpinned pull on the
+// machine, held by anyone on the network path.
+//
+// What remains true: the cache does not let a *reference* through that policy
+// would refuse, and the loopback binding means nothing is exposed off-host.
 package regcache
 
 import (
@@ -119,10 +136,44 @@ func RunArgs(o Options) []string {
 	}
 }
 
+// UpstreamHost is the host an upstream URL names, without the scheme, any
+// path or a trailing slash. Reported separately from validation because the
+// caller has to judge that host against policy (#421), and parsing a URL in
+// two places is how the two answers drift apart.
+func UpstreamHost(u string) (string, bool) {
+	rest := strings.TrimSpace(u)
+	for _, p := range []string{"https://", "http://"} {
+		rest = strings.TrimPrefix(rest, p)
+	}
+	rest = strings.TrimSuffix(rest, "/")
+	if rest == "" || strings.Contains(rest, "/") {
+		return "", false
+	}
+	return rest, true
+}
+
+// IsInsecureUpstream reports whether an upstream would be fetched over plain
+// HTTP.
+func IsInsecureUpstream(u string) bool {
+	return strings.HasPrefix(strings.TrimSpace(u), "http://")
+}
+
 // ValidateUpstream refuses an upstream that would not work, early and with a
 // reason, rather than leaving a container that crash-loops.
-func ValidateUpstream(u string) error {
+//
+// allowInsecure permits `http://`, which is refused by default (#421). A
+// plaintext mirror is not merely an unencrypted download: dockerd applies
+// `registry-mirrors` to every unpinned Docker Hub pull, so it is a
+// content-substitution position on every `docker pull ubuntu` on the machine,
+// held by anyone on the path. That is worth a flag rather than a default.
+func ValidateUpstream(u string, allowInsecure bool) error {
 	u = strings.TrimSpace(u)
+	if IsInsecureUpstream(u) && !allowInsecure {
+		return fmt.Errorf("upstream %q is plain HTTP: dockerd sends every unpinned "+
+			"Docker Hub pull through a mirror, so an http:// mirror lets anyone on the "+
+			"network path substitute image content. Use https://, or pass --insecure if "+
+			"this is a trusted link you control", u)
+	}
 	if u == "" {
 		return nil // means the default
 	}
