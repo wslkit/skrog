@@ -40,7 +40,7 @@ _skrog() {
         case "$command" in
             audit) flags="--json --n --raw --since --state-dir" ;;
             bundle) flags="--engine-version --o --output --state-dir" ;;
-            cache) flags="--json --keep-data --port --state-dir --upstream" ;;
+            cache) flags="--insecure --json --keep-data --port --state-dir --upstream" ;;
             compact) flags="--distro --dry-run --json --no-trim --restart --state-dir --wait" ;;
             config) flags="--json --state-dir" ;;
             doctor) flags="--fix --json --report --state-dir" ;;

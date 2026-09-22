@@ -168,8 +168,10 @@ store in the skrog-cache-data volume — so `skrog prune`, `compact` and
 which Docker treats as insecure-by-default, so nothing is exposed to the
 network and no insecure-registries entry is needed.
 
-It does not weaken `skrog policy`: a mirror changes where bytes come
-from, not which image was asked for, and the rules judge the reference.
+The mirror is judged by `skrog policy` too. It does not change which
+image was asked for, but it does change who serves it — so an upstream outside
+`allow-registries` is refused, and an http:// upstream needs --insecure,
+because dockerd sends every unpinned Docker Hub pull through a mirror (#421).
 
 It does not hold the engine awake. The cache container is excluded from the
 idle-stop and scheduled-prune probes, because it is infrastructure rather than
@@ -178,6 +180,8 @@ work.
 Exit codes: 0 ok, 1 error, 2 usage, 3 not installed.
 
 flags:
+  -insecure
+    	allow an http:// upstream (see the warning it prints)
   -json
     	emit machine-readable JSON
   -keep-data

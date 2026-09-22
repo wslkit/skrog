@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/wslkit/skrog/internal/engineconfig"
+	"github.com/wslkit/skrog/internal/policy"
 	"github.com/wslkit/skrog/internal/provision"
 	"github.com/wslkit/skrog/internal/prune"
 	"github.com/wslkit/skrog/internal/regcache"
@@ -24,6 +25,7 @@ func runCache(args []string) int {
 		upstream = fs.String("upstream", "", "registry to cache (default: Docker Hub)")
 		port     = fs.Int("port", 0, "loopback port inside the engine (default 5000)")
 		keepData = fs.Bool("keep-data", false, "on disable, keep the cached layers")
+		insecure = fs.Bool("insecure", false, "allow an http:// upstream (see the warning it prints)")
 		asJSON   = fs.Bool("json", false, "emit machine-readable JSON")
 	)
 	fs.Usage = func() {
@@ -49,8 +51,10 @@ store in the %s volume — so `+"`skrog prune`"+`, `+"`compact`"+` and
 which Docker treats as insecure-by-default, so nothing is exposed to the
 network and no insecure-registries entry is needed.
 
-It does not weaken `+"`skrog policy`"+`: a mirror changes where bytes come
-from, not which image was asked for, and the rules judge the reference.
+The mirror is judged by `+"`skrog policy`"+` too. It does not change which
+image was asked for, but it does change who serves it — so an upstream outside
+`+"`allow-registries`"+` is refused, and an http:// upstream needs --insecure,
+because dockerd sends every unpinned Docker Hub pull through a mirror (#421).
 
 It does not hold the engine awake. The cache container is excluded from the
 idle-stop and scheduled-prune probes, because it is infrastructure rather than
@@ -73,7 +77,7 @@ flags:
 
 	switch sub {
 	case "enable":
-		return cacheEnable(ctx, runner, opts, cacheOpts)
+		return cacheEnable(ctx, runner, opts, cacheOpts, *insecure)
 	case "disable":
 		return cacheDisable(ctx, runner, opts, *keepData)
 	case "status", "":
@@ -84,10 +88,24 @@ flags:
 	}
 }
 
-func cacheEnable(ctx context.Context, r prune.DockerRunner, opts provision.Options, c regcache.Options) int {
-	if err := regcache.ValidateUpstream(c.Upstream); err != nil {
+func cacheEnable(ctx context.Context, r prune.DockerRunner, opts provision.Options, c regcache.Options, insecure bool) int {
+	if err := regcache.ValidateUpstream(c.Upstream, insecure); err != nil {
 		fmt.Fprintf(os.Stderr, "skrog: %v\n", err)
 		return exitUsage
+	}
+	// The mirror is a registry this machine will fetch image content from, so
+	// the registry allowlist has to have a view on it (#421). It did not: the
+	// allowlist judges image REFERENCES, and dockerd applies a mirror without
+	// changing the reference, so a mirror pointed anywhere passed.
+	if reason, denied := mirrorDeniedByPolicy(opts, c.Upstream); denied {
+		fmt.Fprintf(os.Stderr, "skrog: %s\n", reason)
+		return exitError
+	}
+	if insecure && regcache.IsInsecureUpstream(c.Upstream) {
+		fmt.Fprintf(os.Stderr,
+			"skrog: WARNING: %s is plain HTTP. Every unpinned Docker Hub pull on this\n"+
+				"machine will fetch its content over that link, and anyone on the path can\n"+
+				"substitute it. You passed --insecure, so this is going ahead.\n", c.Upstream)
 	}
 	m, ok := engineManager(opts)
 	if !ok {
@@ -260,4 +278,30 @@ func splitMirrors(v string) []string {
 		}
 	}
 	return out
+}
+
+// mirrorDeniedByPolicy asks the effective rule set whether the cache's
+// upstream may serve this machine (#421).
+//
+// The layered rules, not just the user's file: a fleet that restricts
+// registries must restrict mirrors too, or the machine layer is advisory about
+// the one route that does not carry an image reference.
+//
+// A rule set that cannot be read does not block the command. This is a
+// registry allowlist, not an authentication boundary, and refusing to enable a
+// cache because policy.yaml has a typo would be a worse failure than the one
+// being prevented -- the typo is already reported by `skrog policy show`.
+func mirrorDeniedByPolicy(opts provision.Options, upstream string) (string, bool) {
+	if upstream == "" {
+		return "", false // the default upstream is Docker Hub itself
+	}
+	host, ok := regcache.UpstreamHost(upstream)
+	if !ok {
+		return "", false // ValidateUpstream already refused this shape
+	}
+	rules, _, err := policy.LoadLayered(opts.StateDir)
+	if err != nil {
+		return "", false
+	}
+	return rules.DenyMirror(host)
 }

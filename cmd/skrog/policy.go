@@ -88,12 +88,13 @@ func runPolicyShow(args []string) int {
 	}
 	if *asJSON {
 		emitJSON(policyShowJSON{
-			Path:     policy.Path(dir),
-			Active:   !rules.Empty(),
-			Rules:    rules,
-			Source:   src,
-			Exists:   fileExists(policy.Path(dir)),
-			Enforced: !rules.Empty(),
+			Path:              policy.Path(dir),
+			Active:            !rules.Empty(),
+			Rules:             rules,
+			Source:            src,
+			Exists:            fileExists(policy.Path(dir)),
+			Enforced:          !rules.Empty(),
+			MachineProvenance: policy.MachineProvenance(),
 		})
 		return exitOK
 	}
@@ -101,12 +102,51 @@ func runPolicyShow(args []string) int {
 	// Each layer separately before the effective set: someone reading this
 	// wants to know which file to go and argue with, and on a managed laptop
 	// that is not the one in their own state dir.
+	// Provenance before contents (#418). The layer cannot be made
+	// unbypassable — the supervisor runs as the user — so the honest promise
+	// is that this report does not lie about which bypass happened. A refused
+	// layer and an absent one used to look identical here.
+	prov := policy.MachineProvenance()
+	if prov.Redirected && prov.Path == "" {
+		// The documented bypass, and the one that produced silence: point the
+		// variable at an empty directory and the machine layer simply is not
+		// there. Indistinguishable from a machine that never had one, which is
+		// the whole problem — so it is said out loud.
+		fmt.Printf("machine rules: none found\n")
+		fmt.Printf("  %s redirects the machine layer to %s, which holds no %s.\n",
+			policy.MachineDirEnv, prov.RedirectedTo, policy.FileName)
+		fmt.Println("  If this machine is supposed to carry fleet policy, that variable is why")
+		fmt.Println("  it is not. It is read from the environment, which the user owns.")
+		fmt.Println()
+	}
+	if prov.Path != "" && !prov.Trusted {
+		fmt.Printf("machine rules: %s  REFUSED\n", prov.Path)
+		fmt.Printf("  ignored because %s.\n", prov.Why)
+		fmt.Println("  A machine layer is only fleet configuration if the fleet wrote it; one")
+		fmt.Println("  a standard user could have written carries no more authority than their")
+		fmt.Println("  own rules, so it is not merged. Deploy it to a directory owned by")
+		fmt.Println("  Administrators or SYSTEM.")
+		if prov.Redirected {
+			fmt.Printf("  Note: %s pointed the machine layer at %s.\n",
+				policy.MachineDirEnv, prov.RedirectedTo)
+		}
+		fmt.Println()
+	}
 	if src.MachinePath != "" {
 		// "administrator-writable" is what this said until #418, and it is not
 		// something skrog checks — the default ProgramData ACL lets a standard
 		// user create the directory and own it. Claiming a property the code
 		// never verifies is the wrong thing to print next to a file path.
+		//
+		// It is checked now, which is why the line can say something about it:
+		// this branch is only reached for a file that passed.
 		fmt.Printf("machine rules: %s  (deployed machine-wide; you cannot loosen these)\n", src.MachinePath)
+		if prov.Redirected {
+			// A trusted file in a redirected location is legitimate -- a fleet
+			// may keep ProgramData elsewhere -- and still worth saying, because
+			// the variable is also the cheapest way to retire the layer.
+			fmt.Printf("  location set by %s: %s\n", policy.MachineDirEnv, prov.RedirectedTo)
+		}
 		for _, line := range describe(src.Machine) {
 			fmt.Printf("  %s\n", line)
 		}

@@ -83,18 +83,21 @@ func TestValidateUpstream(t *testing.T) {
 		{"", false},
 		{"https://registry-1.docker.io", false},
 		{"https://ghcr.io", false},
-		{"http://registry.internal:5000", false},
+		// This case asserted `false` until #421: plain HTTP was accepted
+		// silently. It is refused now unless --insecure is passed, which the
+		// tests below cover.
+		{"http://registry.internal:5000", true},
 		{"registry-1.docker.io", true},             // no scheme
 		{"https://ghcr.io/myorg", true},            // a path, not a registry root
 		{"https://registry-1.docker.io/v2/", true}, // ditto, the common mistake
 	} {
-		err := ValidateUpstream(tc.in)
+		err := ValidateUpstream(tc.in, false)
 		if (err != nil) != tc.wantErr {
 			t.Errorf("ValidateUpstream(%q) error = %v, wantErr %v", tc.in, err, tc.wantErr)
 		}
 	}
 	// A trailing slash on a root is fine — people paste it.
-	if err := ValidateUpstream("https://ghcr.io/"); err != nil {
+	if err := ValidateUpstream("https://ghcr.io/", false); err != nil {
 		t.Errorf("a trailing slash was rejected: %v", err)
 	}
 }
@@ -161,6 +164,51 @@ func TestParseSize(t *testing.T) {
 	} {
 		if got := parseSize(tc.in); got != tc.want {
 			t.Errorf("parseSize(%q) = %d, want %d", tc.in, got, tc.want)
+		}
+	}
+}
+
+func TestValidateUpstreamRefusesPlainHTTP(t *testing.T) {
+	err := ValidateUpstream("http://mirror.internal", false)
+	if err == nil {
+		t.Fatal("accepted an http:// upstream")
+	}
+	// The reason has to say why this is different from an ordinary unencrypted
+	// download, or it reads as pedantry and gets --insecure'd reflexively.
+	for _, want := range []string{"every unpinned", "substitute", "--insecure"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error should mention %q: %v", want, err)
+		}
+	}
+}
+
+func TestValidateUpstreamAllowsPlainHTTPWhenAsked(t *testing.T) {
+	if err := ValidateUpstream("http://mirror.internal", true); err != nil {
+		t.Errorf("--insecure did not allow http://: %v", err)
+	}
+}
+
+func TestValidateUpstreamStillAcceptsHTTPS(t *testing.T) {
+	if err := ValidateUpstream("https://ghcr.io", false); err != nil {
+		t.Errorf("https rejected: %v", err)
+	}
+}
+
+func TestUpstreamHost(t *testing.T) {
+	for _, tc := range []struct {
+		in   string
+		want string
+		ok   bool
+	}{
+		{"https://ghcr.io", "ghcr.io", true},
+		{"https://ghcr.io/", "ghcr.io", true},
+		{"http://mirror.internal:5000", "mirror.internal:5000", true},
+		{"https://ghcr.io/v2/path", "", false},
+		{"", "", false},
+	} {
+		got, ok := UpstreamHost(tc.in)
+		if got != tc.want || ok != tc.ok {
+			t.Errorf("UpstreamHost(%q) = %q,%v want %q,%v", tc.in, got, ok, tc.want, tc.ok)
 		}
 	}
 }

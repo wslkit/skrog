@@ -252,6 +252,11 @@ type policyShowJSON struct {
 	// Source reports what each layer contributed, so "why can I not run this"
 	// has an answer that names the file to argue with.
 	Source policy.Source `json:"source"`
+	// MachineProvenance says where the machine layer came from and whether it
+	// was trusted (#418). A fleet dashboard needs to tell a machine with no
+	// policy from one whose policy was refused; they were indistinguishable
+	// here, and the second is the one worth an alert.
+	MachineProvenance policy.Provenance `json:"machineProvenance"`
 }
 
 // policyTestJSON is `skrog policy test --json` (#120): the verdict on one

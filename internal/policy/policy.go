@@ -807,3 +807,34 @@ var (
 	_ pipeproxy.Gate      = Rules{}
 	_ pipeproxy.ImageGate = Rules{}
 )
+
+// DenyMirror judges a registry MIRROR host against the allowlist (#421).
+//
+// A mirror is not an image reference, which is why it needed its own door.
+// `allow-registries` judges the reference in a request, and dockerd applies
+// `registry-mirrors` to Docker Hub pulls without changing the reference at
+// all -- so on the common allowlist of docker.io plus a corporate registry,
+// every unpinned `docker pull ubuntu` fetched its bytes from whatever host the
+// mirror named, and the reference check passed because the reference was
+// untouched.
+//
+// Three places in this codebase asserted that could not happen, on the ground
+// that a mirror "changes where bytes come from, not which image was asked
+// for". Both halves of that sentence are true and the conclusion does not
+// follow: where the bytes come from is the thing an allowlist exists to
+// constrain.
+//
+// Empty allowlist means no opinion, as everywhere else: a rule set that does
+// not restrict registries has no view on mirrors either.
+func (r Rules) DenyMirror(host string) (reason string, denied bool) {
+	host = strings.TrimSpace(host)
+	if host == "" || len(r.AllowRegistries) == 0 {
+		return "", false
+	}
+	if !matchesAny(host, r.AllowRegistries) {
+		return fmt.Sprintf(
+			"policy does not allow %s as a registry, so it may not serve as a mirror either "+
+				"(allowed: %s)", host, strings.Join(r.AllowRegistries, ", ")), true
+	}
+	return "", false
+}

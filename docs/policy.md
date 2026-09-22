@@ -17,7 +17,7 @@ Rules come from two files:
 
 | | Where | Who can write it |
 | --- | --- | --- |
-| **Machine** | `%ProgramData%\skrog\policy.yaml` | whoever the directory's ACL allows — see [what it is not](#what-it-is-not) |
+| **Machine** | `%ProgramData%\skrog\policy.yaml` | must be owned by `Administrators` or `SYSTEM`, or it is refused — see [what it is not](#what-it-is-not) |
 | **You** | `policy.yaml` in the state dir (`skrog policy show` prints the path) | you |
 
 They merge with one rule: **the user layer may only tighten.** You can forbid
@@ -77,10 +77,41 @@ because it is the sentence a security team would have relied on:
   ships with `BUILTIN\Users:(CI)(WD,AD)` and `CREATOR OWNER:(OI)(CI)(IO)(F)`,
   so on any machine where an administrator has not already created
   `ProgramData\skrog`, a standard user can create it first and own it outright.
-  Skrog does not check the owner or the ACL before reading the file.
+
+  **Skrog checks the owner now and refuses the file if it fails.** A machine
+  file not owned by `Administrators` or `SYSTEM` is not merged, and
+  `skrog policy show` says so and why:
+
+  ```
+  machine rules: C:\ProgramData\skrog\policy.yaml  REFUSED
+    ignored because it is owned by CONTOSO\alice, not by Administrators or SYSTEM.
+  ```
+
+  The owner, not the full DACL. The hole above is an *ownership* one — `CREATOR
+  OWNER` grants Full Control because the user owns the object — so the owner
+  answers it. A DACL walk would also catch "an administrator created it and then
+  granted Users write", which is a misconfiguration rather than a bypass, and a
+  hand-written ACE walker that gets an edge case wrong fails a correctly
+  deployed fleet silently.
 - **The location can be redirected.** `SKROG_MACHINE_POLICY_DIR` overrides it,
   and the supervisor runs as the ordinary user, who owns their own environment
   block. `setx` is enough.
+
+  This is still true, and it is now **reported** rather than silent. Pointing
+  the variable at a directory with no `policy.yaml` used to be
+  indistinguishable from a machine that never had fleet policy; `skrog policy
+  show` now says which one you are looking at:
+
+  ```
+  machine rules: none found
+    SKROG_MACHINE_POLICY_DIR redirects the machine layer to C:\Users\me\empty,
+    which holds no policy.yaml.
+  ```
+
+  A redirected location that *does* hold a trusted file is legitimate — a fleet
+  may keep `ProgramData` elsewhere — and is reported too, because the variable
+  is also the cheapest way to retire the layer and a reader deserves to know
+  which they are looking at.
 - **The gate is not the only route to the engine.** The distro is registered in
   the user's own WSL installation, so `wsl -d <distro> -u root` reaches
   `/var/run/docker.sock` with nothing in the way. `skrog proxy
