@@ -108,6 +108,8 @@ useful than saying where the real one is.
   reference host, most likely driver allocations. The first draft left that
   out and its parts summed to 319 of 592 MiB. When Windows holds much more
   for the VM than the VM uses (288 MiB on the reference host), `top` says so.
+  Container rows carry each container's own memory limit (a dash when it has
+  none, rather than the VM total `docker stats` prints) and its PIDs.
 
   It never starts the engine and never keeps it from idling: it reads inside
   the distro, not through the pipe. Driven on the reference host: with `top`

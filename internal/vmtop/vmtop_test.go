@@ -225,3 +225,38 @@ func TestVMPartsAddUpToUsed(t *testing.T) {
 		t.Error("the fixture has memory meminfo does not name; unitemised should not be zero")
 	}
 }
+
+// memory.max reads "max" for no limit, which must not become a number that
+// looks like one; a real limit and pids.current come through as they are.
+func TestParseGroupReadsLimitAndPIDs(t *testing.T) {
+	unlimited := parseGroup("memory.current 10\nmemory.max max\npids.current 5\n")
+	if unlimited.limit != 0 || unlimited.pids != 5 {
+		t.Errorf("unlimited: limit=%d pids=%d, want 0 and 5", unlimited.limit, unlimited.pids)
+	}
+	limited := parseGroup("memory.current 10\nmemory.max 268435456\npids.current 1\n")
+	if limited.limit != 268435456 || limited.pids != 1 {
+		t.Errorf("limited: limit=%d pids=%d, want 268435456 and 1", limited.limit, limited.pids)
+	}
+}
+
+// The limit and PID count reach the snapshot's container row, not only the
+// parsed group.
+func TestComputeCarriesLimitAndPIDs(t *testing.T) {
+	const at = "==cg docker/" + idAny + "/\nmemory.current 15548416\n"
+	text := fixture(t)
+	if !strings.Contains(text, at) {
+		t.Fatal("fixture no longer has the skrog-t-any group this test edits")
+	}
+	text = strings.Replace(text, at, at+"memory.max 268435456\npids.current 3\n", 1)
+	snap := Compute(ParseSample(text), ParseSample(text))
+	for _, c := range snap.Containers {
+		if c.ID != idAny {
+			continue
+		}
+		if c.LimitBytes != 268435456 || c.PIDs != 3 {
+			t.Errorf("skrog-t-any limit=%d pids=%d, want 268435456 and 3", c.LimitBytes, c.PIDs)
+		}
+		return
+	}
+	t.Fatal("skrog-t-any missing from the snapshot")
+}

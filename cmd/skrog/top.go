@@ -266,17 +266,23 @@ func renderTop(w io.Writer, s vmtop.Snapshot, reclaim string) {
 	fmt.Fprintln(w)
 
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "\tMEMORY\tANON\tFILE\tKERNEL\tCPU%\tMEM PSI\tIO PSI\t")
+	fmt.Fprintln(tw, "\tMEMORY\tLIMIT\tANON\tFILE\tKERNEL\tCPU%\tPIDS\tMEM PSI\tIO PSI\t")
 	row := func(name string, g vmtop.Group) {
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%.1f\t%.1f\t\n", name,
-			humanBytes(g.MemoryBytes), humanBytes(g.AnonBytes), humanBytes(g.FileBytes),
-			humanBytes(g.KernelBytes), pct(g.CPUPercent, s.WindowSecs), g.Pressure.Memory, g.Pressure.IO)
+		// A dash, not the VM total, for no limit: docker stats prints the VM
+		// total as every container's "limit", which no one container can hit.
+		limit := "-"
+		if g.LimitBytes > 0 {
+			limit = humanBytes(g.LimitBytes)
+		}
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%d\t%.1f\t%.1f\t\n", name,
+			humanBytes(g.MemoryBytes), limit, humanBytes(g.AnonBytes), humanBytes(g.FileBytes),
+			humanBytes(g.KernelBytes), pct(g.CPUPercent, s.WindowSecs), g.PIDs, g.Pressure.Memory, g.Pressure.IO)
 	}
 	for _, c := range s.Containers {
 		row(truncName(c.Name, 40), c)
 	}
 	if len(s.Containers) == 0 {
-		fmt.Fprintln(tw, "(no running containers)\t\t\t\t\t\t\t\t")
+		fmt.Fprintln(tw, "(no running containers)\t\t\t\t\t\t\t\t\t\t")
 	}
 	row("engine (dockerd, containerd, build)", s.Engine)
 	if s.OtherContainers.MemoryBytes > 0 {
@@ -284,7 +290,7 @@ func renderTop(w io.Writer, s vmtop.Snapshot, reclaim string) {
 	}
 	row(fmt.Sprintf("other WSL distros (%d)", s.OtherDistroCount), s.OtherDistros)
 	row("WSL itself", s.WSL)
-	fmt.Fprintf(tw, "kernel and drivers, not charged to any group\t%s\t\t\t\t\t\t\t\n", humanBytes(s.UnchargedBytes))
+	fmt.Fprintf(tw, "kernel and drivers, not charged to any group\t%s\t\t\t\t\t\t\t\t\t\n", humanBytes(s.UnchargedBytes))
 	tw.Flush()
 
 	// The two pieces of advice this view exists to give. Thresholds are a

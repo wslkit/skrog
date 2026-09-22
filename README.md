@@ -202,10 +202,32 @@ docker context. Nothing else on the system is touched.
   lands in the dashboard you already run — local only, still no telemetry
   ([docs/monitoring.md](docs/monitoring.md))
 - **`skrog top`: where Vmmem's memory went**. `docker stats` shows the containers; this
-  shows the VM they run in — each container, the engine's own daemons, page cache, other
-  WSL distros sharing the VM and the kernel, next to what Windows says Vmmem holds, with
-  PSI stall figures that say whether anything is actually short. It never starts the
-  engine and never keeps it from idling ([docs/memory.md](docs/memory.md))
+  shows the VM they run in. Measured at the same moment on the reference host, `docker
+  stats` accounted for 11.8 MiB, while the VM was using 776 MiB and Windows held 880 MiB
+  for it. `top` accounts for all of it (an excerpt; the full reading is in the docs):
+
+  ```
+  VM        4 CPUs, CPU 9.1%   memory 776.4 MiB used of 7.6 GiB (7.0 GiB available)
+            used is 111.7 MiB processes, 333.9 MiB page cache, 84.1 MiB kernel, 246.6 MiB not itemised by the kernel
+  Windows   vmmem 879.7 MiB (Task Manager's figure), working set 879.7 MiB, committed 1.0 GiB
+
+                                                MEMORY     LIMIT      ANON       FILE     ...  PIDS  MEM PSI  IO PSI
+  cache                                         5.7 MiB    256.0 MiB  4.6 MiB    0 B           6     0.0      0.0
+  engine (dockerd, containerd, build)           412.5 MiB  -          101.0 MiB  296.1 MiB     101   0.0      0.2
+  kernel and drivers, not charged to any group  340.7 MiB
+  ```
+
+  What `docker stats` cannot show:
+  - the engine's own daemons, and the image layers they cached
+  - kernel and driver memory
+  - other WSL distros in the same VM
+  - Windows' side of Vmmem, with a hint when Windows holds far more than the VM uses
+  - each container's page cache, which `docker stats` subtracts
+  - PSI stall figures that say whether anything is actually short
+
+  Unlike a streaming `docker stats`, it never starts the engine and never keeps it from
+  idling. `docker stats` remains the tool for per-container network traffic and for
+  remote engines. How to read every line: [docs/memory.md](docs/memory.md)
 - **Right-size the VM with consent**: `skrog config set wsl.memory 4GB` then
   `skrog wsl-config apply` shows the diff to the GLOBAL ~/.wslconfig and writes only on
   a yes (`--yes` for runners, idempotent) — [docs/vm-sizing.md](docs/vm-sizing.md)
