@@ -86,7 +86,7 @@ flags:
 	// looks broken when the engine is merely absent.
 	startOpts := opts
 	startOpts.Distro = targetDistro
-	if err := p.StartEngine(interruptCtx(), startOpts); err != nil {
+	if err := p.StartEngine(interruptCtx(), startOptions(interruptCtx(), startOpts)); err != nil {
 		fmt.Fprintf(os.Stderr, "skrog: %v\n", err)
 		return exitError
 	}

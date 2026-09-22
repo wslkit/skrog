@@ -57,15 +57,14 @@ func (e *engineAdapter) Running(ctx context.Context) (bool, error) {
 // network.proxy ...` followed by the `skrog restart` the docs prescribe
 // applied nothing — the same bug as the audit log, one layer down (#202).
 func (e *engineAdapter) Start(ctx context.Context) error {
-	opts := e.opts
-	c := e.cfg.Config()
-	opts.GPUEnabled = c.GPU
-	opts.EmulationPlatforms = c.EmulationPlatforms
-	opts.GPUVendor = c.GPUVendor
-	opts.Network = provision.NetConfig{Proxy: c.Proxy, NoProxy: c.NoProxy}
-	if c.ImportHostCAs {
-		opts.Network.HostCAPEM = e.hostCAs(ctx)
-	}
+	// The list itself lives in withStartSettings now, shared with every
+	// one-shot command that restarts the engine. It used to live only here,
+	// which is why `engine upgrade`, `compact`, `relocate` and the snapshot
+	// restore all brought the engine back with none of it (#490).
+	//
+	// The cached CA reader stays: this process starts the engine many times
+	// and the certificate store does not change under it.
+	opts := withStartSettings(e.opts, e.cfg.Config(), func() []byte { return e.hostCAs(ctx) })
 	return e.p.StartEngine(ctx, opts)
 }
 
@@ -498,12 +497,21 @@ func runStop(args []string) int {
 	fs := flag.NewFlagSet("stop", flag.ContinueOnError)
 	stateDir := fs.String("state-dir", "", "override Skrog's state directory")
 	timeout := fs.Duration("timeout", time.Minute, "how long to wait for the engine to stop")
+	supervisor := fs.Bool("supervisor", false, "also stop the supervisor process itself")
 	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, `usage: skrog stop
+		fmt.Fprintf(os.Stderr, `usage: skrog stop [--supervisor]
 
 Records the desired state as stopped and waits for the engine to stop. The
 supervisor keeps honoring this until `+"`skrog start`"+` — a stopped engine stays
 stopped. Only Skrog's own distro is touched, never other WSL distros.
+
+  --supervisor   also stop the always-on process that serves the docker pipe
+
+By default the supervisor keeps running, which is what makes `+"`skrog start`"+`
+quick and keeps the pipe where it was. `+"`--supervisor`"+` is for replacing
+skrog.exe on disk: Windows will not overwrite a running binary, and the
+installer refuses rather than leave a half-replaced install. It stops the
+watchdog too, or that would relaunch what you just stopped.
 `)
 		fs.PrintDefaults()
 	}
@@ -537,15 +545,42 @@ stopped. Only Skrog's own distro is touched, never other WSL distros.
 	}
 
 	deadline := time.Now().Add(*timeout)
+	stopped := false
 	for time.Now().Before(deadline) {
 		if !p.EngineRunning(context.Background(), opts) {
-			fmt.Println("engine is stopped (and stays stopped until `skrog start`)")
-			return exitOK
+			stopped = true
+			break
 		}
 		time.Sleep(time.Second)
 	}
-	fmt.Fprintf(os.Stderr, "skrog: engine still running after %s\n", *timeout)
-	return exitError
+	if !stopped {
+		fmt.Fprintf(os.Stderr, "skrog: engine still running after %s\n", *timeout)
+		return exitError
+	}
+	fmt.Println("engine is stopped (and stays stopped until `skrog start`)")
+
+	// The supervisor last, and only when asked (#482).
+	//
+	// Order matters: it is the supervisor that honors the desired state above,
+	// so stopping it first would leave the engine to be stopped directly and
+	// turn one sequence into two. And this is the rarer intent by far --
+	// almost everything people want from `stop` is the engine, which is why
+	// the supervisor survives it by default.
+	if *supervisor {
+		if !supervise.Held(opts.StateDir) {
+			fmt.Println("no supervisor is running")
+			return exitOK
+		}
+		if err := stopSupervisor(opts.StateDir); err != nil {
+			fmt.Fprintf(os.Stderr, "skrog: %v\n", err)
+			return exitError
+		}
+		// The watchdog goes with it, without being asked: it treats a clean
+		// exit as final (internal/watchdog), which is the same property that
+		// stops it racing `restart --supervisor`.
+		fmt.Println("supervisor stopped (skrog.exe can be replaced; `skrog start` brings it back)")
+	}
+	return exitOK
 }
 
 // restartPollInterval is how often the supervisor looks for a restart

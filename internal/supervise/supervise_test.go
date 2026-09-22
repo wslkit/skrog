@@ -378,3 +378,56 @@ func TestDemandIsNotBlockedByAProbeInFlight(t *testing.T) {
 	cancel()
 	<-runDone
 }
+
+// The reconciler must do NOTHING while a maintenance hold is in place (#486).
+//
+// This is the wiring, not the primitive: Hold/HoldActive are unit-tested next
+// door, and a hold nothing consults is exactly the "correct helper nobody
+// calls" defect this repo keeps finding.
+//
+// The setup is the one that bit: desired=stopped with the engine up, which is
+// precisely when the reconciler terminates the distro -- and during an upgrade
+// that distro has a `wsl --exec` inside it copying binaries.
+func TestTickDoesNothingWhileHeld(t *testing.T) {
+	e := &fakeEngine{running: true}
+	s, dir := newSup(t, e, time.Hour)
+	if err := supervise.WriteDesired(dir, supervise.DesiredStopped); err != nil {
+		t.Fatal(err)
+	}
+	release, err := supervise.Hold(dir, time.Now().Add(time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	s.TickForTest(context.Background())
+
+	if got := stopsOf(e); got != 0 {
+		t.Errorf("engine stopped %d time(s) under a maintenance hold; "+
+			"that terminate is what kills the copy an upgrade is running", got)
+	}
+	// Not even probed: the probe boots the distro it asks about, and booting
+	// the distro is half of what the holder is controlling.
+	if got := probesOf(e); got != 0 {
+		t.Errorf("engine probed %d time(s) under a maintenance hold", got)
+	}
+
+	// And it resumes once released, or the fix trades a race for a wedge.
+	release()
+	s.TickForTest(context.Background())
+	if got := stopsOf(e); got == 0 {
+		t.Error("engine was never stopped after the hold was released")
+	}
+}
+
+// stopsOf and probesOf read the counters under the fake's own lock, so the
+// hold test does not race the reconciler it just ticked.
+func stopsOf(e *fakeEngine) int {
+	_, stops := e.counts()
+	return stops
+}
+
+func probesOf(e *fakeEngine) int {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.probes
+}

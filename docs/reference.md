@@ -1061,13 +1061,23 @@ discard exactly the reading worth having.
 stop the engine; it stays stopped until start
 
 ```
-usage: skrog stop
+usage: skrog stop [--supervisor]
 
 Records the desired state as stopped and waits for the engine to stop. The
 supervisor keeps honoring this until `skrog start` — a stopped engine stays
 stopped. Only Skrog's own distro is touched, never other WSL distros.
+
+  --supervisor   also stop the always-on process that serves the docker pipe
+
+By default the supervisor keeps running, which is what makes `skrog start`
+quick and keeps the pipe where it was. `--supervisor` is for replacing
+skrog.exe on disk: Windows will not overwrite a running binary, and the
+installer refuses rather than leave a half-replaced install. It stops the
+watchdog too, or that would relaunch what you just stopped.
   -state-dir string
     	override Skrog's state directory
+  -supervisor
+    	also stop the supervisor process itself
   -timeout duration
     	how long to wait for the engine to stop (default 1m0s)
 ```
