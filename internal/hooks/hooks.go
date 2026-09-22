@@ -60,10 +60,39 @@ func filterInjected(mods []Module, exeDir string) []Module {
 // the Windows directory is treated as the platform's own: WinSxS, System32,
 // SysWOW64 and the servicing trees all live there, and enumerating them adds
 // noise without adding information.
+//
+// WSL's own directory counts too, and not counting it was a bug (#488). Modern
+// WSL is serviced separately from Windows and installs to `%ProgramFiles%\WSL`,
+// so its COM proxy/stub -- `wslserviceproxystub.dll` -- read as a third-party
+// injection. Skrog loads that DLL ITSELF: it talks to wslservice over COM
+// (#380), and Windows maps the marshalling stub into any process that does.
+//
+// So doctor warned about a consequence of Skrog's own design, named a
+// Microsoft-signed component, and told the user to ask their endpoint-security
+// vendor for an exclusion that nobody could grant. A check whose whole value is
+// that its output is short and means something cannot afford that.
 func isSystemModule(path string) bool {
 	p := strings.ToLower(filepath.ToSlash(path))
 	for _, root := range []string{"c:/windows/", "/windows/system32/", "/windows/syswow64/"} {
 		if strings.Contains(p, root) {
+			return true
+		}
+	}
+	return isWSLModule(p)
+}
+
+// isWSLModule reports whether a lowercase slash-form path is inside a WSL
+// installation.
+//
+// Matched by directory name rather than by a full path so it survives WSL being
+// installed outside Program Files and a non-English Program Files, both of
+// which a hardcoded `c:/program files/wsl/` would miss. The segment must be a
+// whole directory called `wsl`, so `C:\Vendor\wslhook\evil.dll` is not exempted
+// by accident -- the point is to quieten one component, not to hand anything
+// named after WSL a free pass.
+func isWSLModule(lowerSlashPath string) bool {
+	for _, seg := range strings.Split(lowerSlashPath, "/") {
+		if seg == "wsl" {
 			return true
 		}
 	}

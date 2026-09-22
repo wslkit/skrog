@@ -514,3 +514,47 @@ func TestWriteTextKeepsTheDistroLine(t *testing.T) {
 		t.Errorf("distro engine line changed:\n%s", out)
 	}
 }
+
+// The rendered line. RootfsLine was unit-tested and the printer still called
+// shortSHA, which is the "correct helper nobody calls" shape (#484).
+func TestWriteTextNamesTheRootfsRevision(t *testing.T) {
+	r := &version.Report{
+		App: "0.8.0",
+		Engine: version.EngineInfo{
+			Installed: true,
+			Version:   "29.8.1",
+			Distro:    "skrog-engine",
+			Rootfs:    "f1be49d99b9adab037480f66a9bedc1bca2a0d1a29e278f99adcb8357d18e4ab",
+			Ref:       "29.8.1-3",
+		},
+		ContextSource: "implicit default",
+	}
+	var b strings.Builder
+	if err := r.WriteText(&b); err != nil {
+		t.Fatal(err)
+	}
+	out := b.String()
+	if !strings.Contains(out, "29.8.1-3") {
+		t.Errorf("output does not name the revision:\n%s", out)
+	}
+	if !strings.Contains(out, "f1be49d99b9a") {
+		t.Errorf("output dropped the checksum:\n%s", out)
+	}
+}
+
+// An install with no ref -- an explicit --rootfs-url, or one predating the
+// recorded field -- must still print something, and must not invent a revision.
+func TestWriteTextFallsBackToTheChecksumAlone(t *testing.T) {
+	r := &version.Report{
+		App:           "0.8.0",
+		Engine:        version.EngineInfo{Installed: true, Version: "29.8.1", Distro: "d", Rootfs: "abcdef0123456789"},
+		ContextSource: "implicit default",
+	}
+	var b strings.Builder
+	if err := r.WriteText(&b); err != nil {
+		t.Fatal(err)
+	}
+	if out := b.String(); !strings.Contains(out, "abcdef012345") || strings.Contains(out, "()") {
+		t.Errorf("unexpected rootfs line:\n%s", out)
+	}
+}

@@ -68,6 +68,29 @@ Exit `0` always (an uninstalled machine is `installed: false`, not an error).
 `{ "app": "0.3.0", ... }` — the full component picture; see `skrog version`.
 Exits `3` when no engine is installed (still emits JSON).
 
+`engine` carries both identifiers of the installed image, and they answer
+different questions:
+
+```json
+"engine": {
+  "version": "29.8.1",
+  "engineRef": "29.8.1-3",
+  "rootfsSha256": "f1be49d9…"
+}
+```
+
+- `version` is dockerd's version, and **two images can share it**. It does not
+  say which image you have.
+- `engineRef` is the image: version plus rootfs revision. It is the unit
+  `skrog engine upgrade` moves between, so it is the field to compare when
+  asking "is this machine current". Added in 0.8.0; omitted on an install with
+  no recorded ref and a rootfs URL it cannot be derived from.
+- `rootfsSha256` identifies the exact bytes, and is what `--rootfs-sha256` and
+  a bug report speak. Unchanged.
+
+`engineRef` was added rather than folded into either of the others, because a
+reader switching on `version` or `rootfsSha256` has to keep working.
+
 ## `skrog doctor --json`
 
 ```json

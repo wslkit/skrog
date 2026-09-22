@@ -40,6 +40,13 @@ type EngineInfo struct {
 	Version string `json:"version,omitempty"`
 	Distro  string `json:"distro,omitempty"`
 	Rootfs  string `json:"rootfsSha256,omitempty"`
+	// Ref is the engine BUILD -- "29.8.1-3" -- version plus rootfs revision.
+	//
+	// A new field rather than a change to rootfsSha256 or version: docs/cli-json.md
+	// pins those, and a reader switching on either must keep working (#484).
+	// It answers the question the SHA cannot -- two revisions can carry the
+	// same dockerd and differ in what else is in the image.
+	Ref string `json:"engineRef,omitempty"`
 	// WSLAtInstall is the WSL version present when Skrog was installed;
 	// a difference from WSL means the host was updated since.
 	WSLAtInstall string `json:"wslAtInstall,omitempty"`
@@ -105,7 +112,13 @@ func (r *Report) WriteText(w io.Writer) error {
 	if r.Engine.Installed {
 		fmt.Fprintf(tw, "engine\t%s\t(distro %s)\n", orUnknown(r.Engine.Version), r.Engine.Distro)
 		if r.Engine.Rootfs != "" {
-			fmt.Fprintf(tw, "rootfs\t%s\n", shortSHA(r.Engine.Rootfs))
+			// The ref first, because it is the half a human can act on: it says
+			// which revision is installed, and revisions are what an upgrade
+			// moves between. The short SHA stays, because it is what a bug
+			// report, --rootfs-sha256 and the manifest all speak, and it is the
+			// only identifier an image installed from outside the manifest has
+			// (#484).
+			fmt.Fprintf(tw, "rootfs\t%s\n", RootfsLine(r.Engine.Ref, r.Engine.Rootfs))
 		}
 	} else {
 		fmt.Fprintf(tw, "engine\tnot installed\n")
@@ -171,6 +184,23 @@ func shortSHA(s string) string {
 		return s[:12] + "..."
 	}
 	return s
+}
+
+// RootfsLine renders the installed image as "29.8.1-3  (f1be49d99b9a...)".
+//
+// Shared by `skrog version` and `skrog doctor`, which printed the bare SHA and
+// nothing else — a value that identifies the bytes exactly and answers none of
+// the questions anyone asks of it (#484).
+//
+// Without a ref it degrades to the SHA alone rather than inventing one. That
+// case is real: an install from an explicit --rootfs-url has no revision to
+// name, and saying so by omission beats printing the engine version twice.
+func RootfsLine(ref, sha string) string {
+	short := shortSHA(sha)
+	if ref == "" {
+		return short
+	}
+	return ref + "  (" + short + ")"
 }
 
 // OriginLabel renders an Origin for humans in the PARENTHETICAL position --

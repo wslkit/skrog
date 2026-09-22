@@ -6,7 +6,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"path"
 	"strings"
 	"time"
 
@@ -62,25 +61,14 @@ Exit codes: 0 ok, %d error, %d usage, %d not installed.
 }
 
 // engineRef is the revisioned label for an engine: the rootfs revision is the
-// unit of upgrade, so "29.7.2-4" and not "29.7.2". Derived from the rootfs file
-// name, which carries it, with the plain version as the fallback for a
-// hand-passed URL that does not.
+// unit of upgrade, so "29.7.2-4" and not "29.7.2".
+//
+// The rule itself lives in internal/release now. It was here while `engine
+// list` was the only caller; `upgrade`, `version` and `doctor` all need the
+// same answer, and a naming rule with four copies is a naming rule that
+// drifts (#484).
 func engineRef(version, rootfsURL string) string {
-	base := path.Base(rootfsURL)
-	base = strings.TrimSuffix(base, ".tar.gz")
-	// The architecture suffix is trimmed (#388). A ref names an engine BUILD,
-	// and it is recorded in the install manifest and compared against later.
-	// Leaving the architecture in would make the same engine release report a
-	// different ref on an arm64 machine than on an amd64 one, and would print
-	// "-amd64" on every row of `skrog engine list` on a machine that has no
-	// other choice. Neither tells anyone anything.
-	for _, arch := range []string{"-amd64", "-arm64"} {
-		base = strings.TrimSuffix(base, arch)
-	}
-	if rest, ok := strings.CutPrefix(base, "skrog-rootfs-"); ok && rest != "" {
-		return rest
-	}
-	return version
+	return release.RefFromURL(version, rootfsURL)
 }
 
 // engineRefURL picks the rootfs URL a ref is derived from.
@@ -121,10 +109,7 @@ func runEngineList(args []string) int {
 	p := &provision.Provisioner{Logger: cliLogger(false)}
 	installed, previous := "", ""
 	if im, err := p.ReadManifest(opts); err == nil {
-		installed = im.EngineRef
-		if installed == "" {
-			installed = engineRef(im.EngineVersion, im.RootfsURL)
-		}
+		installed = im.EngineRefOrDerived()
 		previous = im.PreviousEngineRef
 	}
 
