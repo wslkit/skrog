@@ -227,7 +227,8 @@ docker context. Nothing else on the system is touched.
 
   Unlike a streaming `docker stats`, it never starts the engine and never keeps it from
   idling. `docker stats` remains the tool for per-container network traffic and for
-  remote engines. How to read every line: [docs/memory.md](docs/memory.md)
+  remote engines. How to read every line, and what to do when something looks off:
+  [docs/memory.md](docs/memory.md)
 - **Right-size the VM with consent**: `skrog config set wsl.memory 4GB` then
   `skrog wsl-config apply` shows the diff to the GLOBAL ~/.wslconfig and writes only on
   a yes (`--yes` for runners, idempotent) — [docs/vm-sizing.md](docs/vm-sizing.md)
