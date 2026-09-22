@@ -10,7 +10,11 @@ This file starts at 0.6.0. Earlier releases have hand-written notes on their
 reconstructed here — inventing a tidy history after the fact would be less
 useful than saying where the real one is.
 
-## [Unreleased]
+## [0.7.1] — 2026-09-21
+
+A patch release for one thing: 0.7.0's headline feature could not reach an
+existing install. Everything here was found by installing 0.7.0 on a real
+machine and driving it, not by reading the diff.
 
 ### Fixed
 
@@ -51,6 +55,31 @@ useful than saying where the real one is.
   failed, and silence is reported as silence — "the command produced no
   output, so it likely never ran" is a clue, where a bare trailing colon is
   not. Rollback already worked correctly and is unchanged.
+
+  That diagnostic paid for itself within the hour: it is what turned the
+  failure below from "a flake" into a named file and, from there, into #486.
+
+### Known issues
+
+- **`skrog engine upgrade` fails intermittently while a supervisor is
+  running** ([#486](https://github.com/wslkit/skrog/issues/486)). The binary
+  copy dies with `exit status 1` and no message, on a different file each
+  time; stopping the supervisor first makes it succeed every time. **Rollback
+  works** — the engine comes back on the previous revision with images,
+  containers and volumes intact — so the cost is a retry, not a broken engine.
+
+  Pre-existing, not introduced here: 0.7.0 does it too. It is called out now
+  because this release makes `engine upgrade` the way an existing install gets
+  the emulator, so a command that needs retrying matters more than it did.
+  **If it fails, run it again.** The guard that was supposed to prevent this
+  is already in the code and is evidently not sufficient, which is why the
+  issue is open rather than a line in Fixed above.
+
+- **A failed emulation registration is still invisible**
+  ([#480](https://github.com/wslkit/skrog/issues/480)) — a `WARN` in
+  `supervisor.log` and nothing else; `skrog doctor` has no check for it. Not
+  fixed here because a new doctor check is added surface, which belongs in a
+  minor. #479 removes its likeliest cause.
 
 ## [0.7.0] — 2026-09-21
 
@@ -575,6 +604,7 @@ Below are not ours, but you will hit them.
   both preserved. If you use the wslc backend with non-root containers, this
   is a reason to update WSL. The distro backend was never affected.
 
-[Unreleased]: https://github.com/wslkit/skrog/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/wslkit/skrog/compare/v0.7.1...HEAD
+[0.7.1]: https://github.com/wslkit/skrog/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/wslkit/skrog/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/wslkit/skrog/compare/v0.5.1...v0.6.0
