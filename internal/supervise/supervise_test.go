@@ -473,8 +473,6 @@ func TestRunWaitsForAPruneInFlight(t *testing.T) {
 // --supervisor` open; it has its own timeout and is abandoned.
 func TestRunAbandonsAWedgedPrune(t *testing.T) {
 	wedged := make(chan struct{})
-	defer close(wedged)
-
 	s, dir := prunableSup(t)
 	s.Prune = func(context.Context, supervise.PrunePolicy) (uint64, error) {
 		<-wedged
@@ -493,6 +491,19 @@ func TestRunAbandonsAWedgedPrune(t *testing.T) {
 	case <-time.After(30 * time.Second):
 		t.Fatal("Run never returned; a wedged prune is holding shutdown open")
 	}
+
+	// Run abandoned it, which is the point — but the TEST must not. Release it
+	// and wait, or the goroutine writes `last-prune` into t.TempDir() while
+	// cleanup is removing it:
+	//
+	//	TempDir RemoveAll cleanup: ...\001: The directory is not empty.
+	//
+	// which is the exact failure #423 was filed from, reproduced here by a
+	// test asserting the fix for it. The guard clears after the clock write, so
+	// waiting on it waits for the write.
+	close(wedged)
+	waitFor(t, 10*time.Second, func() bool { return !s.PruningForTest() },
+		"the abandoned prune never finished, so its state-dir writes race cleanup")
 }
 
 // A panic in the caller-supplied Prune must not take the supervisor with it: a
@@ -519,6 +530,16 @@ func TestAPanickingPruneDoesNotKillTheSupervisor(t *testing.T) {
 		t.Fatal("the supervisor exited because a prune panicked")
 	case <-time.After(200 * time.Millisecond):
 	}
+
+	// Shut down inside the test rather than leaving Run to a deferred cancel:
+	// a supervisor still ticking while t.TempDir() is removed writes into a
+	// directory that is going away.
+	cancel()
+	select {
+	case <-runReturned:
+	case <-time.After(10 * time.Second):
+		t.Fatal("Run did not return after cancellation")
+	}
 }
 
 // An interrupted prune must not make the next supervisor immediately due, so
@@ -526,7 +547,6 @@ func TestAPanickingPruneDoesNotKillTheSupervisor(t *testing.T) {
 func TestTheClockIsRecordedBeforeTheSweep(t *testing.T) {
 	started := make(chan struct{})
 	release := make(chan struct{})
-	defer close(release)
 
 	s, dir := prunableSup(t)
 	s.Prune = func(context.Context, supervise.PrunePolicy) (uint64, error) {
@@ -547,6 +567,12 @@ func TestTheClockIsRecordedBeforeTheSweep(t *testing.T) {
 	if got := supervise.ReadLastPrune(dir); !got.After(old) {
 		t.Errorf("clock is still %s mid-sweep; an interrupted prune would re-fire at the next logon", got)
 	}
+
+	// Let the sweep finish and the supervisor stop before the state dir is
+	// removed underneath them.
+	close(release)
+	cancel()
+	waitFor(t, 10*time.Second, func() bool { return !s.PruningForTest() }, "the prune never finished")
 }
 
 // prunableSup is a supervisor with an engine up, nothing busy, and automatic
