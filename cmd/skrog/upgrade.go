@@ -95,11 +95,13 @@ flags:
 	opts := optsWithResolvedStateDir(provision.Options{StateDir: *stateDir})
 
 	c := &upgrade.Checker{
-		App:          buildVersion,
-		EngineLatest: newestPublishedEngine(),
-		CLILatest:    bundledCLIVersion(),
+		App:             buildVersion,
+		EngineLatest:    newestPublishedEngine(),
+		EngineLatestRef: newestPublishedEngineRef(),
+		CLILatest:       bundledCLIVersion(),
 		Installed: upgrade.Installed{
 			EngineVersion: installedEngineVersion(opts),
+			EngineRef:     installedEngineRef(opts),
 			CLIVersion:    installedCLIVersion(opts),
 		},
 	}
@@ -261,6 +263,43 @@ func newestPublishedEngine() string {
 		}
 	}
 	return best
+}
+
+// newestPublishedEngineRef is newestPublishedEngine as a ref -- the version
+// with its rootfs revision (#481). Two engines can share a version and differ
+// in what they carry, so the revision is the part that answers "is there
+// anything to do".
+func newestPublishedEngineRef() string {
+	m, err := release.Load()
+	if err != nil {
+		return ""
+	}
+	best := ""
+	for _, e := range m.Engines {
+		if !e.Published() {
+			continue
+		}
+		ref := engineRef(e.Version, engineRefURL(e))
+		if best == "" || upgrade.Compare(ref, best) > 0 {
+			best = ref
+		}
+	}
+	return best
+}
+
+// installedEngineRef is what this machine actually has, revision included.
+// Empty when the install predates the recorded ref and the URL does not yield
+// one -- the caller falls back to the bare version rather than guessing.
+func installedEngineRef(opts provision.Options) string {
+	p := &provision.Provisioner{}
+	m, err := p.ReadManifest(opts)
+	if err != nil {
+		return ""
+	}
+	if m.EngineRef != "" {
+		return m.EngineRef
+	}
+	return engineRef(m.EngineVersion, m.RootfsURL)
 }
 
 // bundledCLIVersion is the docker CLI version this build ships, taken from the

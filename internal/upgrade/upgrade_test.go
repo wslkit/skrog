@@ -335,3 +335,80 @@ func TestPlanSkipsUnknownAndNotInstalled(t *testing.T) {
 		t.Errorf("plan = %+v, want empty", plan)
 	}
 }
+
+// A newer rootfs revision of the SAME engine version is an upgrade, and saying
+// "current" to it is how #462's emulator became invisible to everyone who did
+// not install fresh (#481).
+func TestEngineRevisionIsAnUpgrade(t *testing.T) {
+	c := &Checker{
+		App:             "0.7.1",
+		EngineLatest:    "29.8.1",
+		EngineLatestRef: "29.8.1-3",
+		Installed: Installed{
+			EngineVersion: "29.8.1",
+			EngineRef:     "29.8.1-1",
+		},
+	}
+	rep := c.Check(context.Background())
+
+	s := streamNamed(t, rep, "engine")
+	if s.Status != StatusAvailable {
+		t.Errorf("status = %q, want %q — 29.8.1-1 to 29.8.1-3 is an upgrade",
+			s.Status, StatusAvailable)
+	}
+	// The row has to show the refs, or it reads as "29.8.1 -> 29.8.1 available".
+	if s.Current != "29.8.1-1" || s.Latest != "29.8.1-3" {
+		t.Errorf("row = %q -> %q, want the refs", s.Current, s.Latest)
+	}
+	if s.Command != "skrog engine upgrade" {
+		t.Errorf("command = %q", s.Command)
+	}
+}
+
+// The same revision is not an upgrade, which is the case that must not become
+// a permanent nag.
+func TestEngineSameRevisionIsCurrent(t *testing.T) {
+	c := &Checker{
+		App:             "0.7.1",
+		EngineLatest:    "29.8.1",
+		EngineLatestRef: "29.8.1-3",
+		Installed: Installed{
+			EngineVersion: "29.8.1",
+			EngineRef:     "29.8.1-3",
+		},
+	}
+	if s := streamNamed(t, c.Check(context.Background()), "engine"); s.Status != StatusCurrent {
+		t.Errorf("status = %q, want %q", s.Status, StatusCurrent)
+	}
+}
+
+// An install that predates the recorded ref still has to get an answer, and
+// the bare versions are the only thing it has. Falling back is not a nicety:
+// an empty ref compared against a real one would read as an upgrade forever.
+func TestEngineFallsBackToVersionsWithoutRefs(t *testing.T) {
+	c := &Checker{
+		App:             "0.7.1",
+		EngineLatest:    "29.8.1",
+		EngineLatestRef: "29.8.1-3",
+		Installed:       Installed{EngineVersion: "29.8.1"}, // no ref recorded
+	}
+	s := streamNamed(t, c.Check(context.Background()), "engine")
+	if s.Status != StatusCurrent {
+		t.Errorf("status = %q, want %q; without an installed ref there is nothing to compare",
+			s.Status, StatusCurrent)
+	}
+	if s.Current != "29.8.1" {
+		t.Errorf("row shows %q, want the bare version it actually knows", s.Current)
+	}
+}
+
+func streamNamed(t *testing.T, rep Report, name string) Stream {
+	t.Helper()
+	for _, s := range rep.Streams {
+		if s.Name == name {
+			return s
+		}
+	}
+	t.Fatalf("no %q stream in the report", name)
+	return Stream{}
+}
