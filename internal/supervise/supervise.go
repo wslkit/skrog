@@ -28,6 +28,15 @@ type Engine interface {
 	Running(ctx context.Context) (bool, error)
 	// Start brings the engine up (idempotent; provisioner.StartEngine).
 	Start(ctx context.Context) error
+	// Reapply re-applies the state a RUNNING engine does not own (#501): the
+	// binfmt_misc handlers, the shared socket bind, the in-distro agent.
+	//
+	// Separate from Start on purpose. The reconciler's contract is that it
+	// starts the engine only when the engine is DOWN, and several tests assert
+	// exactly that by counting Start calls. Overloading Start to also mean
+	// "repair a healthy engine" would make "the loop restarted the engine"
+	// unanswerable -- from the tests and from the log alike.
+	Reapply(ctx context.Context) error
 	// Stop terminates the engine's own distro — and only that distro. Stopping
 	// anything wider (another distro, wsl --shutdown) is off the table by
 	// design: Skrog shares the machine (PLAN §02, the Docker Desktop incident
@@ -407,6 +416,34 @@ func (s *Supervisor) tick(ctx context.Context) {
 		s.failures = 0
 		s.nextTry = time.Time{}
 		if s.upSince.IsZero() {
+			// This supervisor did not start this engine -- it ADOPTED one that
+			// was already running (#501). The watchdog restarting after a
+			// crash, and logon autostart finding an engine still up, are both
+			// this case.
+			//
+			// An adopted engine is healthy as a daemon and says nothing about
+			// the state around it. binfmt_misc handlers are KERNEL state, the
+			// socket share is a VM-level bind, and the agent is a separate
+			// process: any of them can be gone while dockerd is perfectly
+			// fine, and nothing else on this path would ever put them back.
+			// The symptom is silent -- `emulation.platforms` still set, still
+			// echoed by `skrog config get`, and `docker run --platform` still
+			// failing with the exec format error it was turned on to remove.
+			//
+			// Reapply is StartEngine's already-running branch, which carries a
+			// comment saying it exists for a supervisor that finds a healthy
+			// engine. Until now nothing reached it from here.
+			//
+			// Once, not every tick: that branch is four wsl
+			// round trips, and paying that at the health interval forever
+			// would be a worse bug than the one it fixes. A table cleared
+			// later, while this supervisor keeps running, is still only
+			// reported -- by `skrog doctor` (#480) -- not repaired.
+			if err := s.Engine.Reapply(ctx); err != nil {
+				s.log().Warn("could not re-apply settings to an adopted engine; "+
+					"emulation handlers and the socket share may be missing",
+					"error", err)
+			}
 			s.upSince = time.Now()
 		}
 		// A running engine can't be idle-stopped state; clear a stale marker

@@ -162,6 +162,48 @@ skrog config set emulation.platforms linux/amd64
 skrog restart
 ```
 
+That is the whole setup. The same command now works:
+
+```powershell
+docker run --rm --platform linux/amd64 alpine uname -m
+# x86_64
+```
+
+Both directions work, and `--platform` takes either spelling of the
+architecture — `linux/arm64` and `linux/aarch64` are the same thing to docker:
+
+```powershell
+# on an amd64 machine, with emulation.platforms = linux/arm64
+docker run --rm --platform linux/aarch64 ubuntu:26.04 uname -m
+# aarch64
+```
+
+**You only ever name the other one.** Skrog refuses to register a handler for
+the architecture you are already running on, because routing native binaries
+through QEMU would slow everything down for no benefit:
+
+```
+PS> skrog config set emulation.platforms linux/amd64      # on an amd64 machine
+skrog: amd64 is this machine's own architecture; it needs no emulation.
+  Registering an interpreter for it would route native binaries through
+  QEMU and slow everything down for no benefit.
+```
+
+The key takes a comma-separated list, but with emulators shipped for
+`linux/amd64` and `linux/arm64` only, one of the two is always your own — so in
+practice there is exactly one value to set, and it is the other architecture.
+
+Compose picks this up with nothing extra; `platform:` on a service is the same
+mechanism:
+
+```yaml
+services:
+  arch:
+    image: ubuntu:26.04
+    platform: linux/arm64
+    command: uname -m     # aarch64
+```
+
 The engine rootfs already carries the emulator — `qemu-x86_64` in the arm64
 rootfs, `qemu-aarch64` in the amd64 one — so nothing is downloaded. The
 handler is registered on every engine start, because `binfmt_misc` lives in

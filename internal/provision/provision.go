@@ -596,6 +596,31 @@ func (s *startPhases) args() []any {
 	return append(append([]any(nil), s.kv...), "total", time.Since(s.began).Round(time.Millisecond))
 }
 
+// ReapplyRunning re-applies the state a RUNNING engine does not own (#501).
+//
+// dockerd owns none of this: the in-distro agent is a separate process, the
+// shared socket is a VM-level bind mount, and the binfmt_misc handlers are
+// KERNEL state shared by every distro in the utility VM. Each can be gone
+// while the engine itself is perfectly healthy -- a `wsl --shutdown` takes the
+// handlers, and anything else on the machine can replace them.
+//
+// Both callers reach the same routine: StartEngine when it finds the engine
+// already up, and the supervisor when it adopts one it did not start. The
+// second is the case this was extracted for -- the supervisor only ever called
+// StartEngine for a DOWN engine, so the repair below, which was written for
+// "a supervisor that finds a healthy engine", was unreachable from it.
+//
+// Best-effort throughout, like the pieces it calls: none of them is fatal to a
+// running engine.
+func (p *Provisioner) ReapplyRunning(ctx context.Context, opts Options) error {
+	opts = opts.withDefaults()
+	p.ensureAgentSecret(ctx, opts)
+	p.startAgent(ctx, opts)
+	p.shareEngineSocket(ctx, opts)
+	p.applyEmulation(ctx, opts)
+	return nil
+}
+
 // StartEngine launches dockerd and waits for its socket.
 func (p *Provisioner) StartEngine(ctx context.Context, opts Options) error {
 	opts = opts.withDefaults()
@@ -604,17 +629,9 @@ func (p *Provisioner) StartEngine(ctx context.Context, opts Options) error {
 
 	if running, _ := p.engineRunning(ctx, opts); running {
 		p.logger().Info("engine already running", "distro", opts.Distro)
-		// Neither the agent nor the socket share is tied to dockerd's
-		// lifetime: a supervisor that finds a healthy engine (its own
-		// restart, say) must still make sure both are up.
-		p.ensureAgentSecret(ctx, opts)
-		p.startAgent(ctx, opts)
-		p.shareEngineSocket(ctx, opts)
-		// Also on this path, for the same reason the agent is: binfmt_misc is
-		// kernel state, not dockerd state, so a supervisor that finds a
-		// healthy engine cannot assume the handlers are still there. A
-		// `wsl --shutdown` takes them with it.
-		p.applyEmulation(ctx, opts)
+		if err := p.ReapplyRunning(ctx, opts); err != nil {
+			return err
+		}
 		ph.mark("alreadyRunning")
 		p.logger().Info("engine start phases", ph.args()...)
 		return nil

@@ -68,6 +68,15 @@ func (e *engineAdapter) Start(ctx context.Context) error {
 	return e.p.StartEngine(ctx, opts)
 }
 
+// Reapply re-applies what a running engine does not own (#501).
+//
+// The same settings refresh Start does, for the same reason: the supervisor
+// outlives `skrog restart`, so a value captured at launch goes stale.
+func (e *engineAdapter) Reapply(ctx context.Context) error {
+	opts := withStartSettings(e.opts, e.cfg.Config(), func() []byte { return e.hostCAs(ctx) })
+	return e.p.ReapplyRunning(ctx, opts)
+}
+
 func (e *engineAdapter) Stop(ctx context.Context) error {
 	return e.p.StopEngine(ctx, e.opts)
 }

@@ -69,7 +69,7 @@ elevation). It provisions nothing — that is step 2.
 Options come from the environment, because `irm | iex` cannot take arguments:
 
 ```powershell
-$env:SKROG_VERSION = '0.6.0'            # default: newest release
+$env:SKROG_VERSION = '0.8.0'            # default: newest release
 $env:SKROG_DIR     = 'C:\tools\skrog'   # default: %LOCALAPPDATA%\Programs\skrog
 $env:SKROG_NO_PATH = '1'                # do not touch PATH
 ```

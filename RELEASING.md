@@ -214,6 +214,20 @@ A normal release is the same pipeline with three differences:
    | [setup-skrog](https://github.com/wslkit/setup-skrog) | only if the action pins a version |
    | [skrog-vscode](https://github.com/wslkit/skrog-vscode) | only if it pins one |
 
+4. **Bump the pinned versions in the docs' own examples.** `docs/ci-runners.md`
+   and `docs/install.md` show a concrete version to pin, and nothing checks
+   them — they sat at `0.6.0` through two releases, so anyone copying the
+   GitHub Actions or GitLab snippet pinned a version two behind the one they
+   had just read about. Grep for the previous version across `docs/` before
+   tagging:
+
+   ```powershell
+   Select-String -Path docs\*.md,README.md -Pattern '<previous version>'
+   ```
+
+   Examples that name a version are the only kind that goes stale silently, so
+   they are the only kind worth a checklist line.
+
 ### Before dropping the pre-release flag for the first time
 
 Dropping the flag is a claim that the front page is true, which is a different

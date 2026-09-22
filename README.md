@@ -159,10 +159,24 @@ docker context. Nothing else on the system is touched.
   uninstall Docker Desktop entirely ([docs/docker-cli.md](docs/docker-cli.md))
 - **amd64 and Windows on ARM**, both native end to end — `skrog.exe`, the engine rootfs,
   dockerd and the containers. Upstream publishes no Windows arm64 `docker.exe`, so Skrog
-  builds that one from source, reproducibly. Foreign-architecture containers
-  (`docker run --platform`) work on request via `skrog config set emulation.platforms`;
-  cross-architecture *builds* need nothing at all
-  ([docs/docker-cli.md](docs/docker-cli.md))
+  builds that one from source, reproducibly
+- **Multi-platform containers**: run an image built for the *other* architecture — the
+  common case on Windows on ARM, where much of Docker Hub is still amd64-only. One
+  opt-in key, no emulator to download (the engine rootfs already ships `qemu-user`):
+
+  ```powershell
+  skrog config set emulation.platforms linux/amd64   # or linux/arm64
+  skrog restart
+
+  docker run --rm --platform linux/amd64 alpine uname -m
+  # x86_64   ...on an arm64 machine
+  ```
+
+  Opt-in because `binfmt_misc` is kernel state shared by **every** WSL2 distro, so
+  registering handlers changes how your Ubuntu runs foreign binaries too — the same
+  consent bar as `~/.wslconfig`. They are removed again on `skrog stop` and on uninstall,
+  and `skrog doctor` tells you which are live. Cross-architecture *builds* need no opt-in
+  at all ([docs/docker-cli.md](docs/docker-cli.md#running-a-foreign-architecture-container))
 - **Remote engine over mutual TLS**: `skrog serve --tcp` exposes the engine to a
   teammate or CI runner, reachable only by holders of a client cert this machine's CA
   signed — off by default; on the client, `skrog remote add/use` makes it docker's default

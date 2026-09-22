@@ -243,6 +243,33 @@ before.
 
 ### Fixed
 
+- **A supervisor that adopts a running engine re-applies its settings**
+  ([#501](https://github.com/wslkit/skrog/issues/501)). Found on a real machine
+  while writing the multi-platform docs for this release: `emulation.platforms`
+  was set, `skrog config get` echoed it back, the supervisor log said the
+  handlers were registered, and `docker run --platform` still failed with the
+  `exec format error` the setting exists to remove. The `binfmt_misc` table was
+  empty.
+
+  `binfmt_misc` handlers are **kernel** state, the socket share is a VM-level
+  bind, and the agent is a separate process — any of them can be gone while
+  dockerd itself is perfectly healthy. `StartEngine` has an already-running
+  branch that re-applies exactly this, and its comment says it exists for "a
+  supervisor that finds a healthy engine". Nothing reached it: the supervisor
+  called `Start` only when the engine was **down**.
+
+  So the exposed paths are the ones with no command behind them — the watchdog
+  restarting after a crash, and logon autostart finding an engine still up.
+  `skrog start` and `skrog restart --supervisor` were never affected, because
+  those commands call `StartEngine` themselves, which is precisely why this was
+  invisible to anyone testing by hand.
+
+  Re-applied **once**, on adoption, not every tick: that branch is four `wsl`
+  round trips and paying it at the health interval would be the worse bug. A
+  table cleared later, under a supervisor that keeps running, is still only
+  reported — by `skrog doctor` ([#480](https://github.com/wslkit/skrog/issues/480)) —
+  and not repaired.
+
 - **A scheduled prune is part of the supervisor's lifetime**
   ([#423](https://github.com/wslkit/skrog/issues/423)). It ran on a bare
   goroutine that nothing could wait for, cancel or recover from, with three

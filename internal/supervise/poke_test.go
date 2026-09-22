@@ -9,9 +9,10 @@ import (
 
 // pokeEngine counts Start calls and reports whatever Running should say.
 type pokeEngine struct {
-	running atomic.Bool
-	starts  atomic.Int32
-	probes  atomic.Int32
+	running   atomic.Bool
+	starts    atomic.Int32
+	probes    atomic.Int32
+	reapplies atomic.Int32
 }
 
 func (e *pokeEngine) Running(context.Context) (bool, error) {
@@ -19,7 +20,9 @@ func (e *pokeEngine) Running(context.Context) (bool, error) {
 	return e.running.Load(), nil
 }
 func (e *pokeEngine) Start(context.Context) error { e.starts.Add(1); e.running.Store(true); return nil }
-func (e *pokeEngine) Stop(context.Context) error  { e.running.Store(false); return nil }
+
+func (e *pokeEngine) Reapply(context.Context) error { e.reapplies.Add(1); return nil }
+func (e *pokeEngine) Stop(context.Context) error    { e.running.Store(false); return nil }
 
 // The point of #398: the supervisor must notice `skrog start` in well under
 // the health interval, because up to a full interval of a 6.6-9.4 s start was
