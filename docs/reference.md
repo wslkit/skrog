@@ -1105,8 +1105,8 @@ remove the engine distro and Skrog's state
 ```
 usage: skrog uninstall [--yes]
 
-Unregisters the engine distro and removes Skrog's own state. Nothing else on
-the system is touched.
+Stops the supervisor, unregisters the engine distro and removes Skrog's own
+state. Nothing else on the system is touched.
 
 This DELETES the distro, and with it every image, container and volume it
 holds. Export anything you want to keep first.

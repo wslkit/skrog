@@ -21,31 +21,44 @@ name: e2e
 # installs the engine and runs `docker run --rm hello-world` on that runner on
 # every push. No self-hosted runner is needed on x64.
 
-# The nightly schedule is DISABLED, deliberately and temporarily (#448).
+# The nightly schedule is ON again (#448) — because the condition it was
+# turned off under was met, not waived.
 #
-# It ran for two nights and both were red on #429, a known and triaged bug in
-# `restart --supervisor`. A nightly that is expected to be red is a nightly
-# nobody reads, and the next real regression would have arrived as one more
-# red run in a row of them — worse than no nightly, because it looks like
-# coverage.
+# It was disabled after two red nights on #429. A nightly that is expected to
+# be red is a nightly nobody reads, and the next real regression would have
+# arrived as one more red run in a row of them — worse than no nightly,
+# because it looks like coverage. So the bar for switching it back on was
+# never "the bug is fixed", it was "the whole suite can be green".
 #
-# #429 IS NOW FIXED and that stage passes:
+# It is:
 #
-#   run 35662530599
-#   --- PASS: TestAcceptance/SupervisorRestartReplacesTheProcess (8.33s)
+#   run 35670620632
+#   --- PASS: TestAcceptance (334.46s)
 #
-# The schedule stays off anyway, because the same run then failed on #468 --
-# `skrog reset --to <snapshot>`, a stage that had NEVER executed in CI before,
-# because #429 killed the suite two stages earlier every time. Fixing the
-# first failure revealed the second, which is the suite doing its job.
+# Every stage passes or skips, and the skips are the optional tooling a hosted
+# runner does not have (act, dagger, GitLab, devcontainer, a GPU).
 #
-# Turning the nightly on into a still-red suite would recreate exactly the
-# situation #448 exists to escape, so the condition is unchanged in substance:
-# re-enable when the suite can be green, now tracked by #468 rather than #429.
+# Getting there took three bugs this suite found and nothing else did, each
+# hidden behind the one before it:
+#
+#   #429  `restart --supervisor` lost the served pipe
+#   #468  a dead dockerd read as "cannot tell", so a restored engine never
+#         came back — a stage that had never executed in CI, because #429
+#         killed the run two stages earlier every time
+#   #474  uninstall left the supervisor running, which held skrog.exe open and
+#         failed the suite's own temp-dir cleanup after all 45 stages passed
+#
+# If a night goes red, read the run and fix it. Disabling this schedule again
+# is for the one reason #448 records — a suite that cannot be green — and not
+# for a single failure, which is the nightly working.
 #
 # Manual dispatch is unaffected, and RELEASING.md still requires a run on the
 # release commit — which is the moment it actually has to be true.
 on:
+  schedule:
+    # 04:20 UTC, off the hour: hosted runners queue when everyone's cron
+    # fires on it.
+    - cron: '20 4 * * *'
   workflow_dispatch:
 
 permissions:
