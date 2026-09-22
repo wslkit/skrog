@@ -28,6 +28,8 @@ type fakeEngine struct {
 	starts       int
 	stops        int
 	probes       int
+	reapplies    int
+	reapplyErr   error
 }
 
 func (f *fakeEngine) Running(context.Context) (bool, error) {
@@ -49,6 +51,22 @@ func (f *fakeEngine) Running(context.Context) (bool, error) {
 		return false, perr
 	}
 	return running, nil
+}
+
+// Reapply is counted separately from Start, which is the whole point of it
+// being a separate method: several tests assert the loop did not START the
+// engine, and a repair of a healthy one must not look like a start (#501).
+func (f *fakeEngine) Reapply(context.Context) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.reapplies++
+	return f.reapplyErr
+}
+
+func (f *fakeEngine) reapplyCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.reapplies
 }
 
 func (f *fakeEngine) Start(context.Context) error {
@@ -592,5 +610,78 @@ func duePrune(t *testing.T, dir string) {
 	t.Helper()
 	if err := supervise.WriteLastPrune(dir, time.Now().Add(-time.Hour)); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// A supervisor that ADOPTS a running engine must re-apply the state around it
+// (#501).
+//
+// Found on a real machine: emulation.platforms was set, `skrog config get`
+// echoed it back, the supervisor log said the handlers were registered, and
+// `docker run --platform` still failed with the exec format error the setting
+// exists to remove. The handlers are kernel state; the engine was healthy and
+// the table was empty, and nothing on the healthy path ever put it back.
+//
+// StartEngine's already-running branch is that repair, and it carries a
+// comment saying it exists for "a supervisor that finds a healthy engine".
+// Nothing reached it: this supervisor only called Start when the engine was
+// DOWN.
+func TestAdoptingARunningEngineReAppliesItsSettings(t *testing.T) {
+	e := &fakeEngine{running: true} // already up before this supervisor exists
+	sup, _ := newSup(t, e, 20*time.Millisecond)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go sup.Run(ctx)
+
+	waitFor(t, 3*time.Second, func() bool { return e.reapplyCount() >= 1 },
+		"Reapply was never called on an adopted engine, so nothing re-applied the "+
+			"emulation handlers, the socket share or the agent")
+
+	// And it is NOT a start: the loop starts the engine only when it is down,
+	// and several other tests read a Start here as a flap.
+	if s, _ := e.counts(); s != 0 {
+		t.Errorf("Start called %d times on a healthy adopted engine; repair must not look like a start", s)
+	}
+}
+
+// ...but exactly once. The already-running branch is four wsl round trips, and
+// paying that at the health interval forever would be a worse bug than the one
+// it fixes.
+func TestAnAdoptedEngineIsNotReAppliedEveryTick(t *testing.T) {
+	e := &fakeEngine{running: true}
+	sup, _ := newSup(t, e, 10*time.Millisecond)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go sup.Run(ctx)
+
+	waitFor(t, 3*time.Second, func() bool { return e.reapplyCount() >= 1 },
+		"the adopted engine was never re-applied")
+	// Many ticks later, still one.
+	time.Sleep(300 * time.Millisecond)
+	if n := e.reapplyCount(); n != 1 {
+		t.Errorf("Reapply called %d times on a healthy adopted engine; it must be once", n)
+	}
+}
+
+// A supervisor that started the engine itself already applied everything, and
+// must not pay for it twice.
+func TestAnEngineThisSupervisorStartedIsNotReApplied(t *testing.T) {
+	e := &fakeEngine{} // down: this supervisor starts it
+	sup, _ := newSup(t, e, 10*time.Millisecond)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go sup.Run(ctx)
+
+	waitFor(t, 3*time.Second, func() bool { s, _ := e.counts(); return s >= 1 && engineUp(e) },
+		"engine was never started")
+	time.Sleep(300 * time.Millisecond)
+	if s, _ := e.counts(); s != 1 {
+		t.Errorf("Start called %d times; the start itself already applied the settings", s)
+	}
+	if n := e.reapplyCount(); n != 0 {
+		t.Errorf("Reapply called %d times on an engine this supervisor started", n)
 	}
 }

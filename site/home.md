@@ -12,6 +12,20 @@ skrog start       # the always-on bridge, now (later logons start it for you)
 docker run --rm hello-world
 ```
 
+Images built for the *other* architecture run too — the common case on Windows
+on ARM, where much of Docker Hub is still amd64-only. One opt-in key, and no
+emulator to download:
+
+```
+skrog config set emulation.platforms linux/amd64   # or linux/arm64
+skrog restart
+docker run --rm --platform linux/amd64 alpine uname -m   # x86_64
+```
+
+It is opt-in because `binfmt_misc` is kernel state shared by every WSL2 distro
+on the machine — [the detail is in the docker CLI
+page](https://wslkit.github.io/skrog/docker-cli/#running-a-foreign-architecture-container).
+
 New here? The [README](https://github.com/wslkit/skrog#install) has the
 install steps and the current status, and
 [how it compares](https://github.com/wslkit/skrog#how-it-compares) says where
