@@ -26,6 +26,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -126,6 +127,10 @@ func TestAcceptance(t *testing.T) {
 		{"RemoteEngineOverMutualTLS", stageServeMTLS},
 		{"EngineSnapshotSaveAndList", stageSnapshot},
 		{"UpgradeReportsCurrentAfterInstall", stageUpgradeCheck},
+		// Late on purpose: it runs `wsl --shutdown`, which takes every distro
+		// on the machine down, so everything that wants a warm one has gone
+		// first (#465).
+		{"EmulationSurvivesAShutdown", stageEmulation},
 		{"Uninstall", stageUninstall},
 		{"NothingLeftBehind", stageClean},
 		{"DockerDesktopStillWorks", stageDesktopIntact},
@@ -2076,6 +2081,21 @@ func stageClean(t *testing.T, s *state) {
 			"`skrog` docker context the uninstall just unwired, and holds skrog.exe open "+
 			"so the directory it lives in cannot be deleted", lock)
 	}
+
+	// No emulation handler may outlive the install either (#465). These are
+	// KERNEL state shared by every distro in the utility VM, so leaving one
+	// behind means Skrog changed how an unrelated Ubuntu executes foreign
+	// binaries and then removed the thing that could undo it. "Nothing left
+	// behind" has to include the kernel.
+	//
+	// Same bound as in the stop check: a torn-down VM answers "gone" too. The
+	// assertion is that it is never still THERE.
+	for _, h := range []string{"qemu-aarch64", "qemu-x86_64"} {
+		if emulationHandlerPresent(t, h) {
+			t.Errorf("binfmt handler %s is still registered after uninstall; "+
+				"it is kernel-wide and Skrog is no longer here to remove it", h)
+		}
+	}
 }
 
 func stageDesktopIntact(t *testing.T, s *state) {
@@ -2411,4 +2431,165 @@ func skrogContextEndpoint(t *testing.T, s *state) string {
 		return ""
 	}
 	return strings.TrimSpace(out)
+}
+
+// stageEmulation drives `emulation.platforms` inside a REAL WSL2 utility VM
+// (#465).
+//
+// #462's own CI already proves the mechanism: a foreign-architecture container
+// runs out of the real rootfs, on native runners of both architectures. That
+// proof is on Linux runners, in a privileged container, on an ordinary kernel.
+// Three things it structurally cannot reach, and this stage is all three:
+//
+//  1. Registration in a WSL2 utility VM, whose kernel already carries
+//     WSLInterop and its own mount arrangement.
+//  2. Survival across `wsl --shutdown`, which wipes the kernel table. This is
+//     the whole reason registration happens on EVERY engine start, and it is
+//     the failure that would present as "emulation randomly stops working
+//     after a reboot".
+//  3. Deregistration, so Skrog does not leave a machine-wide change behind.
+//
+// The suite emulates whichever architecture the runner is not, so it means the
+// same thing on windows-latest and on a future arm64 runner. The direction
+// matters less than the mechanism, which is identical either way.
+func stageEmulation(t *testing.T, s *state) {
+	foreignArch, handler, uname := "arm64", "qemu-aarch64", "aarch64"
+	if runtime.GOARCH == "arm64" {
+		foreignArch, handler, uname = "amd64", "qemu-x86_64", "x86_64"
+	}
+
+	out, err := run(t, 2*time.Minute, s.skrog, "config", "--state-dir", s.stateDir,
+		"set", "emulation.platforms", "linux/"+foreignArch)
+	must(t, out, err, "config set emulation.platforms")
+
+	// Registration happens at engine start, so a restart is the apply step --
+	// as the docs say, and as a user would do it.
+	out, err = run(t, 3*time.Minute, s.skrog, "restart", "--state-dir", s.stateDir)
+	must(t, out, err, "skrog restart after enabling emulation")
+
+	if !emulationLive(t, s, handler) {
+		t.Fatalf("handler %s is not registered after enabling emulation and restarting", handler)
+	}
+
+	// The real proof: a foreign binary actually executes. A registered handler
+	// pointing at a missing or wrong interpreter looks identical in the table
+	// and fails here (#479).
+	out, err = dockerE(t, s, 5*time.Minute, "run", "--rm", "--platform", "linux/"+foreignArch,
+		"alpine", "uname", "-m")
+	must(t, out, err, "docker run --platform linux/"+foreignArch)
+	if got := strings.TrimSpace(out); !strings.Contains(got, uname) {
+		t.Fatalf("uname -m in a linux/%s container = %q, want %s", foreignArch, got, uname)
+	}
+	t.Logf("a linux/%s container ran on a %s host and reported %s",
+		foreignArch, runtime.GOARCH, uname)
+
+	// `wsl --shutdown` wipes binfmt_misc for the whole utility VM. This is the
+	// case registration-on-every-start exists for, and nothing tested it.
+	//
+	// Machine-wide, and deliberately so: there is no narrower way to reproduce
+	// what a reboot does to the table. It takes every distro on the runner
+	// down with it, which is why this stage sits near the end of the suite.
+	if out, err := run(t, 2*time.Minute, "wsl.exe", "--shutdown"); err != nil {
+		t.Fatalf("wsl --shutdown: %v\n%s", err, out)
+	}
+	out, err = run(t, 5*time.Minute, s.skrog, "start", "--state-dir", s.stateDir)
+	must(t, out, err, "skrog start after wsl --shutdown")
+
+	if !emulationLive(t, s, handler) {
+		t.Fatalf("handler %s did not come back after `wsl --shutdown` and `skrog start`; "+
+			"registration is supposed to happen on every engine start", handler)
+	}
+	out, err = dockerE(t, s, 5*time.Minute, "run", "--rm", "--platform", "linux/"+foreignArch,
+		"alpine", "uname", "-m")
+	must(t, out, err, "docker run --platform after wsl --shutdown")
+	if got := strings.TrimSpace(out); !strings.Contains(got, uname) {
+		t.Fatalf("after `wsl --shutdown`, uname -m = %q, want %s", got, uname)
+	}
+	t.Logf("emulation survived `wsl --shutdown`, which is what registering on every start buys")
+
+	// Deregistration. StopEngine removes the handlers BEFORE terminating the
+	// distro, because they are kernel state that outlives it.
+	//
+	// What this can observe is bounded, and saying so is the point: if the
+	// suite's distro is the last one running, the utility VM goes down with it
+	// and the table is gone whether or not Skrog removed anything. So this
+	// asserts the handler is never still PRESENT, which is the direction that
+	// would be a bug -- Skrog having changed how every distro on the machine
+	// executes foreign binaries, and then stopped being the thing that could
+	// undo it. A second distro would make it a stronger claim; the runner has
+	// none, and provisioning one to watch a table is not worth the minutes.
+	out, err = run(t, 3*time.Minute, s.skrog, "stop", "--state-dir", s.stateDir)
+	must(t, out, err, "skrog stop")
+	if emulationHandlerPresent(t, handler) {
+		t.Errorf("handler %s is still registered after `skrog stop`; "+
+			"Skrog left a machine-wide change behind", handler)
+	}
+
+	// Leave the engine running: the stages after this one expect an install
+	// that works, and `stop` records a desired state that outlives the stage.
+	out, err = run(t, 5*time.Minute, s.skrog, "start", "--state-dir", s.stateDir)
+	must(t, out, err, "skrog start after the deregistration check")
+}
+
+// emulationLive asks the product whether the handler is registered, through
+// `skrog doctor --json` rather than by parsing /proc from the test -- doctor
+// already reads the table, and going through it means the stage exercises the
+// reporting a user would rely on (#480).
+func emulationLive(t *testing.T, s *state, handler string) bool {
+	t.Helper()
+	out, err := run(t, 2*time.Minute, s.skrog, "doctor", "--state-dir", s.stateDir, "--json")
+	// doctor exits non-zero when any check fails, which is not this stage's
+	// business: the JSON is still emitted and is what is being read.
+	if strings.TrimSpace(out) == "" {
+		t.Fatalf("doctor --json produced nothing: %v", err)
+	}
+	var rep struct {
+		Results []struct {
+			Name    string   `json:"name"`
+			Status  string   `json:"status"`
+			Summary string   `json:"summary"`
+			Detail  []string `json:"detail"`
+		} `json:"results"`
+	}
+	if jerr := json.Unmarshal([]byte(out), &rep); jerr != nil {
+		t.Fatalf("doctor --json unparseable: %v\n%s", jerr, out)
+	}
+	for _, r := range rep.Results {
+		switch r.Name {
+		case "emulation":
+			// The check added in #480: it compares what was asked for against
+			// what is live, which is exactly this question.
+			if r.Status == "ok" {
+				return true
+			}
+			t.Logf("doctor emulation check: %s — %s", r.Status, r.Summary)
+			return false
+		case "multi-arch":
+			// Fallback for a build without the emulation check: multi-arch
+			// names the handlers it found.
+			if strings.Contains(r.Summary, handler) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// emulationHandlerPresent reads the kernel table directly, which is the only
+// way to ask after the engine has been stopped -- doctor skips its emulation
+// check when the engine is down, on purpose (#82: doctor never boots a distro
+// to answer).
+//
+// A distro that is not running, or a utility VM that has gone down with it,
+// answers "not present", which is the honest reading: there is no table left
+// to carry a handler.
+func emulationHandlerPresent(t *testing.T, handler string) bool {
+	t.Helper()
+	out, err := run(t, 2*time.Minute, "wsl.exe", "-d", distro, "-u", "root", "--exec",
+		"sh", "-c", "ls /proc/sys/fs/binfmt_misc/ 2>/dev/null || true")
+	if err != nil {
+		t.Logf("could not read the handler table (distro down, which is itself an answer): %v", err)
+		return false
+	}
+	return strings.Contains(strings.ReplaceAll(out, "\x00", ""), handler)
 }
