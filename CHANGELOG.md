@@ -10,7 +10,7 @@ This file starts at 0.6.0. Earlier releases have hand-written notes on their
 reconstructed here — inventing a tidy history after the fact would be less
 useful than saying where the real one is.
 
-## [Unreleased]
+## [0.7.0] — 2026-09-21
 
 ### Added
 
@@ -517,5 +517,6 @@ Below are not ours, but you will hit them.
   both preserved. If you use the wslc backend with non-root containers, this
   is a reason to update WSL. The distro backend was never affected.
 
-[Unreleased]: https://github.com/wslkit/skrog/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/wslkit/skrog/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/wslkit/skrog/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/wslkit/skrog/compare/v0.5.1...v0.6.0
