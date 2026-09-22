@@ -176,3 +176,73 @@ func itoa(i int) string {
 	}
 	return string(b)
 }
+
+// Two records written in the same clock tick must resolve by FILE ORDER, not
+// by whichever the loop happened to see first.
+//
+// This is not a hypothetical. `Seed` stamps time.Now() and a pull recorded
+// immediately after stamps time.Now() again; on Windows those are routinely
+// the same value, and a strict `After` comparison then keeps the SEED -- so a
+// pulled image reads back as pre-existing. It reached main and CI caught it.
+func TestTheLaterLineWinsOnAnIdenticalTimestamp(t *testing.T) {
+	dir := t.TempDir()
+	same := time.Now()
+	if err := Record(dir, Entry{ID: "sha256:a", Source: SourcePreExisting, At: same}); err != nil {
+		t.Fatal(err)
+	}
+	if err := Record(dir, Entry{ID: "sha256:a", Registry: "ghcr.io", Source: SourcePull, At: same}); err != nil {
+		t.Fatal(err)
+	}
+
+	got, ok := Lookup(dir, "sha256:a")
+	if !ok {
+		t.Fatal("no record found")
+	}
+	if got.Source != SourcePull || got.Registry != "ghcr.io" {
+		t.Errorf("Lookup = %+v, want the later line (the pull)", got)
+	}
+	if st := Summarize(dir); st.Pulled != 1 || st.PreExisting != 0 {
+		t.Errorf("Summarize: pulled=%d preExisting=%d, want 1/0 — the later line decides",
+			st.Pulled, st.PreExisting)
+	}
+}
+
+// ...and compaction must decide by position too, or it drops the record that
+// is actually current.
+//
+// Every entry here shares one timestamp, so the clock cannot order any of
+// them: only arrival position can say that the pull came after the seed, and
+// that "sha256:x" is newer than the filler. Capping by time rather than by
+// position drops it.
+//
+// (An earlier version of this test claimed to pin the ORDER the compacted
+// block is written in. It did not, and could not: compaction leaves one line
+// per ID, so there is no tie left in the output to resolve. Reversing the
+// write order left it green, which is how that was found.)
+func TestCompactDecidesByPositionWhenEveryTimestampIsEqual(t *testing.T) {
+	dir := t.TempDir()
+	same := time.Now()
+	for i := 0; i < maxEntries; i++ {
+		if err := Record(dir, Entry{ID: "sha256:filler" + itoa(i), Source: SourcePull, At: same}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// The pair under test, last and sharing every other record's timestamp.
+	if err := Record(dir, Entry{ID: "sha256:x", Source: SourcePreExisting, At: same}); err != nil {
+		t.Fatal(err)
+	}
+	if err := Record(dir, Entry{ID: "sha256:x", Registry: "ghcr.io", Source: SourcePull, At: same}); err != nil {
+		t.Fatal(err)
+	}
+	if err := Compact(dir); err != nil {
+		t.Fatal(err)
+	}
+
+	got, ok := Lookup(dir, "sha256:x")
+	if !ok {
+		t.Fatal("compaction dropped the newest record; the cap did not keep the tail")
+	}
+	if got.Source != SourcePull {
+		t.Errorf("after compaction Lookup = %+v, want the pull — the later line is the current one", got)
+	}
+}
