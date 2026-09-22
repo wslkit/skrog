@@ -154,6 +154,32 @@ before.
 
 ### Fixed
 
+- **A scheduled prune is part of the supervisor's lifetime**
+  ([#423](https://github.com/wslkit/skrog/issues/423)). It ran on a bare
+  goroutine that nothing could wait for, cancel or recover from, with three
+  consequences:
+
+  Shutdown did not stop it. On `skrog restart`, a logoff or a service stop, the
+  reconciler returned while a `docker system prune -a` kept deleting for up to
+  thirty minutes, with the process about to exit underneath it. `Run` now waits
+  for a prune in flight, bounded at five seconds — long enough for a sweep that
+  is finishing to record its clock, short enough that a wedged prune cannot
+  hold a logoff open. After that it is abandoned to its own timeout, which is
+  the deliberate outcome rather than an error.
+
+  A panic in it took the bridge down. `Prune` is caller-supplied and ran with
+  no `recover`, so a bad implementation killed the supervisor and every docker
+  command with it. A failed prune is a disk that stays full; a dead supervisor
+  is a machine where docker stops working. Recovered and reported now, with the
+  guard still cleared so one bad sweep cannot disable pruning until restart.
+
+  An interrupted prune re-ran immediately. Killed before it recorded the clock,
+  the old value stood and the next supervisor was instantly due — a prune on
+  the first healthy tick after every logon. The clock is written before the
+  sweep as well as after, which changes the failure from "prunes too often" to
+  "may skip one interval", the safer direction for a feature whose rules are
+  about not deleting things unexpectedly.
+
 - **`skrog engine upgrade` no longer races the supervisor**
   ([#486](https://github.com/wslkit/skrog/issues/486)). It failed
   intermittently, with `exit status 1` and no message, on a different file each

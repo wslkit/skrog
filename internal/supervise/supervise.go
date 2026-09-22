@@ -109,6 +109,11 @@ type Supervisor struct {
 	// tick holds mu across a cold start), so the tick needs a way to see that
 	// one is already in flight without taking a lock the prune also wants.
 	pruning atomic.Bool
+	// pruneWG lets shutdown wait for a prune in flight (#423). The guard above
+	// answers "is one running" for the reconciler; this answers "has it
+	// finished" for Run, which previously returned while a `docker system
+	// prune -a` was still deleting.
+	pruneWG sync.WaitGroup
 
 	// lastUp is the engine health the reconciler saw on its most recent tick.
 	// Atomic rather than guarded by mu on purpose: readers must never block on
@@ -221,6 +226,7 @@ func (s *Supervisor) Run(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			s.log().Info("supervisor stopping", "reason", ctx.Err())
+			s.waitForPrune()
 			return
 		case <-t.C:
 			s.tick(ctx)

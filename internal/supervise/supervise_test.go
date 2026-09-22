@@ -431,3 +431,140 @@ func probesOf(e *fakeEngine) int {
 	defer e.mu.Unlock()
 	return e.probes
 }
+
+// Shutdown waits for a prune in flight (#423). Nothing could before: Run
+// returned on ctx.Done() while a `docker system prune -a` kept deleting, with
+// the process about to exit underneath it.
+func TestRunWaitsForAPruneInFlight(t *testing.T) {
+	release := make(chan struct{})
+	finished := make(chan struct{})
+
+	s, dir := prunableSup(t)
+	s.Prune = func(context.Context, supervise.PrunePolicy) (uint64, error) {
+		<-release
+		close(finished)
+		return 0, nil
+	}
+	duePrune(t, dir)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	runReturned := make(chan struct{})
+	go func() { s.Run(ctx); close(runReturned) }()
+
+	waitFor(t, 5*time.Second, s.PruningForTest, "prune never started")
+	cancel()
+
+	select {
+	case <-runReturned:
+		t.Fatal("Run returned while a prune was still running")
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	close(release)
+	<-finished
+	select {
+	case <-runReturned:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run did not return after the prune finished")
+	}
+}
+
+// ...but not forever. A wedged prune must not hold a logoff or a `restart
+// --supervisor` open; it has its own timeout and is abandoned.
+func TestRunAbandonsAWedgedPrune(t *testing.T) {
+	wedged := make(chan struct{})
+	defer close(wedged)
+
+	s, dir := prunableSup(t)
+	s.Prune = func(context.Context, supervise.PrunePolicy) (uint64, error) {
+		<-wedged
+		return 0, nil
+	}
+	duePrune(t, dir)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	runReturned := make(chan struct{})
+	go func() { s.Run(ctx); close(runReturned) }()
+	waitFor(t, 5*time.Second, s.PruningForTest, "prune never started")
+	cancel()
+
+	select {
+	case <-runReturned:
+	case <-time.After(30 * time.Second):
+		t.Fatal("Run never returned; a wedged prune is holding shutdown open")
+	}
+}
+
+// A panic in the caller-supplied Prune must not take the supervisor with it: a
+// failed prune is a full disk, a dead supervisor is a machine where docker
+// stops working.
+func TestAPanickingPruneDoesNotKillTheSupervisor(t *testing.T) {
+	s, dir := prunableSup(t)
+	s.Prune = func(context.Context, supervise.PrunePolicy) (uint64, error) {
+		panic("a bad prune implementation")
+	}
+	duePrune(t, dir)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	runReturned := make(chan struct{})
+	go func() { s.Run(ctx); close(runReturned) }()
+
+	// The guard must clear too, or one bad sweep disables automatic pruning
+	// until the next restart.
+	waitFor(t, 5*time.Second, func() bool { return !s.PruningForTest() }, "the prune guard never cleared")
+
+	select {
+	case <-runReturned:
+		t.Fatal("the supervisor exited because a prune panicked")
+	case <-time.After(200 * time.Millisecond):
+	}
+}
+
+// An interrupted prune must not make the next supervisor immediately due, so
+// the clock is written before the sweep as well as after (#423).
+func TestTheClockIsRecordedBeforeTheSweep(t *testing.T) {
+	started := make(chan struct{})
+	release := make(chan struct{})
+	defer close(release)
+
+	s, dir := prunableSup(t)
+	s.Prune = func(context.Context, supervise.PrunePolicy) (uint64, error) {
+		close(started)
+		<-release
+		return 0, nil
+	}
+	old := time.Now().Add(-time.Hour)
+	if err := supervise.WriteLastPrune(dir, old); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go s.Run(ctx)
+	<-started
+
+	if got := supervise.ReadLastPrune(dir); !got.After(old) {
+		t.Errorf("clock is still %s mid-sweep; an interrupted prune would re-fire at the next logon", got)
+	}
+}
+
+// prunableSup is a supervisor with an engine up, nothing busy, and automatic
+// pruning enabled on a hair trigger.
+func prunableSup(t *testing.T) (*supervise.Supervisor, string) {
+	t.Helper()
+	s, dir := newSup(t, &fakeEngine{running: true}, time.Hour)
+	s.Busy = func(context.Context) (bool, error) { return false, nil }
+	s.PrunePolicy = func() supervise.PrunePolicy {
+		return supervise.PrunePolicy{Every: time.Nanosecond, KeepSince: time.Hour}
+	}
+	return s, dir
+}
+
+// duePrune backdates the clock so the first tick prunes rather than scheduling.
+func duePrune(t *testing.T, dir string) {
+	t.Helper()
+	if err := supervise.WriteLastPrune(dir, time.Now().Add(-time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+}
