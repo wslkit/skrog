@@ -39,6 +39,7 @@ Run `skrog <command> --help` for the same text in your terminal.
 - [`status`](#status) — report supervisor, engine and desired state
 - [`stop`](#stop) — stop the engine; it stays stopped until start
 - [`supervise`](#supervise) — serve the pipe and keep the engine alive (the always-on layer)
+- [`top`](#top) — where the WSL VM's memory and CPU go: containers, engine, page cache, Vmmem
 - [`uninstall`](#uninstall) — remove the engine distro and Skrog's state
 - [`upgrade`](#upgrade) — am I current? app, engine and bundled CLI in one answer
 - [`wsl-integrate`](#wsl-integrate) — point docker inside your own WSL distros at the engine
@@ -1121,6 +1122,40 @@ flags:
     	do not create or update the skrog docker context
   -pipe string
     	pipe to serve (default: \\.\pipe\docker_engine, or Skrog's own if taken)
+  -state-dir string
+    	override Skrog's state directory
+```
+
+## top
+
+where the WSL VM's memory and CPU go: containers, engine, page cache, Vmmem
+
+```
+usage: skrog top [--once] [--json] [--interval 2s]
+
+Shows where the WSL VM's memory and CPU go: each running container, the
+engine's own daemons, other WSL distros sharing the VM, page cache and the
+kernel -- next to what Windows says the Vmmem process holds.
+
+docker stats shows the containers. This shows the VM they run in, which is
+what the Vmmem figure in Task Manager is. The usual answer to "why is Vmmem
+so big" is page cache from builds and pulls, and only this view can show it.
+
+CPU is in percent of one CPU, like docker stats. PSI is the share of the last
+ten seconds that work spent stalled waiting on that resource.
+
+Never starts the engine: a stopped or idle-stopped engine is reported, and a
+refreshing view waits for it. Reads inside the distro, never through the
+docker pipe, so leaving it open does not keep the engine from idling.
+
+Exit codes: 0 engine running or idle, 1 engine stopped or unreadable, 2 usage,
+3 not installed. The JSON shape is in docs/cli-json.md.
+  -interval duration
+    	refresh interval, and the window CPU is averaged over (default 2s)
+  -json
+    	print one reading as JSON and exit
+  -once
+    	print one reading and exit, instead of refreshing
   -state-dir string
     	override Skrog's state directory
 ```

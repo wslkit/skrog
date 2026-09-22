@@ -319,3 +319,57 @@ func engineUp(e supervise.Engine) bool {
 	up, _ := e.Running(context.Background())
 	return up
 }
+
+// TestServingIsFalseTheMomentAnIdleStopLands pins the window Serving exists to
+// close. The reconciler records lastUp at the top of its tick and idle-stops at
+// the bottom, so for one tick EngineStatus still says "running" about an engine
+// that is already down -- and a background reader that trusted it would dial a
+// stopped distro, whose socat fallback boots it straight back up (#82, #510).
+func TestServingIsFalseTheMomentAnIdleStopLands(t *testing.T) {
+	s, e, _, _ := idleSup(t)
+
+	s.TickForTest(context.Background())
+	if !s.Serving() {
+		t.Fatal("a healthy, running engine is not reported as serving")
+	}
+
+	// Tick until THE tick that idle-stops, and look straight after it: one more
+	// tick would observe the engine down and refresh lastUp, which hides the
+	// window this is about.
+	for i := 0; i < 20; i++ {
+		time.Sleep(60 * time.Millisecond)
+		s.TickForTest(context.Background())
+		if _, stops := e.counts(); stops > 0 {
+			break
+		}
+	}
+	if _, stops := e.counts(); stops != 1 {
+		t.Fatalf("engine stopped %d times, want 1 idle stop", stops)
+	}
+	if got := s.EngineStatus(); got != "running" {
+		// Not the assertion, the premise: if lastUp were refreshed by the stop
+		// itself, this test would be passing for the wrong reason.
+		t.Fatalf("premise gone: EngineStatus right after the idle stop is %q", got)
+	}
+	if s.Serving() {
+		t.Error("Serving() is true right after an idle stop")
+	}
+}
+
+// TestServingIsFalseOnceStopIsAsked covers the other road down: `skrog stop`
+// writes the desired state before the reconciler gets to act on it.
+func TestServingIsFalseOnceStopIsAsked(t *testing.T) {
+	s, _, _, dir := idleSup(t)
+	s.IdleTimeout = func() time.Duration { return 0 }
+
+	s.TickForTest(context.Background())
+	if !s.Serving() {
+		t.Fatal("a healthy, running engine is not reported as serving")
+	}
+	if err := supervise.WriteDesired(dir, supervise.DesiredStopped); err != nil {
+		t.Fatal(err)
+	}
+	if s.Serving() {
+		t.Error("Serving() is true after `skrog stop` recorded the desired state")
+	}
+}

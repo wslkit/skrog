@@ -15,7 +15,7 @@ _skrog() {
     cur="${COMP_WORDS[COMP_CWORD]}"
 
     local commands subs flags
-    commands="audit autostart bundle cache cli compact config doctor enable-gpu engine healthcheck install lock logs migrate prewarm policy profile proxy prune relocate remote reset restart runner serve snapshot start status stop supervise uninstall upgrade wsl-integrate wsl-config version"
+    commands="audit autostart bundle cache cli compact config doctor enable-gpu engine healthcheck install lock logs migrate prewarm policy profile proxy prune relocate remote reset restart runner serve snapshot start status stop supervise top uninstall upgrade wsl-integrate wsl-config version"
 
     # First positional is the command; the second, if any, the subcommand.
     local command="" sub="" i seen=0
@@ -65,6 +65,7 @@ _skrog() {
             status) flags="--json --prometheus --state-dir --stats" ;;
             stop) flags="--state-dir --supervisor --timeout" ;;
             supervise) flags="--distro --no-context --pipe --state-dir" ;;
+            top) flags="--interval --json --once --state-dir" ;;
             uninstall) flags="--distro --state-dir --yes" ;;
             upgrade) flags="--apply --check --dry-run --force --json --offline --state-dir --timeout --yes" ;;
             wsl-integrate) flags="--remove --state-dir" ;;

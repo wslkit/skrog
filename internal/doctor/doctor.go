@@ -93,6 +93,7 @@ func Registry() []Check {
 		checkEmulation(),
 		checkPruneIdle(),
 		checkPublishedPorts(),
+		checkContainerListeners(),
 		checkDisk(),
 		checkSession0(),
 		checkRunner(),

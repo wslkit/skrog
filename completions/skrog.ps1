@@ -40,6 +40,7 @@ $script:SkrogCommands = @(
     'status'
     'stop'
     'supervise'
+    'top'
     'uninstall'
     'upgrade'
     'wsl-integrate'
@@ -91,6 +92,7 @@ $script:SkrogFlags = @{
     'status' = @('--json', '--prometheus', '--state-dir', '--stats')
     'stop' = @('--state-dir', '--supervisor', '--timeout')
     'supervise' = @('--distro', '--no-context', '--pipe', '--state-dir')
+    'top' = @('--interval', '--json', '--once', '--state-dir')
     'uninstall' = @('--distro', '--state-dir', '--yes')
     'upgrade' = @('--apply', '--check', '--dry-run', '--force', '--json', '--offline', '--state-dir', '--timeout', '--yes')
     'wsl-integrate' = @('--remove', '--state-dir')

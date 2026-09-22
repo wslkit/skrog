@@ -1,0 +1,170 @@
+==meminfo
+MemTotal:        7980292 kB
+MemFree:         7365864 kB
+MemAvailable:    7410628 kB
+Buffers:            5112 kB
+Cached:           177760 kB
+SwapCached:            0 kB
+Active:            57888 kB
+Inactive:         228368 kB
+Active(anon):       3156 kB
+Inactive(anon):   103972 kB
+Active(file):      54732 kB
+Inactive(file):   124396 kB
+Unevictable:           0 kB
+Mlocked:               0 kB
+SwapTotal:       2097152 kB
+SwapFree:        2097152 kB
+Dirty:                 0 kB
+Writeback:             0 kB
+AnonPages:        103400 kB
+Mapped:           151412 kB
+Shmem:              3756 kB
+KReclaimable:      10420 kB
+Slab:              45876 kB
+SReclaimable:      10420 kB
+SUnreclaim:        35456 kB
+KernelStack:        3040 kB
+PageTables:         3400 kB
+SecPageTables:         0 kB
+NFS_Unstable:          0 kB
+Bounce:                0 kB
+WritebackTmp:          0 kB
+CommitLimit:     6087296 kB
+Committed_AS:     696104 kB
+VmallocTotal:   34359738367 kB
+VmallocUsed:       28360 kB
+VmallocChunk:          0 kB
+Percpu:             1264 kB
+HardwareCorrupted:     0 kB
+AnonHugePages:         0 kB
+ShmemHugePages:        0 kB
+ShmemPmdMapped:        0 kB
+FileHugePages:         0 kB
+FilePmdMapped:         0 kB
+Balloon:               0 kB
+HugePages_Total:       0
+HugePages_Free:        0
+HugePages_Rsvd:        0
+HugePages_Surp:        0
+Hugepagesize:       2048 kB
+Hugetlb:               0 kB
+DirectMap4k:       54272 kB
+DirectMap2M:    16564224 kB
+==stat
+cpu  15044 0 14241 8397667 9394 0 5859 0 0 0
+==nproc
+4
+==self
+0::/wsl-user/distro-3271
+==psi cpu
+some avg10=0.00 avg60=0.00 avg300=0.00 total=12362368
+full avg10=0.00 avg60=0.00 avg300=0.00 total=0
+==psi memory
+some avg10=0.00 avg60=0.00 avg300=0.00 total=0
+full avg10=0.00 avg60=0.00 avg300=0.00 total=0
+==psi io
+some avg10=0.00 avg60=0.06 avg300=0.04 total=33445819
+full avg10=0.00 avg60=0.06 avg300=0.04 total=32777386
+==cg docker/
+memory.current 42471424
+anon 30191616
+file 9973760
+kernel 1724416
+usage_usec 67842466
+io 8:48 rbytes=339857408 wbytes=311783424 rios=6427 wios=1596 dbytes=0 dios=0
+psi.cpu avg10=0.00 avg60=0.00 avg300=0.00 total=110621
+psi.memory avg10=0.00 avg60=0.00 avg300=0.00 total=0
+psi.io avg10=0.00 avg60=0.02 avg300=0.00 total=1167315
+==cg wsl-user/
+memory.current 233943040
+anon 74715136
+file 149770240
+kernel 8421376
+usage_usec 211681571
+io 8:48 rbytes=5707943936 wbytes=125861888 rios=91301 wios=15197 dbytes=0 dios=0
+io 8:0 rbytes=66428928 wbytes=0 rios=2477 wios=0 dbytes=0 dios=0
+psi.cpu avg10=0.00 avg60=0.00 avg300=0.00 total=7142242
+psi.memory avg10=0.00 avg60=0.00 avg300=0.00 total=0
+psi.io avg10=0.00 avg60=0.01 avg300=0.00 total=23309530
+==cg docker/3fd324679410832744b4d25ce56af4dc4057399070c80ba612fc1c65afcb0026/
+memory.current 0
+anon 0
+file 0
+kernel 0
+usage_usec 4555816
+io 8:48 rbytes=31973376 wbytes=30605312 rios=471 wios=131 dbytes=0 dios=0
+psi.cpu avg10=0.00 avg60=0.00 avg300=0.00 total=7347
+psi.memory avg10=0.00 avg60=0.00 avg300=0.00 total=0
+psi.io avg10=0.00 avg60=0.00 avg300=0.00 total=117962
+==cg docker/86d732cfa777acdf5fa29ece8d679a0e8892d5657ba3129fb2021b24093b1f4e/
+memory.current 0
+anon 0
+file 0
+kernel 0
+usage_usec 172415
+io 8:48 rbytes=0 wbytes=32768 rios=0 wios=15 dbytes=0 dios=0
+psi.cpu avg10=0.00 avg60=0.00 avg300=0.00 total=17936
+psi.memory avg10=0.00 avg60=0.00 avg300=0.00 total=0
+psi.io avg10=0.00 avg60=0.00 avg300=0.00 total=9022
+==cg docker/885a853152176ef65c523eaa465269eda2514e4fd5ee8a12886e8eabc4b9a8b2/
+memory.current 0
+anon 0
+file 0
+kernel 0
+usage_usec 25678228
+io 8:48 rbytes=21602304 wbytes=68608000 rios=341 wios=296 dbytes=0 dios=0
+psi.cpu avg10=0.00 avg60=0.00 avg300=0.00 total=21849
+psi.memory avg10=0.00 avg60=0.00 avg300=0.00 total=0
+psi.io avg10=0.00 avg60=0.00 avg300=0.00 total=57323
+==cg docker/aa5eb0ef4fcc1c0e4acacea400e16af7978c288306ec2dcb4527960dfd0f902d/
+memory.current 15548416
+anon 15097856
+file 24576
+kernel 425984
+usage_usec 1072885
+io 8:48 rbytes=0 wbytes=2408448 rios=0 wios=83 dbytes=0 dios=0
+psi.cpu avg10=0.00 avg60=0.00 avg300=0.00 total=2679
+psi.memory avg10=0.00 avg60=0.00 avg300=0.00 total=0
+psi.io avg10=0.00 avg60=0.00 avg300=0.00 total=0
+==cg docker/fd5de946bab2e659bd397c3df3ce0069f3aedc02b95a38705a27ce0a0d4d2974/
+memory.current 24756224
+anon 15093760
+file 8024064
+kernel 1179648
+usage_usec 1007378
+io 8:48 rbytes=5603328 wbytes=2408448 rios=254 wios=83 dbytes=0 dios=0
+psi.cpu avg10=0.00 avg60=0.00 avg300=0.00 total=1671
+psi.memory avg10=0.00 avg60=0.00 avg300=0.00 total=0
+psi.io avg10=0.00 avg60=0.03 avg300=0.01 total=89688
+==cg wsl-user/distro-3271/
+memory.current 222466048
+anon 74612736
+file 138768384
+kernel 8572928
+usage_usec 33516577
+io 8:0 rbytes=155648 wbytes=0 rios=37 wios=0 dbytes=0 dios=0
+io 8:48 rbytes=219242496 wbytes=67571712 rios=4347 wios=4311 dbytes=0 dios=0
+psi.cpu avg10=0.00 avg60=0.00 avg300=0.00 total=684083
+psi.memory avg10=0.00 avg60=0.00 avg300=0.00 total=0
+psi.io avg10=0.00 avg60=0.01 avg300=0.00 total=2023338
+==cg wsl-user/non-distro/
+memory.current 921600
+anon 102400
+file 0
+kernel 98304
+usage_usec 4415434
+psi.cpu avg10=0.00 avg60=0.00 avg300=0.00 total=167771
+psi.memory avg10=0.00 avg60=0.00 avg300=0.00 total=0
+psi.io avg10=0.00 avg60=0.00 avg300=0.00 total=0
+==api
+HTTP/1.0 200 OK
+Api-Version: 1.56
+Content-Type: application/json
+Docker-Experimental: false
+Ostype: linux
+Server: Docker/29.8.1 (linux)
+Date: Tue, 22 Sep 2026 20:32:33 GMT
+Content-Length: 1854
+
+[{"Id":"fd5de946bab2e659bd397c3df3ce0069f3aedc02b95a38705a27ce0a0d4d2974","Names":["/skrog-t-wrong"],"Image":"python:3-alpine","ImageID":"sha256:9e9fde4d32eedce0b661d9ab91e826b62dddf28e928c230ec55f1866cac66b01","Command":"python -m http.server --bind 0.0.0.0 8000","Created":1790109081,"Ports":[{"IP":"0.0.0.0","PrivatePort":80,"PublicPort":18083,"Type":"tcp"}],"Labels":{},"State":"running","Status":"Up About a minute","HostConfig":{"NetworkMode":"bridge"},"NetworkSettings":{"Networks":{"bridge":{"IPAMConfig":null,"Links":null,"Aliases":null,"DriverOpts":null,"GwPriority":0,"NetworkID":"59123634f9cba3d4581b3e0168980a6bc23769ed8be6c2b65ccc741091f6487a","EndpointID":"0129557368f127bcddbd5dfe1324dbb719625dfe4ddff76e437b6efb633270f9","Gateway":"172.17.0.1","IPAddress":"172.17.0.2","MacAddress":"4e:23:e5:45:da:f8","IPPrefixLen":16,"IPv6Gateway":"","GlobalIPv6Address":"","GlobalIPv6PrefixLen":0,"DNSNames":null}}},"Mounts":[]},{"Id":"aa5eb0ef4fcc1c0e4acacea400e16af7978c288306ec2dcb4527960dfd0f902d","Names":["/skrog-t-any"],"Image":"python:3-alpine","ImageID":"sha256:9e9fde4d32eedce0b661d9ab91e826b62dddf28e928c230ec55f1866cac66b01","Command":"python -m http.server --bind :: 8000","Created":1790108811,"Ports":[{"IP":"0.0.0.0","PrivatePort":8000,"PublicPort":18082,"Type":"tcp"}],"Labels":{},"State":"running","Status":"Up 5 minutes","HostConfig":{"NetworkMode":"bridge"},"NetworkSettings":{"Networks":{"bridge":{"IPAMConfig":null,"Links":null,"Aliases":null,"DriverOpts":null,"GwPriority":0,"NetworkID":"59123634f9cba3d4581b3e0168980a6bc23769ed8be6c2b65ccc741091f6487a","EndpointID":"016deaf15aa081d0d6a16844c38ed40b28500c7309974c72c16db557de5c050a","Gateway":"172.17.0.1","IPAddress":"172.17.0.3","MacAddress":"fa:e8:0b:f7:09:8b","IPPrefixLen":16,"IPv6Gateway":"","GlobalIPv6Address":"","GlobalIPv6PrefixLen":0,"DNSNames":null}}},"Mounts":[]}]

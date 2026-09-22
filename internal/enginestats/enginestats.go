@@ -303,6 +303,10 @@ func (r *Reader) apiGet(ctx context.Context, distro, path string) ([]byte, error
 	return body, nil
 }
 
+// HTTPBody is httpBody for the other in-distro readers of the engine socket
+// (`skrog top`, #511), so the status check is written once.
+func HTTPBody(raw string) ([]byte, error) { return httpBody(raw) }
+
 // httpBody splits a raw HTTP response, checking the status line: a 404 with a
 // JSON body would otherwise unmarshal into zeroes and read as an empty engine.
 func httpBody(raw string) ([]byte, error) {

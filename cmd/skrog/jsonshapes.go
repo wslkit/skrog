@@ -4,6 +4,7 @@ import (
 	"github.com/wslkit/skrog/internal/policy"
 	"github.com/wslkit/skrog/internal/remote"
 	"github.com/wslkit/skrog/internal/runner"
+	"github.com/wslkit/skrog/internal/vmtop"
 )
 
 // The --json shapes: the CLI contract that machine consumers — the VS Code
@@ -419,4 +420,17 @@ type vmStatsJSON struct {
 	SwapTotalBytes       uint64 `json:"swapTotalBytes"`
 	ConfiguredMemory     string `json:"configuredMemory,omitempty"`
 	ConfiguredProcessors string `json:"configuredProcessors,omitempty"`
+}
+
+// topJSON is `skrog top --json` (#511). engine is the same vocabulary as
+// status: running, idle or stopped. reading is present only while the engine
+// runs -- top never starts it to take one (#82) -- and its shape is
+// vmtop.Snapshot, documented key by key in docs/cli-json.md.
+type topJSON struct {
+	Engine string `json:"engine"`
+	Distro string `json:"distro,omitempty"`
+	// AutoMemoryReclaim is ~/.wslconfig's setting verbatim, omitted when the
+	// file does not set it: WSL's own default is not assumed.
+	AutoMemoryReclaim string          `json:"autoMemoryReclaim,omitempty"`
+	Reading           *vmtop.Snapshot `json:"reading,omitempty"`
 }

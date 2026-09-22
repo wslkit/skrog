@@ -15,6 +15,7 @@ import (
 	"github.com/wslkit/skrog/internal/dockerctx"
 	"github.com/wslkit/skrog/internal/hooks"
 	"github.com/wslkit/skrog/internal/pipeproxy"
+	"github.com/wslkit/skrog/internal/procnet"
 	"github.com/wslkit/skrog/internal/provision"
 	"github.com/wslkit/skrog/internal/remote"
 	"github.com/wslkit/skrog/internal/runner"
@@ -111,6 +112,13 @@ type Facts struct {
 	PublishedPorts    []PublishedPort
 	WSLNetworkingMode string
 	PublishScopeLAN   bool
+
+	// ContainerListeners is what is listening INSIDE each container that
+	// publishes a TCP port, keyed by container ID and read from the container's
+	// own network namespace (#510). A container absent from the map was not
+	// measured -- engine down, or its namespace could not be read -- which is
+	// not the same as "listening on nothing".
+	ContainerListeners map[string][]procnet.Listener
 
 	// MountTransport is what the engine distro actually mounts Windows drives
 	// over: "virtiofs", "9p", or "" when the engine was down and nothing was
@@ -346,6 +354,11 @@ func Gather(ctx context.Context, opts GatherOptions) Facts {
 		// needs the engine transport, which lives in cmd/skrog.
 		if opts.PublishedPorts != nil {
 			f.PublishedPorts = opts.PublishedPorts(ctx)
+		}
+		// Same gate (#82), and only for containers that publish TCP: one
+		// exec reads every such container's listening sockets (#510).
+		if ids := tcpPublishers(f.PublishedPorts); len(ids) > 0 {
+			f.ContainerListeners = p.ContainerListeners(ctx, pOpts, ids)
 		}
 	}
 
@@ -637,4 +650,24 @@ type PublishedPort struct {
 	HostIP    string `json:"hostIp"`
 	HostPort  int    `json:"hostPort"`
 	Proto     string `json:"proto"`
+	// ContainerID and ContainerPort are the other end of the mapping: the
+	// container, and the port inside it that -p forwards to (#510). The
+	// right-hand side of `-p 8080:80` is 80.
+	ContainerID   string `json:"containerId,omitempty"`
+	ContainerPort int    `json:"containerPort,omitempty"`
+}
+
+// tcpPublishers is the distinct IDs of containers publishing a TCP port, in
+// first-seen order.
+func tcpPublishers(ports []PublishedPort) []string {
+	var ids []string
+	seen := map[string]bool{}
+	for _, p := range ports {
+		if !strings.EqualFold(p.Proto, "tcp") || p.ContainerID == "" || seen[p.ContainerID] {
+			continue
+		}
+		seen[p.ContainerID] = true
+		ids = append(ids, p.ContainerID)
+	}
+	return ids
 }
