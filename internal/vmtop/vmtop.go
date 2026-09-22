@@ -83,9 +83,16 @@ type VM struct {
 	// included. Given back under pressure inside the VM -- but held, as far as
 	// Windows can tell, until something reclaims it.
 	PageCacheBytes uint64 `json:"pageCacheBytes"`
-	// KernelBytes is Slab + KernelStack + PageTables, an approximation.
-	KernelBytes uint64   `json:"kernelBytes"`
-	Pressure    Pressure `json:"pressure"`
+	// KernelBytes is what /proc/meminfo itemises as the kernel's own: Slab,
+	// KernelStack, PageTables, SecPageTables, VmallocUsed and Percpu.
+	KernelBytes uint64 `json:"kernelBytes"`
+	// UnitemisedBytes is used memory /proc/meminfo does not name at all:
+	// used minus anon, page cache and kernel. Pages a driver allocates
+	// directly are counted by no meminfo field, so on WSL -- dxgkrnl,
+	// hv_netvsc, the balloon -- this is not small. Derived, and reported so
+	// the parts add up to MemUsedBytes rather than leaving a silent gap.
+	UnitemisedBytes uint64   `json:"unitemisedBytes"`
+	Pressure        Pressure `json:"pressure"`
 }
 
 // Snapshot is one reading.
@@ -110,8 +117,9 @@ type Snapshot struct {
 	// OtherContainers is container groups that are not this engine's running
 	// containers but still hold memory -- another engine in the same VM.
 	OtherContainers Group `json:"otherContainers"`
-	// UnchargedBytes is used memory no group accounts for: mostly the
-	// kernel's own. Derived (used minus every top-level group), not measured.
+	// UnchargedBytes is used memory no group accounts for: the kernel's and
+	// the drivers' own (see VM.UnitemisedBytes), plus cache nothing is
+	// charged for. Derived (used minus every top-level group), not measured.
 	UnchargedBytes uint64 `json:"unchargedBytes"`
 	// Vmmem is the Windows side, filled in by the caller (ReadVmmem): this
 	// package's Read only sees the guest. Absent when it could not be read.
@@ -406,11 +414,15 @@ func Compute(a, b *Sample) Snapshot {
 		MemAvailableBytes: m["MemAvailable"],
 		AnonBytes:         m["AnonPages"],
 		PageCacheBytes:    m["Buffers"] + m["Cached"],
-		KernelBytes:       m["Slab"] + m["KernelStack"] + m["PageTables"],
-		Pressure:          b.psi,
+		KernelBytes: m["Slab"] + m["KernelStack"] + m["PageTables"] + m["SecPageTables"] +
+			m["VmallocUsed"] + m["Percpu"],
+		Pressure: b.psi,
 	}
 	if vm.MemTotalBytes > vm.MemFreeBytes {
 		vm.MemUsedBytes = vm.MemTotalBytes - vm.MemFreeBytes
+	}
+	if named := vm.AnonBytes + vm.PageCacheBytes + vm.KernelBytes; vm.MemUsedBytes > named {
+		vm.UnitemisedBytes = vm.MemUsedBytes - named
 	}
 	if dt := b.cpuTotal - a.cpuTotal; b.cpuTotal > a.cpuTotal && b.ncpu > 0 {
 		vm.CPUPercent = round1(float64(b.cpuBusy-a.cpuBusy) / float64(dt) * 100 * float64(b.ncpu))

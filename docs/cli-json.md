@@ -647,7 +647,8 @@ shown.
       "cpus": 4, "cpuPercent": 9.5,
       "memTotalBytes": 8171814912, "memFreeBytes": 7362633728,
       "memAvailableBytes": 7618048000, "memUsedBytes": 809181184,
-      "anonBytes": 72073216, "pageCacheBytes": 396902400, "kernelBytes": 49410048,
+      "anonBytes": 72073216, "pageCacheBytes": 396902400, "kernelBytes": 79104000,
+      "unitemisedBytes": 261101568,
       "pressure": { "cpu": 0.14, "memory": 0, "io": 0.44 }
     },
     "containers": [
@@ -683,8 +684,13 @@ shown.
 - **`pressure`** is PSI `some` avg10, in percent: the share of the last ten
   seconds in which work was stalled on that resource.
 - **`memUsedBytes`** is total minus free, page cache included — what Windows
-  has to back. **`unchargedBytes`** is derived, not measured: used memory no
-  top-level cgroup accounts for.
+  has to back. It is exactly `anonBytes + pageCacheBytes + kernelBytes +
+  unitemisedBytes`. **`kernelBytes`** is what `/proc/meminfo` itemises as the
+  kernel's (Slab, KernelStack, PageTables, SecPageTables, VmallocUsed,
+  Percpu); **`unitemisedBytes`** is the rest, which no meminfo field names —
+  derived, and on WSL not small (driver allocations, by inference).
+- **`unchargedBytes`** is derived, not measured: used memory no top-level
+  cgroup accounts for.
 - **`engine`** inside `reading` is the engine distro's own group (dockerd,
   containerd, BuildKit, shims), which is where pull and build page cache lands.
 - **`vmmem`** is omitted when the process could not be identified — for
@@ -695,6 +701,23 @@ shown.
 
 Exit code is `0` with the engine running or idle, `1` stopped or unreadable,
 `2` usage, `3` not installed.
+
+### `skrog top --json --stream`
+
+The same object, compact, **one per line**, every `--interval` until
+interrupted — newline-delimited JSON for `jq`, a log shipper, or a CSV:
+
+```powershell
+skrog top --json --stream --interval 5s | jq -c '{t: .reading.takenAt, used: .reading.vm.memUsedBytes}'
+```
+
+Every line stands alone, so a consumer never tracks state across lines.
+While the engine is down a line carries `engine` and no `reading`. The first
+reading after it has `windowSecs: 0` and zero CPU: there was nothing to
+average over, and the stream says so rather than inventing a figure. A
+reading that failed while the engine was running sets **`error`** on that
+line and the stream carries on. Exit is `0` on Ctrl-C or when the reader
+goes away.
 
 ## The rule for new commands
 

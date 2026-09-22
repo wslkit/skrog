@@ -99,7 +99,15 @@ useful than saying where the real one is.
   daemons, page cache, other WSL distros sharing the VM, WSL itself and the
   kernel, next to what Windows says Vmmem holds (Task Manager's figure, read
   without elevation), with PSI stall figures that say whether anything is
-  actually short. `--once` and `--json` take one reading.
+  actually short. It refreshes like `docker stats`; `--once` (or
+  `--no-stream`) and `--json` take one reading, and `--json --stream` prints
+  one JSON object per line for `jq` or a log shipper.
+
+  The VM's "used" is split into four parts that add up to it, including the
+  share `/proc/meminfo` does not itemise at all — about 245 MiB on the
+  reference host, most likely driver allocations. The first draft left that
+  out and its parts summed to 319 of 592 MiB. When Windows holds much more
+  for the VM than the VM uses (288 MiB on the reference host), `top` says so.
 
   It never starts the engine and never keeps it from idling: it reads inside
   the distro, not through the pipe. Driven on the reference host: with `top`

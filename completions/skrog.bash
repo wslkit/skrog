@@ -65,7 +65,7 @@ _skrog() {
             status) flags="--json --prometheus --state-dir --stats" ;;
             stop) flags="--state-dir --supervisor --timeout" ;;
             supervise) flags="--distro --no-context --pipe --state-dir" ;;
-            top) flags="--interval --json --once --state-dir" ;;
+            top) flags="--interval --json --no-stream --once --state-dir --stream" ;;
             uninstall) flags="--distro --state-dir --yes" ;;
             upgrade) flags="--apply --check --dry-run --force --json --offline --state-dir --timeout --yes" ;;
             wsl-integrate) flags="--remove --state-dir" ;;

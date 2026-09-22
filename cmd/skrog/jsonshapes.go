@@ -433,4 +433,7 @@ type topJSON struct {
 	// file does not set it: WSL's own default is not assumed.
 	AutoMemoryReclaim string          `json:"autoMemoryReclaim,omitempty"`
 	Reading           *vmtop.Snapshot `json:"reading,omitempty"`
+	// Error is set on a --stream line whose reading failed while the engine
+	// was running; the stream carries on rather than ending on one bad read.
+	Error string `json:"error,omitempty"`
 }

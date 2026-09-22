@@ -1,9 +1,12 @@
 package main
 
 import (
+	"context"
+	"encoding/json"
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/wslkit/skrog/internal/vmtop"
 )
@@ -82,7 +85,7 @@ func TestTopShape(t *testing.T) {
 		"otherDistroCount", "wsl", "otherContainers", "unchargedBytes", "vmmem")
 	vm := r["vm"].(map[string]any)
 	requireKeys(t, vm, "cpus", "cpuPercent", "memTotalBytes", "memFreeBytes", "memAvailableBytes",
-		"memUsedBytes", "anonBytes", "pageCacheBytes", "kernelBytes", "pressure")
+		"memUsedBytes", "anonBytes", "pageCacheBytes", "kernelBytes", "unitemisedBytes", "pressure")
 	c := r["containers"].([]any)[0].(map[string]any)
 	requireKeys(t, c, "id", "name", "memoryBytes", "anonBytes", "fileBytes", "kernelBytes",
 		"cpuPercent", "ioReadBytes", "ioWriteBytes", "pressure")
@@ -95,5 +98,136 @@ func TestTopShape(t *testing.T) {
 	down := roundTrip(t, topJSON{Engine: "idle", Distro: "skrog-engine"})
 	if _, ok := down["reading"]; ok {
 		t.Error("reading should be absent while the engine is not running")
+	}
+}
+
+// fakeDistro answers every exec with the recorded sample.
+type fakeDistro struct{ out string }
+
+func (f fakeDistro) Exec(context.Context, string, string, ...string) (string, error) {
+	return f.out, nil
+}
+
+// lineWriter records lines and ends the stream after n of them.
+type lineWriter struct {
+	lines  []string
+	buf    strings.Builder
+	n      int
+	cancel context.CancelFunc
+}
+
+func (w *lineWriter) Write(p []byte) (int, error) {
+	w.buf.Write(p)
+	for {
+		s := w.buf.String()
+		i := strings.IndexByte(s, '\n')
+		if i < 0 {
+			break
+		}
+		w.lines = append(w.lines, s[:i])
+		w.buf.Reset()
+		w.buf.WriteString(s[i+1:])
+		if len(w.lines) >= w.n {
+			w.cancel()
+		}
+	}
+	return len(p), nil
+}
+
+// --json --stream: one whole object per line. A line while the engine is down
+// carries its state and no reading; the first reading after it has no CPU
+// window, and says so with windowSecs 0; the next one has a window.
+func TestStreamTopJSONOneObjectPerLine(t *testing.T) {
+	b, err := os.ReadFile("../../internal/vmtop/testdata/sample.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	states := []string{"idle", "running", "running"}
+	calls := 0
+	state := func(context.Context) string {
+		s := states[min(calls, len(states)-1)]
+		calls++
+		return s
+	}
+	w := &lineWriter{n: 3, cancel: cancel}
+	reader := &vmtop.Reader{WSL: fakeDistro{string(b)}}
+
+	if code := streamTopJSON(ctx, w, 300*time.Millisecond, "skrog-engine", state, reader, ""); code != exitOK {
+		t.Errorf("exit = %d, want %d", code, exitOK)
+	}
+	if len(w.lines) != 3 {
+		t.Fatalf("got %d lines, want 3: %q", len(w.lines), w.lines)
+	}
+	var got []topJSON
+	for i, l := range w.lines {
+		var v topJSON
+		if err := json.Unmarshal([]byte(l), &v); err != nil {
+			t.Fatalf("line %d is not one JSON object: %v: %s", i+1, err, l)
+		}
+		got = append(got, v)
+	}
+	if got[0].Engine != "idle" || got[0].Reading != nil {
+		t.Errorf("line 1 = %+v, want the idle state and no reading", got[0])
+	}
+	if got[1].Reading == nil || got[1].Reading.WindowSecs != 0 {
+		t.Errorf("line 2 should be a reading with no CPU window yet: %+v", got[1].Reading)
+	}
+	if got[2].Reading == nil || got[2].Reading.WindowSecs <= 0 {
+		t.Errorf("line 3 should average CPU over the gap since line 2: %+v", got[2].Reading)
+	}
+}
+
+func TestVmmemGap(t *testing.T) {
+	snap := func(host, guest uint64) vmtop.Snapshot {
+		s := vmtop.Snapshot{VM: vmtop.VM{MemUsedBytes: guest}}
+		if host > 0 {
+			s.Vmmem = &vmtop.Vmmem{PrivateWorkingSetBytes: host}
+		}
+		return s
+	}
+	const mib = 1 << 20
+	for _, tc := range []struct {
+		name        string
+		host, guest uint64
+		want        uint64
+	}{
+		// This machine, 2026-09-22: 845.5 MiB against 592.4 MiB used, a 253 MiB
+		// surplus -- just under the floor, so no line. The floor was set
+		// before looking, and is not moved to make this example show.
+		{"measured surplus, under the floor", 845 * mib, 592 * mib, 0},
+		{"surplus over the floor", 1100 * mib, 592 * mib, 508 * mib},
+		{"small surplus is noise", 700 * mib, 592 * mib, 0},
+		{"large but under a quarter", 4900 * mib, 4000 * mib, 0},
+		{"host below guest", 400 * mib, 592 * mib, 0},
+		{"vmmem unread", 0, 592 * mib, 0},
+	} {
+		if got := vmmemGap(snap(tc.host, tc.guest)); got != tc.want {
+			t.Errorf("%s: gap = %d MiB, want %d MiB", tc.name, got/mib, tc.want/mib)
+		}
+	}
+}
+
+// The VM line names all four parts, so what is on screen adds up; and the
+// derived row does not claim to know it is all the kernel.
+func TestRenderTopItemisesUsedAndLabelsTheRemainder(t *testing.T) {
+	var out strings.Builder
+	s := fixtureSnapshot(t)
+	s.Vmmem = &vmtop.Vmmem{Process: "vmmem", PrivateWorkingSetBytes: s.VM.MemUsedBytes + 400<<20}
+	renderTop(&out, s, "")
+	text := out.String()
+	for _, want := range []string{
+		"not itemised by the kernel",
+		"kernel and drivers, not charged to any group",
+		"Windows holds 400.0 MiB more for the VM than the VM is using",
+		"wsl.auto-memory-reclaim",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("output lacks %q:\n%s", want, text)
+		}
+	}
+	if strings.Contains(text, "not charged to any group (kernel)") {
+		t.Error("the derived row still claims to be the kernel")
 	}
 }

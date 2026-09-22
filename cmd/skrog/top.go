@@ -30,9 +30,11 @@ func runTop(args []string) int {
 	stateDir := fs.String("state-dir", "", "override Skrog's state directory")
 	asJSON := fs.Bool("json", false, "print one reading as JSON and exit")
 	once := fs.Bool("once", false, "print one reading and exit, instead of refreshing")
+	noStream := fs.Bool("no-stream", false, "the same as --once, spelled the way docker stats spells it")
+	stream := fs.Bool("stream", false, "with --json, keep printing: one JSON object per line, every --interval")
 	interval := fs.Duration("interval", 2*time.Second, "refresh interval, and the window CPU is averaged over")
 	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, `usage: skrog top [--once] [--json] [--interval 2s]
+		fmt.Fprintf(os.Stderr, `usage: skrog top [--once | --no-stream] [--json [--stream]] [--interval 2s]
 
 Shows where the WSL VM's memory and CPU go: each running container, the
 engine's own daemons, other WSL distros sharing the VM, page cache and the
@@ -41,6 +43,12 @@ kernel -- next to what Windows says the Vmmem process holds.
 docker stats shows the containers. This shows the VM they run in, which is
 what the Vmmem figure in Task Manager is. The usual answer to "why is Vmmem
 so big" is page cache from builds and pulls, and only this view can show it.
+
+The table refreshes until Ctrl-C, like docker stats; --once (or --no-stream)
+prints one reading. --json prints one reading too, because a script reading it
+expects one document; --json --stream prints one object per line, every
+--interval, for jq or a log shipper. While the engine is down each line
+carries its state and no reading.
 
 CPU is in percent of one CPU, like docker stats. PSI is the share of the last
 ten seconds that work spent stalled waiting on that resource.
@@ -55,6 +63,13 @@ Exit codes: 0 engine running or idle, %d engine stopped or unreadable, %d usage,
 		fs.PrintDefaults()
 	}
 	if err := fs.Parse(args); err != nil {
+		return exitUsage
+	}
+	if *noStream {
+		*once = true
+	}
+	if *stream && *once {
+		fmt.Fprintln(os.Stderr, "skrog: --stream keeps printing and --once stops after one; choose one")
 		return exitUsage
 	}
 	if *interval < 500*time.Millisecond {
@@ -95,6 +110,10 @@ Exit codes: 0 engine running or idle, %d engine stopped or unreadable, %d usage,
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
+
+	if *asJSON && *stream {
+		return streamTopJSON(ctx, os.Stdout, *interval, target.Distro, engineState, reader, reclaim)
+	}
 
 	if *asJSON || *once {
 		out := topJSON{Engine: engineState(ctx), Distro: target.Distro}
@@ -152,6 +171,44 @@ Exit codes: 0 engine running or idle, %d engine stopped or unreadable, %d usage,
 	}
 }
 
+// streamTopJSON prints one compact JSON object per line, every interval,
+// until the context ends (#511).
+//
+// Each line is a whole topJSON, so a consumer never has to track state across
+// lines: while the engine is down a line carries only its state, and the first
+// line after it comes back has windowSecs 0 -- no window to average CPU over,
+// which is said rather than papered over with a made-up figure.
+func streamTopJSON(ctx context.Context, w io.Writer, interval time.Duration, distro string,
+	engineState func(context.Context) string, reader *vmtop.Reader, reclaim string) int {
+	enc := json.NewEncoder(w)
+	var prev *vmtop.Sample
+	for {
+		out := topJSON{Engine: engineState(ctx), Distro: distro, AutoMemoryReclaim: reclaim}
+		if out.Engine != "running" {
+			prev = nil
+		} else if snap, s, err := reader.Next(ctx, distro, prev); err != nil {
+			prev = nil
+			if ctx.Err() != nil {
+				return exitOK
+			}
+			out.Error = err.Error()
+		} else {
+			prev = s
+			attachVmmem(&snap)
+			out.Reading = &snap
+		}
+		if err := enc.Encode(out); err != nil {
+			// The reader went away (a closed pipe into jq); that is the end.
+			return exitOK
+		}
+		select {
+		case <-ctx.Done():
+			return exitOK
+		case <-time.After(interval):
+		}
+	}
+}
+
 func engineDownCode(state string) int {
 	if state == "idle" {
 		return exitOK
@@ -195,8 +252,11 @@ func renderTop(w io.Writer, s vmtop.Snapshot, reclaim string) {
 	fmt.Fprintf(w, "VM        %d CPUs, CPU %s%%   memory %s used of %s (%s available)\n",
 		vm.CPUs, pct(vm.CPUPercent, s.WindowSecs), humanBytes(vm.MemUsedBytes),
 		humanBytes(vm.MemTotalBytes), humanBytes(vm.MemAvailableBytes))
-	fmt.Fprintf(w, "          used is %s processes, %s page cache, %s kernel\n",
-		humanBytes(vm.AnonBytes), humanBytes(vm.PageCacheBytes), humanBytes(vm.KernelBytes))
+	// All four, so the parts add up to "used" on screen too. The last is the
+	// share /proc/meminfo does not name, and saying so beats a silent gap.
+	fmt.Fprintf(w, "          used is %s processes, %s page cache, %s kernel, %s not itemised by the kernel\n",
+		humanBytes(vm.AnonBytes), humanBytes(vm.PageCacheBytes), humanBytes(vm.KernelBytes),
+		humanBytes(vm.UnitemisedBytes))
 	fmt.Fprintf(w, "          stalled (PSI, last 10s): cpu %.1f%%  memory %.1f%%  io %.1f%%\n",
 		vm.Pressure.CPU, vm.Pressure.Memory, vm.Pressure.IO)
 	if v := s.Vmmem; v != nil {
@@ -213,7 +273,7 @@ func renderTop(w io.Writer, s vmtop.Snapshot, reclaim string) {
 			humanBytes(g.KernelBytes), pct(g.CPUPercent, s.WindowSecs), g.Pressure.Memory, g.Pressure.IO)
 	}
 	for _, c := range s.Containers {
-		row(truncName(c.Name, 28), c)
+		row(truncName(c.Name, 40), c)
 	}
 	if len(s.Containers) == 0 {
 		fmt.Fprintln(tw, "(no running containers)\t\t\t\t\t\t\t\t")
@@ -224,15 +284,24 @@ func renderTop(w io.Writer, s vmtop.Snapshot, reclaim string) {
 	}
 	row(fmt.Sprintf("other WSL distros (%d)", s.OtherDistroCount), s.OtherDistros)
 	row("WSL itself", s.WSL)
-	fmt.Fprintf(tw, "not charged to any group (kernel)\t%s\t\t\t\t\t\t\t\n", humanBytes(s.UnchargedBytes))
+	fmt.Fprintf(tw, "kernel and drivers, not charged to any group\t%s\t\t\t\t\t\t\t\n", humanBytes(s.UnchargedBytes))
 	tw.Flush()
 
-	// The one piece of advice this view exists to give. Thresholds are a
-	// judgement, not a measurement: a quarter of what the VM holds, and at
-	// least a GiB, is where it stops being noise.
+	// The two pieces of advice this view exists to give. Thresholds are a
+	// judgement, not a measurement: at least a quarter of what the VM holds,
+	// and an absolute floor, is where each stops being noise.
+	advised := false
 	if vm.MemUsedBytes > 0 && vm.PageCacheBytes >= 1<<30 && vm.PageCacheBytes*4 >= vm.MemUsedBytes {
 		fmt.Fprintf(w, "\n%s of the VM's memory is page cache: file data Linux will drop when it needs\n"+
 			"the room, but which Windows counts as Vmmem until it is reclaimed.\n", humanBytes(vm.PageCacheBytes))
+		advised = true
+	}
+	if gap := vmmemGap(s); gap > 0 {
+		fmt.Fprintf(w, "\nWindows holds %s more for the VM than the VM is using: memory freed inside\n"+
+			"the VM that has not been handed back yet.\n", humanBytes(gap))
+		advised = true
+	}
+	if advised {
 		if reclaim == "" {
 			fmt.Fprintln(w, "~/.wslconfig does not set autoMemoryReclaim; `skrog config set wsl.auto-memory-reclaim gradual`\n"+
 				"asks WSL to hand idle memory back. See docs/vm-sizing.md.")
@@ -246,6 +315,32 @@ func renderTop(w io.Writer, s vmtop.Snapshot, reclaim string) {
 	if len(s.Errors) > 0 {
 		fmt.Fprintln(w)
 	}
+}
+
+// vmmemGap is how much more Windows' figure for Vmmem is than the VM's own
+// "used", when that is worth a line: at least 256 MiB and a quarter of used.
+// Zero otherwise, and when Vmmem could not be read.
+//
+// The two are not the same measure -- one is Windows' private working set,
+// the other the guest's total minus free -- so a small difference either way
+// is not a finding. A large surplus is: guest pages that are free inside the
+// VM and still resident on the host. Hyper-V's balloon reports free pages
+// back in 2 MiB chunks (page_reporting_order 9 in the engine's dmesg), which
+// is one reason a fragmented free list is not returned; that part is read
+// from the log, not measured.
+func vmmemGap(s vmtop.Snapshot) uint64 {
+	if s.Vmmem == nil || s.VM.MemUsedBytes == 0 {
+		return 0
+	}
+	host, guest := s.Vmmem.PrivateWorkingSetBytes, s.VM.MemUsedBytes
+	if host <= guest {
+		return 0
+	}
+	gap := host - guest
+	if gap < 256<<20 || gap*4 < guest {
+		return 0
+	}
+	return gap
 }
 
 // pct renders a CPU figure, or a dash when there was no window to average

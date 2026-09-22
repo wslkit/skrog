@@ -204,3 +204,24 @@ func TestFixtureEditsApply(t *testing.T) {
 		}
 	}
 }
+
+// The VM line's parts must add up to what the VM holds. Before this, the
+// kernel figure left out vmalloc and percpu and nothing named the rest, so on
+// a live engine "processes + page cache + kernel" came to 319 of 592 MiB used
+// and read like an accounting error.
+func TestVMPartsAddUpToUsed(t *testing.T) {
+	s := ParseSample(fixture(t))
+	vm := Compute(s, s).VM
+	// Slab + KernelStack + PageTables + SecPageTables + VmallocUsed + Percpu,
+	// from the fixture's own /proc/meminfo.
+	if want := uint64(45876+3040+3400+0+28360+1264) * 1024; vm.KernelBytes != want {
+		t.Errorf("kernel = %d, want %d (vmalloc and percpu included)", vm.KernelBytes, want)
+	}
+	if sum := vm.AnonBytes + vm.PageCacheBytes + vm.KernelBytes + vm.UnitemisedBytes; sum != vm.MemUsedBytes {
+		t.Errorf("anon %d + cache %d + kernel %d + unitemised %d = %d, want used %d",
+			vm.AnonBytes, vm.PageCacheBytes, vm.KernelBytes, vm.UnitemisedBytes, sum, vm.MemUsedBytes)
+	}
+	if vm.UnitemisedBytes == 0 {
+		t.Error("the fixture has memory meminfo does not name; unitemised should not be zero")
+	}
+}

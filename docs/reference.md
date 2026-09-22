@@ -1131,7 +1131,7 @@ flags:
 where the WSL VM's memory and CPU go: containers, engine, page cache, Vmmem
 
 ```
-usage: skrog top [--once] [--json] [--interval 2s]
+usage: skrog top [--once | --no-stream] [--json [--stream]] [--interval 2s]
 
 Shows where the WSL VM's memory and CPU go: each running container, the
 engine's own daemons, other WSL distros sharing the VM, page cache and the
@@ -1140,6 +1140,12 @@ kernel -- next to what Windows says the Vmmem process holds.
 docker stats shows the containers. This shows the VM they run in, which is
 what the Vmmem figure in Task Manager is. The usual answer to "why is Vmmem
 so big" is page cache from builds and pulls, and only this view can show it.
+
+The table refreshes until Ctrl-C, like docker stats; --once (or --no-stream)
+prints one reading. --json prints one reading too, because a script reading it
+expects one document; --json --stream prints one object per line, every
+--interval, for jq or a log shipper. While the engine is down each line
+carries its state and no reading.
 
 CPU is in percent of one CPU, like docker stats. PSI is the share of the last
 ten seconds that work spent stalled waiting on that resource.
@@ -1154,10 +1160,14 @@ Exit codes: 0 engine running or idle, 1 engine stopped or unreadable, 2 usage,
     	refresh interval, and the window CPU is averaged over (default 2s)
   -json
     	print one reading as JSON and exit
+  -no-stream
+    	the same as --once, spelled the way docker stats spells it
   -once
     	print one reading and exit, instead of refreshing
   -state-dir string
     	override Skrog's state directory
+  -stream
+    	with --json, keep printing: one JSON object per line, every --interval
 ```
 
 ## uninstall
