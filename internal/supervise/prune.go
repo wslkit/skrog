@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"time"
 )
@@ -150,12 +151,88 @@ func (s *Supervisor) maybePrune(ctx context.Context) {
 	}
 
 	s.pruning.Store(true)
-	go s.runPrune(policy)
+	// Add before the goroutine and Done around it, not inside runPrune: a
+	// WaitGroup incremented by the goroutine it counts can be Waited on before
+	// it ever runs, and runPrune is also called directly by tests that do not
+	// own the counter.
+	s.pruneWG.Add(1)
+	go func() {
+		defer s.pruneWG.Done()
+		s.runPrune(policy)
+	}()
+}
+
+// pruneGrace bounds how long shutdown waits for a prune in flight (#423).
+//
+// Long enough for a sweep that is finishing to record its clock — the write is
+// the last thing runPrune does, and losing it makes the next supervisor think
+// a prune is immediately due. Short enough that a wedged `docker system prune`
+// cannot hold a logoff or a `skrog restart --supervisor` open: the caller
+// waiting on this is a user who asked the supervisor to stop.
+//
+// Abandoning is the deliberate outcome after that, not an error. The prune has
+// its own 30-minute bound and will exit on its own; what it cannot do is keep
+// the supervisor from returning.
+const pruneGrace = 5 * time.Second
+
+// waitForPrune gives a prune in flight a bounded chance to finish before the
+// supervisor returns.
+//
+// Nothing could wait for it at all before: Run returned on ctx.Done() while a
+// `docker system prune -a` kept deleting for up to thirty minutes, with the
+// process about to exit underneath it. That is how an interrupted prune lost
+// its clock write and made the NEXT supervisor prune on its first healthy tick
+// after every logon.
+func (s *Supervisor) waitForPrune() {
+	done := make(chan struct{})
+	go func() {
+		s.pruneWG.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(pruneGrace):
+		s.log().Warn("a scheduled prune is still running; leaving it to its own timeout",
+			"grace", pruneGrace)
+	}
 }
 
 // runPrune performs the prune off the reconciler and records its completion.
 func (s *Supervisor) runPrune(policy PrunePolicy) {
 	defer s.pruning.Store(false)
+
+	// s.Prune is caller-supplied, and a panic in it used to take the whole
+	// supervisor down with it -- the bridge, the pipe, every docker command
+	// (#423). A failed prune is a disk that stays full; a dead supervisor is
+	// a machine where docker stops working. The two are not comparable, so
+	// this one is recovered and reported.
+	//
+	// Deferred AFTER the two above so they still run: the guard must clear
+	// and the WaitGroup must be released even on the panic path, or one bad
+	// sweep disables automatic pruning until restart and wedges shutdown for
+	// the grace period every time.
+	defer func() {
+		if r := recover(); r != nil {
+			s.log().Error("automatic prune panicked; the supervisor is unaffected",
+				"panic", fmt.Sprint(r), "stack", string(debug.Stack()))
+		}
+	}()
+
+	// The clock is written BEFORE the sweep as well as after (#423).
+	//
+	// An interrupted prune -- a logoff, a restart, a kill mid-sweep -- used to
+	// leave the old value, so the next supervisor was instantly "due" and
+	// pruned on its first healthy tick after every logon. Writing it up front
+	// changes the failure from "prunes too often" to "may skip one interval",
+	// which is the safer direction for a feature whose rules are about not
+	// deleting things unexpectedly.
+	//
+	// Written again on the way out so the interval is measured from the END of
+	// a long sweep rather than its start.
+	if err := WriteLastPrune(s.Config.StateDir, time.Now()); err != nil {
+		s.log().Warn("could not record the automatic-prune clock before the sweep",
+			"error", err)
+	}
 
 	// Rule 3 (ALWAYS AN AGE GUARD) is applied HERE, to the value that leaves
 	// this package, and not only to the log lines.
