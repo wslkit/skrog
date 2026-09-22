@@ -4,20 +4,44 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/wslkit/skrog/internal/emulation"
 )
+
+// foreign picks an architecture this machine does NOT run natively, and the
+// handler that would emulate it.
+//
+// Hardcoding "linux/arm64" made every test here pass on amd64 and fail on the
+// arm64 runner, where that is the host's own architecture and Parse rejects
+// the whole setting. Derived from the product's own tables so the tests mean
+// the same thing on both.
+func foreign(t *testing.T) (platform string, h emulation.Handler) {
+	t.Helper()
+	for _, arch := range emulation.Supported() {
+		if arch == runtime.GOARCH {
+			continue
+		}
+		if hh, ok := emulation.HandlerFor(arch); ok {
+			return "linux/" + arch, hh
+		}
+	}
+	t.Skip("no foreign architecture is supported on this host")
+	return "", emulation.Handler{}
+}
 
 // The case the check exists for (#480): the user asked for emulation, the
 // engine is up, and no handler is registered. Before this check, doctor said
 // nothing at all and `multi-arch` reported "nothing is wrong here".
 func TestCheckEmulationWarnsWhenTheHandlerIsMissing(t *testing.T) {
+	platform, h := foreign(t)
 	r := checkEmulation().Run(Facts{
-		EmulationPlatforms: "linux/arm64",
+		EmulationPlatforms: platform,
 		MultiArch:          MultiArchInfo{Probed: true},
 	})
 	if r.Status != Warn {
 		t.Fatalf("status = %v, want Warn: the setting is on and the handler is not live", r.Status)
 	}
-	if !strings.Contains(r.Summary, "arm64") {
+	if !strings.Contains(r.Summary, h.Arch) {
 		t.Errorf("summary does not name the architecture: %q", r.Summary)
 	}
 	// The remedy has to name the likeliest cause, which a user cannot guess:
@@ -30,12 +54,13 @@ func TestCheckEmulationWarnsWhenTheHandlerIsMissing(t *testing.T) {
 }
 
 func TestCheckEmulationOKWhenTheHandlerIsLive(t *testing.T) {
+	platform, h := foreign(t)
 	r := checkEmulation().Run(Facts{
-		EmulationPlatforms: "linux/arm64",
-		MultiArch:          MultiArchInfo{Probed: true, Handlers: []string{"qemu-aarch64"}},
+		EmulationPlatforms: platform,
+		MultiArch:          MultiArchInfo{Probed: true, Handlers: []string{h.Name}},
 	})
 	if r.Status != OK {
-		t.Fatalf("status = %v, want OK: the requested handler is registered", r.Status)
+		t.Fatalf("status = %v, want OK: the requested handler %q is registered", r.Status, h.Name)
 	}
 }
 
@@ -57,8 +82,9 @@ func TestCheckEmulationSaysNothingWhenNotConfigured(t *testing.T) {
 // doctor never boots a distro to answer (#82), so with the engine down the
 // table was not read and "no handler" would be a lie rather than a finding.
 func TestCheckEmulationSkipsWhenTheEngineIsDown(t *testing.T) {
+	platform, _ := foreign(t)
 	r := checkEmulation().Run(Facts{
-		EmulationPlatforms: "linux/arm64",
+		EmulationPlatforms: platform,
 		MultiArch:          MultiArchInfo{Probed: false},
 	})
 	if r.Status != Skip {
@@ -80,7 +106,7 @@ func TestCheckEmulationWarnsWhenAskedToEmulateTheHostItself(t *testing.T) {
 	if r.Status != Warn {
 		t.Fatalf("status = %v, want Warn for %q", r.Status, native)
 	}
-	if !strings.Contains(r.Remedy, "Supported") {
+	if !strings.Contains(strings.ToLower(r.Remedy), "supported") {
 		t.Errorf("remedy should list what is supported: %q", r.Remedy)
 	}
 }
