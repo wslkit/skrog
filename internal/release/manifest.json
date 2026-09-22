@@ -43,11 +43,11 @@
       "rootfs": {
         "amd64": {
           "url": "https://github.com/wslkit/skrog/releases/download/rootfs-v29.8.1-3/skrog-rootfs-29.8.1-3-amd64.tar.gz",
-          "sha256": ""
+          "sha256": "f1be49d99b9adab037480f66a9bedc1bca2a0d1a29e278f99adcb8357d18e4ab"
         },
         "arm64": {
           "url": "https://github.com/wslkit/skrog/releases/download/rootfs-v29.8.1-3/skrog-rootfs-29.8.1-3-arm64.tar.gz",
-          "sha256": ""
+          "sha256": "0a41ce881421d287aacb8b2272af7f6c246558a1c87954c61033c9d34c786b9b"
         }
       },
       "components": {
