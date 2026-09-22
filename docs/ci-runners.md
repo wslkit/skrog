@@ -56,7 +56,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: wslkit/setup-skrog@v2
         with:
-          version: 0.6.0        # pin it; "latest" resolves the newest release
+          version: 0.8.0        # pin it; "latest" resolves the newest release
       - run: docker run --rm alpine:3.20 echo hello
 ```
 
@@ -84,7 +84,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: wslkit/setup-skrog@v2
         with:
-          version: 0.6.0        # pin it; "latest" resolves the newest release
+          version: 0.8.0        # pin it; "latest" resolves the newest release
       - run: docker run --rm alpine:3.20 echo hello
 ```
 
@@ -111,7 +111,7 @@ talks to:
 default:
   before_script:
     - Invoke-WebRequest https://raw.githubusercontent.com/wslkit/setup-skrog/v2/scripts/install-skrog.ps1 -OutFile install-skrog.ps1
-    - pwsh -File install-skrog.ps1 -Version 0.6.0
+    - pwsh -File install-skrog.ps1 -Version 0.8.0
     - $env:DOCKER_CONTEXT = 'skrog'
 
 build:
