@@ -160,6 +160,16 @@ docker context. Nothing else on the system is touched.
 - **amd64 and Windows on ARM**, both native end to end — `skrog.exe`, the engine rootfs,
   dockerd and the containers. Upstream publishes no Windows arm64 `docker.exe`, so Skrog
   builds that one from source, reproducibly
+- **Published ports that reach further than `localhost`**: under WSL2's default networking
+  `docker run -p 8080:80` binds `127.0.0.1` on the Windows side and nothing else, so your
+  phone gets connection refused. `skrog doctor` says so, and one opt-in key relays the port
+  to every interface — tied to container lifetime, so nothing outlives what it points at
+  ([docs/ports.md](docs/ports.md))
+
+  ```powershell
+  skrog config set network.publish-scope lan
+  docker run --rm -p 8080:80 nginx        # now reachable from your phone
+  ```
 - **Multi-platform containers**: run an image built for the *other* architecture — the
   common case on Windows on ARM, where much of Docker Hub is still amd64-only. One
   opt-in key, no emulator to download (the engine rootfs already ships `qemu-user`):

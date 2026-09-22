@@ -12,6 +12,55 @@ useful than saying where the real one is.
 
 ## [Unreleased]
 
+### Added
+
+- **Published ports can reach further than `localhost`**
+  ([#507](https://github.com/wslkit/skrog/issues/507),
+  [#508](https://github.com/wslkit/skrog/issues/508)).
+  `docker run -p 8080:80` works, and then it does not work from your phone.
+  Under WSL2's default NAT networking dockerd publishes inside the distro and
+  WSL's own forwarder binds `127.0.0.1` on the Windows side — so the container
+  answers on the machine that started it and nowhere else, with nothing in
+  `docker ps`, the logs or the engine saying so.
+
+  **`skrog doctor` now says so**, silent unless a container is actually
+  publishing something:
+
+  ```
+  [warn] published ports beyond this machine: port 18080 reachable from this machine only
+  ```
+
+  **And one opt-in key fixes it:**
+
+  ```powershell
+  skrog config set network.publish-scope lan
+  ```
+
+  The supervisor then watches what the engine publishes and opens matching
+  listeners on every interface. They appear and disappear with the containers
+  that published them, because a listener outliving its container is a port
+  answering from somewhere surprising. Measured on the reference machine: the
+  relay binds `0.0.0.0` **and** `[::]`, so the port answers over IPv6 too.
+
+  **Opt-in, and loud about why.** "lan" puts your dev containers on the
+  network — a development database with no password, published on a
+  coffee-shop wifi, is reachable by everyone on that wifi. The same bar
+  `emulation.platforms` is held to: a setting that reaches past the thing you
+  were configuring is a decision, not a default to discover afterwards.
+
+  TCP only, deliberately: a stream relay cannot carry datagrams, and a UDP port
+  that silently dropped every packet would be worse than one that was never
+  relayed. Ports below 1024 need elevation the supervisor does not have and are
+  skipped with a line in the log.
+
+  The other route — `networkingMode=mirrored` in `~/.wslconfig` — still works
+  and is documented beside it. It is machine-wide, affecting every WSL distro,
+  which is why `publish-scope` exists as the narrower tool.
+  [docs/ports.md](docs/ports.md) has all of it, including the measurement and
+  why this is **not** [#163](https://github.com/wslkit/skrog/issues/163) (that
+  was mirrored networking breaking loopback itself, and it is fixed — here
+  loopback is the only thing that works).
+
 ## [0.8.0] — 2026-09-22
 
 Admission control learns to ask where an image came from, the engine start path

@@ -63,10 +63,21 @@ const (
 	// KeyImportHostCAs, when on, trusts the host's root CA store inside the
 	// engine — the fix for a TLS-inspecting corporate proxy.
 	KeyImportHostCAs = "network.import-host-cas"
+	// KeyPublishScope decides how far a published container port reaches (#508):
+	// "loopback" (the default) leaves WSL's own behaviour alone, "lan" has the
+	// supervisor relay published ports to every interface.
+	//
+	// Opt-in because "lan" puts dev containers on the network. That is a change
+	// to the machine's exposure, and the same bar emulation.platforms is held
+	// to: a setting that reaches past the thing you were configuring is a
+	// decision, not a default to discover afterwards.
+	KeyPublishScope = "network.publish-scope"
 )
 
 // NetworkKeys lists the corporate-network keys.
-func NetworkKeys() []string { return []string{KeyProxy, KeyNoProxy, KeyImportHostCAs} }
+func NetworkKeys() []string {
+	return []string{KeyProxy, KeyNoProxy, KeyImportHostCAs, KeyPublishScope}
+}
 
 // KeyGPU, when on, installs the NVIDIA CDI spec in the engine on every start so
 // containers can use the GPU (#83). "off" (the default) removes it. Set through
@@ -174,6 +185,8 @@ type Config struct {
 	Proxy         string
 	NoProxy       string
 	ImportHostCAs bool
+	// PublishScope is "loopback" (default) or "lan"; see KeyPublishScope.
+	PublishScope string
 	// GPU installs the CDI spec so containers can use the GPU (#83).
 	GPU bool
 	// GPUVendor is which vendor's spec that is (#185). Empty means nvidia.
@@ -230,6 +243,10 @@ func Load(stateDir string) (Config, error) {
 	c.Proxy = raw[KeyProxy]
 	c.NoProxy = raw[KeyNoProxy]
 	c.ImportHostCAs = raw[KeyImportHostCAs] == "on"
+	c.PublishScope = raw[KeyPublishScope]
+	if c.PublishScope == "" {
+		c.PublishScope = PublishScopeLoopback
+	}
 	c.GPU = raw[KeyGPU] == "on"
 	c.GPUVendor = raw[KeyGPUVendor]
 	c.VerifySignature = raw[KeyVerifySignature] == "on"
@@ -295,6 +312,7 @@ var validators = map[string]func(string) (string, error){
 	KeyProxy:              validateProxy,
 	KeyNoProxy:            func(v string) (string, error) { return strings.TrimSpace(v), nil },
 	KeyImportHostCAs:      validateOnOff,
+	KeyPublishScope:       validatePublishScope,
 	KeyGPU:                validateOnOff,
 	KeyGPUVendor:          validateGPUVendor,
 	KeyDiskWarnBelow:      validateSize,
@@ -452,6 +470,9 @@ func defaultFor(key string) string {
 	case KeyGPUVendor:
 		// Not an on/off key: unset means the default vendor, not disabled.
 		return string(gpu.DefaultVendor)
+	case KeyPublishScope:
+		// Also not on/off: unset means WSL's own behaviour, not "disabled".
+		return PublishScopeLoopback
 	case KeyDiskWarnBelow:
 		return "5GiB"
 	}
@@ -571,4 +592,32 @@ func validateGPUVendor(v string) (string, error) {
 		return "", err
 	}
 	return string(parsed), nil
+}
+
+// The two values KeyPublishScope accepts.
+const (
+	// PublishScopeLoopback leaves WSL's own forwarding alone: a published port
+	// answers on 127.0.0.1 and nowhere else. The default, and the behaviour
+	// every release before this one had.
+	PublishScopeLoopback = "loopback"
+	// PublishScopeLAN has the supervisor relay published ports to every
+	// interface, so another device on the network can reach them.
+	PublishScopeLAN = "lan"
+)
+
+// validatePublishScope refuses anything but the two known scopes.
+//
+// Spelled-out words rather than a boolean because the set is not closed: a
+// future scope ("policy", say, deciding per container) has somewhere to go,
+// and `network.publish-scope = on` would have meant nothing.
+func validatePublishScope(v string) (string, error) {
+	switch s := strings.ToLower(strings.TrimSpace(v)); s {
+	case "", PublishScopeLoopback:
+		return PublishScopeLoopback, nil
+	case PublishScopeLAN:
+		return PublishScopeLAN, nil
+	default:
+		return "", fmt.Errorf("%q is not a publish scope; use %q (the default) or %q",
+			v, PublishScopeLoopback, PublishScopeLAN)
+	}
 }

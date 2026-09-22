@@ -420,6 +420,12 @@ flags:
 	// next supervisor start does the seeding instead.
 	go prov.SeedExisting(ctx)
 
+	// Published ports beyond loopback, while network.publish-scope is lan
+	// (#508). Off by default, and the goroutine runs either way so that turning
+	// the setting on takes effect without a restart -- like every other setting
+	// the supervisor reads (#202).
+	go runPortRelay(ctx, cfg, publishedPorts(dialer, log), distroUpstream(p, opts), log)
+
 	// The pipe server carries traffic; both stop together.
 	if err := srv.Serve(ctx, listener); err != nil {
 		fmt.Fprintf(os.Stderr, "skrog: %v\n", err)
