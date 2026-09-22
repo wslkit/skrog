@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/wslkit/skrog/internal/config"
 	"github.com/wslkit/skrog/internal/dockercli"
@@ -95,6 +96,13 @@ type Facts struct {
 	// Registration can fail after a successful-looking `config set` (#480), and
 	// only the second question catches that.
 	EmulationPlatforms string
+
+	// IdleTimeout and PruneEvery are the two settings that can cancel each
+	// other out (#496): a prune interval at or below the idle timeout resets
+	// the idle window before it can expire. Zero means off, which is the
+	// default for both.
+	IdleTimeout time.Duration
+	PruneEvery  time.Duration
 
 	// MountTransport is what the engine distro actually mounts Windows drives
 	// over: "virtiofs", "9p", or "" when the engine was down and nothing was
@@ -302,6 +310,8 @@ func Gather(ctx context.Context, opts GatherOptions) Facts {
 		pOpts.GPUVendor = c.GPUVendor
 		f.DiskWarnBelow = c.DiskWarnBelow
 		f.EmulationPlatforms = c.EmulationPlatforms
+		f.IdleTimeout = c.IdleTimeout
+		f.PruneEvery = c.PruneEvery
 	}
 
 	// GPU distro probes only when the engine is already up: GPUAvailable uses

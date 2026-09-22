@@ -277,25 +277,39 @@ func (p *imageProvenance) localImageIDs(ctx context.Context) []string {
 // Replaced rather than dropped, so a reference that was tampered with still
 // looks wrong in the log instead of looking tidy.
 //
-// The cap is on the OUTPUT, and that is not a detail: truncating the input
-// first and escaping afterwards lets a reference made of control characters
-// expand threefold past the bound, because U+FFFD is three bytes and the
-// character it replaces is one.
+// The cap is on the OUTPUT bytes. Truncating the input first and escaping
+// afterwards lets a reference made of control characters expand threefold past
+// the bound, because U+FFFD is three bytes and the character it replaces is
+// one.
+//
+// The shape matters as much as the behaviour: the untrusted rune is written
+// ONLY inside the else-branch of the unicode.IsControl guard. An earlier
+// version computed `rep := string(r)` before the guard and overwrote it
+// inside, which is identical at runtime and invisible to taint analysis --
+// CodeQL stopped recognising this function as a barrier and re-raised
+// go/log-injection on all three call sites. A sanitizer a checker cannot see
+// is one that stops being checked the next time someone edits it.
 func logSafe(s string) string {
 	const max = 256
+	const replacement = "�"
+
 	var b strings.Builder
 	b.Grow(min(len(s), max) + 3)
 	truncated := false
 	for _, r := range s {
-		rep := string(r)
 		if r == utf8.RuneError || unicode.IsControl(r) {
-			rep = "�"
+			if b.Len()+len(replacement) > max {
+				truncated = true
+				break
+			}
+			b.WriteString(replacement)
+			continue
 		}
-		if b.Len()+len(rep) > max {
+		if b.Len()+utf8.RuneLen(r) > max {
 			truncated = true
 			break
 		}
-		b.WriteString(rep)
+		b.WriteRune(r)
 	}
 	if truncated || b.Len() < len(s) {
 		b.WriteString("...")
