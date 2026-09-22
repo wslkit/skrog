@@ -77,7 +77,10 @@ engine out from under it.
 > idle timeout reads — so a `prune.every` shorter than your `idle-timeout`
 > keeps resetting it and the engine never goes idle. Two features that are
 > each working as described, quietly cancelling each other. Until that is
-> settled, keep `prune.every` comfortably longer than `idle-timeout`.
+> settled, keep `prune.every` comfortably longer than `idle-timeout` -- and
+> `skrog doctor` warns when they are set the other way round, because the
+> symptom ("my engine never releases its RAM") is not one anyone would connect
+> to a housekeeping setting on their own.
 
 ### Finding out what it did
 

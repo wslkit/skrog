@@ -91,6 +91,7 @@ func Registry() []Check {
 		checkGPU(),
 		checkMultiArch(),
 		checkEmulation(),
+		checkPruneIdle(),
 		checkDisk(),
 		checkSession0(),
 		checkRunner(),

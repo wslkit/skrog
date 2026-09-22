@@ -19,6 +19,37 @@ before.
 
 ### Added
 
+- **`skrog doctor` catches a `prune.every` that stops the engine ever idling**
+  ([#496](https://github.com/wslkit/skrog/issues/496)). The automatic prune
+  talks to the engine through Skrog's own pipe, and that traffic restarts the
+  idle window — so a prune interval at or below `idle-timeout` resets the clock
+  before it can expire and the RAM is never returned.
+
+  ```
+  [warn] idle-stop versus automatic prune: prune.every 10m is not longer than
+         idle-timeout 30m, so the engine will never idle-stop
+         fix: set prune.every longer than idle-timeout:
+              `skrog config set prune.every 2h` (or lower idle-timeout)
+  ```
+
+  Both settings are off by default, so nothing ships in this state — it takes
+  turning both on *and* setting the prune shorter, which is the opposite of how
+  either is normally tuned. But the symptom is "my engine never releases its
+  RAM", which people notice, cannot explain, and have no reason to connect to a
+  housekeeping setting.
+
+  Judged from the **configuration**, not from the idle-stop counters. The
+  counters look like the obvious evidence and are the weaker signal: a machine
+  that has simply been busy also shows zero idle stops. Two durations and a
+  comparison is a verdict; a counter at zero is a guess.
+
+  The underlying fix — having the prune reach the engine without crossing the
+  pipe — is still open. The issue's cheap route (`wsl -d skrog-engine docker …`)
+  turns out not to exist: there is **no docker client in the engine distro**,
+  only the daemon. The workable version talks the engine API directly, the way
+  the idle probe and provenance already do, and wants its own release window
+  rather than this one.
+
 - **`skrog stop --supervisor`** ([#482](https://github.com/wslkit/skrog/issues/482)).
   There was no supported way to stop the supervisor, and the installer told
   people to use one: refusing to overwrite a running `skrog.exe`, it said
@@ -289,6 +320,16 @@ before.
   asserted less than their names claimed — including the one added for the
   previous release's `Close` fix, which never reaches the line it was written
   for on Windows.
+
+- **`logSafe` is a sanitizer CodeQL can see again.** Rewriting it to bound its
+  output instead of its input (previous entry) moved the untrusted rune into a
+  variable computed *before* the `unicode.IsControl` guard and overwritten
+  inside it — identical at runtime, invisible to taint analysis. CodeQL stopped
+  recognising the function as a barrier and re-raised `go/log-injection` on all
+  three call sites, which is how it was found.
+
+  The rune is written only inside the guarded branch now. A sanitizer a checker
+  cannot see is one that stops being checked the next time someone edits it.
 
 - **`skrog --help` lines up.** The command list was padded to a fixed width of
   10 and `healthcheck` is 11, so that row had no gap at all and `wsl-integrate`
