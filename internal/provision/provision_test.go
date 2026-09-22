@@ -10,11 +10,13 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/wslkit/skrog/internal/emulation"
 	"github.com/wslkit/skrog/internal/provision"
 	"github.com/wslkit/skrog/internal/wsl"
 )
@@ -827,7 +829,7 @@ func TestPreLaunchStepsAllFinishBeforeDockerdStarts(t *testing.T) {
 	opts := provision.Options{
 		StateDir:           t.TempDir(),
 		StartTimeout:       5 * time.Second,
-		EmulationPlatforms: "linux/arm64",
+		EmulationPlatforms: foreignPlatform(t),
 		GPUEnabled:         true,
 	}
 	if err := p.StartEngine(context.Background(), opts); err != nil {
@@ -938,4 +940,26 @@ func TestAPanickingAgentStartDoesNotKillTheEngineStart(t *testing.T) {
 	if n := startedMatching(w, "dockerd"); n != 1 {
 		t.Errorf("dockerd started %d times, want 1 — the engine must come up without the agent", n)
 	}
+}
+
+// foreignPlatform names an architecture this host is NOT, so applyEmulation
+// has something to register.
+//
+// Hardcoding "linux/arm64" fails on the arm64 runner, where it is the host's
+// own architecture and Parse returns no handlers at all -- so the step under
+// test does nothing and the test reads that as the step having been skipped.
+// This is the third host-dependent test in this package's history; deriving
+// the value from the product's own table is the fix that keeps working.
+func foreignPlatform(t *testing.T) string {
+	t.Helper()
+	for _, arch := range emulation.Supported() {
+		if arch == runtime.GOARCH {
+			continue
+		}
+		if _, ok := emulation.HandlerFor(arch); ok {
+			return "linux/" + arch
+		}
+	}
+	t.Skip("no foreign architecture is supported on this host")
+	return ""
 }
