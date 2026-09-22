@@ -8,7 +8,10 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/wslkit/skrog/internal/imageref"
 	"github.com/wslkit/skrog/internal/pipeproxy"
@@ -56,7 +59,7 @@ func (p *imageProvenance) RecordPull(ref string) {
 		Source:   provenance.SourcePull,
 	}
 	if err := provenance.Record(p.stateDir, e); err != nil {
-		p.logger().Warn("could not record image provenance", "error", err, "ref", ref)
+		p.logger().Warn("could not record image provenance", "error", err, "ref", logSafe(ref))
 		return
 	}
 	// Cheap and a no-op while the store is small; this is the only place that
@@ -99,7 +102,7 @@ func (p *imageProvenance) resolve(ref string) string {
 	conn, err := p.dialer.Dial(ctx)
 	if err != nil {
 		p.logger().Debug("provenance: could not reach the engine to resolve an image",
-			"error", err, "ref", ref)
+			"error", err, "ref", logSafe(ref))
 		return ""
 	}
 	defer conn.Close()
@@ -219,4 +222,36 @@ func (p *imageProvenance) localImageIDs(ctx context.Context) []string {
 		}
 	}
 	return ids
+}
+
+// logSafe makes a value that arrived off the wire safe to put in a log line.
+//
+// An image reference is whatever the client sent -- any local process can open
+// the pipe and put a newline, an ANSI escape or a megabyte in it. Written
+// straight into a log that an operator reads, and that `skrog doctor --report`
+// pastes into an issue, that is forged log lines at best (CodeQL
+// go/log-injection). slog's own text handler happens to quote this, but the
+// handler is not this code's to choose, so the escaping happens here.
+//
+// Replaced rather than dropped, so a reference that was tampered with still
+// looks wrong in the log instead of looking tidy.
+func logSafe(s string) string {
+	const max = 256
+	truncated := false
+	if len(s) > max {
+		s, truncated = s[:max], true
+	}
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range s {
+		if r == utf8.RuneError || unicode.IsControl(r) {
+			b.WriteRune('�')
+			continue
+		}
+		b.WriteRune(r)
+	}
+	if truncated {
+		b.WriteString("...")
+	}
+	return b.String()
 }

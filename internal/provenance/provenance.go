@@ -142,11 +142,36 @@ func Record(stateDir string, e Entry) error {
 	if err != nil {
 		return fmt.Errorf("provenance: opening the store: %w", err)
 	}
-	defer f.Close()
+	// Closed explicitly, and its error returned: a deferred Close on a
+	// WRITABLE file throws away the one error that says the record did not
+	// reach the disk. Write can succeed into a buffer that Close then fails to
+	// flush, and a provenance store that silently lost its last append is the
+	// exact failure this package exists to make visible.
 	if _, err := f.Write(append(line, '\n')); err != nil {
+		f.Close()
 		return fmt.Errorf("provenance: appending: %w", err)
 	}
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("provenance: closing the store: %w", err)
+	}
 	return nil
+}
+
+// supersedes reports whether a LATER LINE should replace the current winner
+// for an image ID.
+//
+// "Not before" rather than "after", and the difference is the whole point: the
+// store is append-only, so line order is arrival order, and a strict `After`
+// makes two records written in the same clock tick a tie that resolves to
+// whichever the loop saw first -- the OLDER one. That is not hypothetical on
+// Windows, where the wall clock granularity is coarse enough that a seed and
+// the pull immediately after it share a timestamp; it turned a pulled image
+// back into a pre-existing one, and CI caught it on main (#343).
+//
+// Position is the tie-break because position is the fact: a line further down
+// the file was appended later, whatever the clock said at the time.
+func supersedes(candidate, current Entry) bool {
+	return !candidate.At.Before(current.At)
 }
 
 // Lookup returns the newest record for an image ID.
@@ -157,7 +182,7 @@ func Lookup(stateDir, id string) (Entry, bool) {
 	var found Entry
 	var ok bool
 	for _, e := range read(stateDir) {
-		if e.ID == id && (!ok || e.At.After(found.At)) {
+		if e.ID == id && (!ok || supersedes(e, found)) {
 			found, ok = e, true
 		}
 	}
@@ -177,7 +202,7 @@ type Stats struct {
 func Summarize(stateDir string) Stats {
 	newest := map[string]Entry{}
 	for _, e := range read(stateDir) {
-		if prev, ok := newest[e.ID]; !ok || e.At.After(prev.At) {
+		if prev, ok := newest[e.ID]; !ok || supersedes(e, prev) {
 			newest[e.ID] = e
 		}
 	}
@@ -229,23 +254,40 @@ func Compact(stateDir string) error {
 	if len(entries) <= maxEntries {
 		return nil
 	}
-	newest := map[string]Entry{}
+	// Winners and the cap are both decided by POSITION, not by the clock.
+	//
+	// In an append-only log the order records arrived in is a fact, and it is
+	// the one thing a coarse clock cannot blur -- which matters here for the
+	// same reason it matters in supersedes: a seed and the pull right after it
+	// routinely share a timestamp on Windows. Comparing timestamps to pick a
+	// winner, or sorting by them to apply the cap, resolves those ties
+	// arbitrarily and can drop the record that is actually current.
+	newestIdx := map[string]int{}
 	cutoff := time.Now().Add(-maxAge)
-	for _, e := range entries {
+	for i, e := range entries {
 		if e.At.Before(cutoff) {
 			continue
 		}
-		if prev, ok := newest[e.ID]; !ok || e.At.After(prev.At) {
-			newest[e.ID] = e
+		if j, ok := newestIdx[e.ID]; !ok || supersedes(e, entries[j]) {
+			newestIdx[e.ID] = i
 		}
 	}
-	kept := make([]Entry, 0, len(newest))
-	for _, e := range newest {
-		kept = append(kept, e)
+	idxs := make([]int, 0, len(newestIdx))
+	for _, i := range newestIdx {
+		idxs = append(idxs, i)
 	}
-	sort.Slice(kept, func(i, j int) bool { return kept[i].At.After(kept[j].At) })
-	if len(kept) > maxEntries {
-		kept = kept[:maxEntries]
+	sort.Ints(idxs)
+	// The newest are furthest down the file, so the cap takes the TAIL.
+	if len(idxs) > maxEntries {
+		idxs = idxs[len(idxs)-maxEntries:]
+	}
+	// Written back in file order. Nothing reads a tie out of the compacted
+	// block -- there is one line per ID by construction -- but keeping the
+	// order means the file still reads as the log it is, and a record appended
+	// afterwards is still the last line.
+	kept := make([]Entry, 0, len(idxs))
+	for _, i := range idxs {
+		kept = append(kept, entries[i])
 	}
 
 	var b strings.Builder
