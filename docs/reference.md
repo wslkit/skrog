@@ -661,13 +661,15 @@ elevation, no engine change, no daemon plugin.
 Rules live in policy.yaml inside the state dir. A missing file means no rules.
 Edits take effect on the next container create -- nothing to restart.
 
-  deny-privileged:          true        # refuse --privileged
-  deny-added-capabilities:  true        # refuse any --cap-add
-  deny-capabilities:        [SYS_ADMIN] # ...or only these
-  deny-host-namespaces:     true        # refuse --network/--pid/--ipc/--uts=host
-  allow-bind-sources:       [C:\work]   # bind mounts may only come from here
-  allow-registries:         [registry.example.com, "*.internal"]
-  require-digest:           true        # images must be pinned by digest
+  deny-privileged:            true        # refuse --privileged
+  deny-added-capabilities:    true        # refuse any --cap-add
+  deny-capabilities:          [SYS_ADMIN] # ...or only these
+  deny-host-namespaces:       true        # refuse --network/--pid/--ipc/--uts=host
+  allow-bind-sources:         [C:\work]   # bind mounts may only come from here
+  allow-registries:           [registry.example.com, "*.internal"]
+  require-digest:             true        # images must be pinned by digest
+  deny-unattributable-builds: true        # refuse docker build while images are restricted
+  deny-unattributable-images: true        # ...and images with no recorded origin
 
 This is a guardrail, not a security boundary: whoever owns the machine can
 edit the file or bypass the bridge. It is for catching mistakes and for

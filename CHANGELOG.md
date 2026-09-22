@@ -63,6 +63,50 @@ before.
   ships **in the engine image**, and images before `29.8.1-3` do not carry it
   (#479).
 
+- **`deny-unattributable-images`: refuse an image this machine has no record of**
+  ([#343](https://github.com/wslkit/skrog/issues/343)).
+  `allow-registries` judges a *reference*, and a reference is a label anyone
+  can reattach. `docker load` a tarball, `docker tag` it
+  `registry.example.com/app:1`, and every reference-based rule passes on bytes
+  that never came from `registry.example.com`.
+
+  Skrog now records where each image came from — keyed by image ID, written
+  after a pull it allowed — and with this rule set, refuses to run one it has
+  no record of. Keyed by ID is the whole point: retagging does not create
+  provenance.
+
+  Opt-in, and inert without `allow-registries`, exactly like
+  `deny-unattributable-builds`; `skrog policy show` says so rather than letting
+  you believe otherwise. It also reports the recorded/pre-existing split,
+  because turning this on without knowing how much of a machine's image set has
+  a record is how a security feature gets switched off again an hour later.
+
+  **Images you already had are trusted.** The first start with this present
+  records the existing image set as `pre-existing`, once. Refusing a machine's
+  entire cache on upgrade is not a defensible default, and the count is
+  reported rather than implied.
+
+  **It is drift protection, not a boundary, and the docs say so.** Anyone who
+  can run `wsl -d skrog-engine -u root docker load` talks to the engine
+  directly and nothing at the pipe sees it (#418). What it catches is the
+  ordinary accidental laundering: a tarball copied off a laptop, a `docker
+  save` from a machine with different rules, an image left behind by a setup
+  nobody remembers. It also **fails open** — an engine it cannot reach or a
+  record it cannot read allows the request, because a container that will not
+  start because a lookup timed out is the worse outcome.
+
+  **It refuses your own builds too.** The build is not judged, but the image it
+  produces has no recorded origin, so the `docker run` after it is refused — at
+  the pipe a BuildKit build is an opaque gRPC stream with nothing to attribute
+  it to. So this is a rule for machines that *consume* images (a CI runner, a
+  locked-down workstation), not ones that build them. `docs/policy.md` says so
+  where someone deciding whether to turn it on will read it, rather than
+  leaving them to find out from a refusal.
+
+  Applied by every listener that serves the engine, not just the supervisor's
+  pipe: `skrog serve` and `skrog proxy` too, for the reason
+  [#257](https://github.com/wslkit/skrog/issues/257) gives.
+
 ### Changed
 
 - **`skrog version` and `skrog doctor` name the rootfs revision, not just its

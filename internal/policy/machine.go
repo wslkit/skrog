@@ -190,6 +190,10 @@ func Merge(machine, user Rules) Rules {
 		// correct outcome — the machine said "no unattributable builds where
 		// registries are restricted", and they are.
 		DenyUnattributableBuilds: machine.DenyUnattributableBuilds || user.DenyUnattributableBuilds,
+		// Same algebra, same reasoning (#343): either layer may turn it on and
+		// neither can turn the other's off, because the user layer may only
+		// tighten.
+		DenyUnattributableImages: machine.DenyUnattributableImages || user.DenyUnattributableImages,
 
 		AllowBindSources: intersectAllow(machine.AllowBindSources, user.AllowBindSources,
 			func(userEntry string, machineRoots []string) bool {

@@ -121,10 +121,23 @@ flags:
 	}
 	defer auditor.Close()
 
+	// Provenance here too, for the #257 reason above: a rule the operator set
+	// must not stop at one listener. The store is the supervisor's -- same
+	// state dir -- so a remote client is judged against the record the machine
+	// already kept, and a pull through this listener joins it (#343).
+	dialer := engineDialer(targetDistro, "", opts.StateDir, log)
+	prov := &imageProvenance{stateDir: opts.StateDir, dialer: dialer, log: log}
+
+	// Seed here too: Seed is a no-op once the store exists, so whichever
+	// listener comes up first records what was already on the machine, and a
+	// machine whose supervisor has not yet run with this feature does not
+	// refuse its entire existing image set (#343).
+	go prov.SeedExisting(ctx)
+
 	srv := &pipeproxy.Server{
 		Logger:  log,
-		Handler: pipeproxy.RewriteBindsGuarded(auditor, watcher),
-		Dialer:  engineDialer(targetDistro, "", opts.StateDir, log),
+		Handler: pipeproxy.RewriteBindsProvenanced(auditor, watcher, prov),
+		Dialer:  dialer,
 	}
 	if err := srv.Serve(ctx, ln); err != nil {
 		fmt.Fprintf(os.Stderr, "skrog: %v\n", err)
