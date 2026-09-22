@@ -617,8 +617,18 @@ func (p *Provisioner) ReapplyRunning(ctx context.Context, opts Options) error {
 	p.ensureAgentSecret(ctx, opts)
 	p.startAgent(ctx, opts)
 	p.shareEngineSocket(ctx, opts)
-	p.applyEmulation(ctx, opts)
-	return nil
+	// Only the emulation result is returned, and that is deliberate rather than
+	// lazy. The agent and the socket share degrade visibly and recoverably -- a
+	// slower transport, a share another distro can redo. A binfmt_misc handler
+	// that did not register degrades INVISIBLY: the setting still reads back,
+	// nothing in the status output changes, and the only symptom is an exec
+	// format error that looks like a broken image. That one the supervisor
+	// should say out loud.
+	//
+	// Returning nil unconditionally, as the first version did, made the
+	// caller's warning unreachable -- so the silent failure this whole change
+	// exists to fix stayed silent.
+	return p.applyEmulation(ctx, opts)
 }
 
 // StartEngine launches dockerd and waits for its socket.
@@ -629,8 +639,12 @@ func (p *Provisioner) StartEngine(ctx context.Context, opts Options) error {
 
 	if running, _ := p.engineRunning(ctx, opts); running {
 		p.logger().Info("engine already running", "distro", opts.Distro)
+		// Reported, not fatal: the engine IS running and usable, and refusing
+		// the start over an optional handler would be the worse answer. The
+		// supervisor gets the error too and says so in its own log (#501).
 		if err := p.ReapplyRunning(ctx, opts); err != nil {
-			return err
+			p.logger().Warn("engine is running but some of its settings could not be re-applied",
+				"error", err)
 		}
 		ph.mark("alreadyRunning")
 		p.logger().Info("engine start phases", ph.args()...)
@@ -648,8 +662,11 @@ func (p *Provisioner) StartEngine(ctx context.Context, opts Options) error {
 	p.applyGPU(ctx, opts)
 
 	// QEMU interpreters for foreign architectures (#462). Before launch so a
-	// container started immediately afterwards already has them.
-	p.applyEmulation(ctx, opts)
+	// container started immediately afterwards already has them. Logged, never
+	// fatal: an engine that starts without emulation is still an engine.
+	if err := p.applyEmulation(ctx, opts); err != nil {
+		p.logger().Warn("foreign-architecture containers will not run", "error", err)
+	}
 
 	// Engine defaults Skrog holds an opinion on (engineconfig.Defaults), for
 	// installs whose daemon.json predates them. Only absent keys are written,
@@ -735,6 +752,13 @@ func (p *Provisioner) StartEngine(ctx context.Context, opts Options) error {
 		}
 	}
 	waitForAgent()
+
+	// The phase line goes out on the FAILURE path too. This is the run where
+	// "where did the start go" is actually being asked, and the first version
+	// logged phases only on success -- so the one timing breakdown anybody
+	// needed was the one never printed.
+	ph.mark("timedOut")
+	p.logger().Info("engine start phases", ph.args()...)
 
 	// Include the daemon's own last words; without them this is undiagnosable.
 	log, _ := p.wsl().Exec(ctx, opts.Distro, "root", "tail", "-30", "/var/log/dockerd.log")

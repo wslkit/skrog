@@ -813,9 +813,12 @@ func TestEnsureAgentSecretGatedOnAgentVersion(t *testing.T) {
 	}
 }
 
-// The pre-launch steps run concurrently now (#398), and the one property that
-// must survive that is ORDERING AGAINST THE LAUNCH: every one of them has to
-// finish before dockerd starts.
+// Every pre-launch step has to finish before dockerd starts.
+//
+// (An earlier draft of #398 ran these concurrently and this comment said so.
+// They are SERIAL -- measured, see the note at the call site -- and a comment
+// that outlived the change it described is how the next reader gets a wrong
+// idea from a passing test.)
 //
 // Each has its own reason, written at its call site — network.env is sourced
 // by the dockerd command line, the CDI spec and daemon.json are read by the

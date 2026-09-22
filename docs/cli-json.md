@@ -468,9 +468,22 @@ Admission control (#120). `show` reports the rules in effect:
   "exists": true,
   "active": true,
   "enforced": true,
-  "rules": { "denyPrivileged": true, "allowBindSources": ["C:\work"] }
+  "rules": { "denyPrivileged": true, "allowBindSources": ["C:\work"] },
+  "source": { "machine": "...", "user": "..." },
+  "machineProvenance": { "path": "...", "trusted": false, "reason": "..." }
 }
 ```
+
+`source` says what each layer contributed, so "why can I not run this" has an
+answer that names the file to argue with
+([#386](https://github.com/wslkit/skrog/issues/386)).
+
+`machineProvenance` says where the machine layer came from and whether it was
+**trusted** ([#418](https://github.com/wslkit/skrog/issues/418)). It has no
+`omitempty`, so it is on every response. A fleet dashboard needs to tell a
+machine with no policy from one whose policy was *refused* for bad ownership;
+they used to be indistinguishable here, and the second is the one worth an
+alert.
 
 `test` is the verdict on one container-create body, for gating a script:
 

@@ -274,7 +274,7 @@ supplies the `allow-registries` that makes it bite. That is the intended
 outcome — the administrator said "no unattributable builds where images are
 restricted", and they are.
 
-**Swarm services.** `POST /services/create` and `/swarm/init` run an image
+**Swarm services.** `POST /services/create`, `/services/{id}/update` and `/swarm/init` run an image
 from a TaskSpec this gate does not parse, so they cannot be attributed to a
 registry. They are refused only when `deny-unattributable-builds` is on — which
 is off by default. Refusing beats parsing a TaskSpec and getting it subtly
@@ -295,11 +295,20 @@ wrong, which is how two earlier bypasses happened.
 > names no registry keeps the old conservative treatment rather than passing
 > unjudged.
 
-**A registry mirror.** `skrog cache enable --upstream <url>` wires
-`registry-mirrors` into the engine, and the upstream is not checked against
-`allow-registries` ([#421](https://github.com/wslkit/skrog/issues/421)). The
-image *reference* is unchanged, so the rule passes; the bytes come from
-wherever the mirror points.
+> **A registry mirror used to be in this list, and is not any more**
+> ([#421](https://github.com/wslkit/skrog/issues/421)). `skrog cache enable
+> --upstream <url>` wires `registry-mirrors` into the engine, and dockerd
+> applies those to **every unpinned Docker Hub pull** without changing the
+> reference — so a mirror aimed anywhere served that host's content under an
+> allowed name, and `allow-registries` passed because the reference was never
+> the thing in question.
+>
+> **The upstream is now judged against the effective allowlist**, and `http://`
+> is refused unless `--insecure` is passed. This page argued for two releases
+> that it could not happen, on the ground that "a mirror changes where bytes
+> come from, not which image was asked for". The premise is true and the
+> conclusion did not follow: where the bytes come from is what a registry
+> allowlist is *for*. See [registry-cache.md](registry-cache.md#three-things-it-deliberately-does-not-do).
 
 **The network.** This is admission control at the Docker API. A running
 container can reach any registry it likes, and `docker load` plus `docker tag`
@@ -424,9 +433,17 @@ $ skrog policy test --json --rules policy.yaml request.json
 }
 ```
 
-The body is the JSON the docker CLI POSTs to `/containers/create`. The easiest
-way to capture a real one is the [audit log](audit.md); otherwise hand-write
-the fields the rule cares about.
+The body is the JSON the docker CLI POSTs to `/containers/create`.
+
+The [audit log](audit.md) will **not** give you one, and this page used to say
+it would: an audit event is derived from the request line and query string
+only, **never the body** — deliberately, so credentials and payloads never
+reach the log. A `container-create` event carries the name (a query field) and
+not the image or the mounts (body fields).
+
+Hand-write the handful of fields your rule cares about; a create body is
+mostly optional, and `policy test` judges what is there. `docker inspect` on a
+container that already exists is the other source.
 
 ## Failure direction
 
@@ -459,9 +476,12 @@ $dir = "$env:ProgramData\skrog"
 New-Item -ItemType Directory -Force $dir | Out-Null
 
 # Set the ACL explicitly. ProgramData's default gives Users (CI)(WD,AD) and
-# CREATOR OWNER full control of what they create, so a directory that skrog
-# or a user created first is NOT administrator-only -- and skrog does not
-# check (#418). Deploy this before anyone runs skrog on the machine.
+# CREATOR OWNER full control of what they create, so a directory a standard
+# user created first is NOT administrator-only. Skrog refuses a machine policy
+# file whose owner is not Administrators or SYSTEM (#418), so the wrong ACL now
+# means the layer does not load rather than the user's own rules wearing its
+# authority -- but deploying this before anyone runs skrog is still how you get
+# a machine layer that works rather than one that is correctly refused.
 icacls $dir /inheritance:r `
   /grant "*S-1-5-18:(OI)(CI)F" `
   /grant "*S-1-5-32-544:(OI)(CI)F" `

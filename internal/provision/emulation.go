@@ -20,9 +20,12 @@ import (
 // overwhelming majority of installs: no configured platforms means no exec at
 // all. That matters because each `wsl` round trip is ~165 ms on a warm distro
 // and engine start is already the subject of #398.
-func (p *Provisioner) applyEmulation(ctx context.Context, opts Options) {
+// Returns an error only for a registration that FAILED, which is the case a
+// caller may want to report: "not configured" and "nothing to do" are not
+// failures and come back nil. Never fatal to an engine start either way.
+func (p *Provisioner) applyEmulation(ctx context.Context, opts Options) error {
 	if strings.TrimSpace(opts.EmulationPlatforms) == "" {
-		return
+		return nil
 	}
 
 	handlers, err := emulation.Parse(opts.EmulationPlatforms)
@@ -33,10 +36,10 @@ func (p *Provisioner) applyEmulation(ctx context.Context, opts Options) {
 		// starting without it and saying so.
 		p.logger().Warn("emulation.platforms is not usable; starting without emulation",
 			"error", err, "value", opts.EmulationPlatforms)
-		return
+		return nil
 	}
 	if len(handlers) == 0 {
-		return
+		return nil
 	}
 
 	// One exec for the whole set. Three round trips to register two handlers
@@ -47,7 +50,7 @@ func (p *Provisioner) applyEmulation(ctx context.Context, opts Options) {
 		p.logger().Warn("could not register emulation handlers; foreign-architecture "+
 			"containers will fail with exec format error",
 			"error", err, "output", strings.TrimSpace(out))
-		return
+		return fmt.Errorf("registering emulation handlers: %w", err)
 	}
 
 	archs := make([]string, 0, len(handlers))
@@ -60,6 +63,7 @@ func (p *Provisioner) applyEmulation(ctx context.Context, opts Options) {
 	// find it here rather than deduce it.
 	p.logger().Info("emulation handlers registered (shared by every WSL2 distro)",
 		"platforms", strings.Join(archs, ","))
+	return nil
 }
 
 // emulationScript builds the shell that registers a set of handlers.

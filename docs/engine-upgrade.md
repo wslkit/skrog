@@ -6,7 +6,7 @@ taking one should not cost you your images. `skrog engine` does both:
 ```
 skrog engine list                 # what this build can install, and what is installed
 skrog engine upgrade              # move to the manifest's default engine
-skrog engine upgrade --to 29.7.3  # a specific one
+skrog engine upgrade --to 29.8.0  # a specific one
 skrog engine rollback             # back to the engine installed before the last upgrade
 ```
 
@@ -21,16 +21,30 @@ It replaces the **engine binaries** — `dockerd`, `containerd`,
 `skrog-agent` — out of a rootfs tarball verified against its published
 SHA-256, and leaves the filesystem they live on alone.
 
+**And the QEMU emulators**, `qemu-aarch64` and `qemu-x86_64`, which live in
+`/usr/bin` rather than beside the engine binaries. They are listed separately
+because leaving them out is not hypothetical: the extractor filtered on one
+directory, so for every existing install an upgrade delivered no emulator and
+[foreign-architecture containers](docker-cli.md#running-a-foreign-architecture-container)
+stayed unreachable ([#479](https://github.com/wslkit/skrog/issues/479)). A
+tarball that carries no emulator — anything before `29.8.1-3` — simply has that
+step skipped.
+
 That is the whole trick: **`/var/lib/docker` never moves.** Images, containers,
 volumes and build cache are not exported, re-imported or migrated, because
 nothing asks them to be.
 
 ```
-$ skrog engine upgrade --to 29.7.2
-engine upgraded: 29.7.2-3 -> 29.7.2-4 (dockerd 29.7.2)
+$ skrog engine upgrade --to 29.8.0
+engine upgraded: 29.8.1-3 -> 29.8.0-2 (dockerd 29.8.0)
   11 binaries replaced; images, containers and volumes untouched
-  `skrog engine rollback` returns to 29.7.2-3
+  `skrog engine rollback` returns to 29.8.1-3
 ```
+
+The count is what was actually replaced, so it moves with the tarball: the
+agent has had two names across the rename ([#1](https://github.com/wslkit/skrog/issues/1))
+and the extractor takes whichever is present, so an older image replaces one
+fewer.
 
 The **rootfs revision** is the unit of upgrade (`29.7.2-4`, not `29.7.2`): two
 revisions can carry the same dockerd and differ in everything else around it —
@@ -103,8 +117,10 @@ offer:
 ```
 $ skrog engine list
 engines this build can install:
-  29.7.2-4       dockerd 29.7.2  (default, installed)
-rollback target: 29.7.2-3 (`skrog engine rollback`)
+  29.8.1-3       dockerd 29.8.1  (default, installed)
+  29.8.0-2       dockerd 29.8.0
+  29.7.2         dockerd 29.7.2
+rollback target: 29.8.0-2 (`skrog engine rollback`)
 ```
 
 For development there is `--rootfs-url` with `--rootfs-sha256` (both, always —
@@ -114,14 +130,14 @@ built yourself gets in.
 ## `--dry-run`
 
 ```
-$ skrog engine upgrade --to 29.7.2 --dry-run
-would move the engine from 29.7.2-4 to 29.7.2-3:
-  fetch and verify https://github.com/…/skrog-rootfs-29.7.2-3.tar.gz
-  extract 12 engine binaries
+$ skrog engine upgrade --to 29.8.0 --dry-run
+would move the engine from 29.8.1-3 to 29.8.0-2:
+  fetch and verify https://github.com/…/skrog-rootfs-29.8.0-2.tar.gz
+  extract 12 engine binaries and the emulator, if the image carries one
   stop the engine
-  replace the binaries in skrog-engine:/usr/local/bin
+  replace them in skrog-engine:/usr/local/bin and /usr/bin
   start the engine and confirm it answers
-  on failure: restore 29.7.2-4 and start the engine again
+  on failure: restore 29.8.1-3 and start the engine again
 ```
 
 ## See also

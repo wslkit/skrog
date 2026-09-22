@@ -323,6 +323,36 @@ func (s *Supervisor) tick(ctx context.Context) {
 	up, probeErr := s.Engine.Running(probeCtx)
 	cancel()
 
+	// The reconcile decision runs under mu; anything SLOW that falls out of it
+	// runs after, with the lock released. See the adopted-engine branch.
+	adopted := s.reconcileLocked(ctx, up, probeErr, gen)
+	if !adopted {
+		return
+	}
+
+	// Re-applying an adopted engine is four wsl round trips, and it must NOT
+	// happen under mu (#437 all over again): a wslservice that stops answering
+	// would park the reconciler while holding the lock, and every Demand --
+	// every docker command -- would hang instead of failing. The probe above
+	// is outside mu and bounded for exactly this reason; so is this.
+	rctx, cancel := context.WithTimeout(ctx, reapplyTimeout)
+	err := s.Engine.Reapply(rctx)
+	cancel()
+	if err != nil {
+		s.log().Warn("could not re-apply settings to an adopted engine; "+
+			"emulation handlers and the socket share may be missing", "error", err)
+	}
+}
+
+// reapplyTimeout bounds the adopted-engine repair. Generous like probeTimeout,
+// for the same reason -- a cold distro answers slowly -- but FINITE, which is
+// the whole point.
+const reapplyTimeout = 60 * time.Second
+
+// reconcileLocked is the decision half of a tick. It reports whether the engine
+// was ADOPTED on this tick, which is the one follow-up the caller must do with
+// the lock released.
+func (s *Supervisor) reconcileLocked(ctx context.Context, up bool, probeErr error, gen uint64) (adopted bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -430,21 +460,20 @@ func (s *Supervisor) tick(ctx context.Context) {
 			// echoed by `skrog config get`, and `docker run --platform` still
 			// failing with the exec format error it was turned on to remove.
 			//
-			// Reapply is StartEngine's already-running branch, which carries a
-			// comment saying it exists for a supervisor that finds a healthy
-			// engine. Until now nothing reached it from here.
+			// The repair itself happens in the CALLER, with mu released: it is
+			// four wsl round trips, and a slow one must not park the
+			// reconciler while holding the lock. Reporting it as a return
+			// value rather than doing it here is the whole reason this
+			// function was split out.
 			//
-			// Once, not every tick: that branch is four wsl
-			// round trips, and paying that at the health interval forever
-			// would be a worse bug than the one it fixes. A table cleared
-			// later, while this supervisor keeps running, is still only
-			// reported -- by `skrog doctor` (#480) -- not repaired.
-			if err := s.Engine.Reapply(ctx); err != nil {
-				s.log().Warn("could not re-apply settings to an adopted engine; "+
-					"emulation handlers and the socket share may be missing",
-					"error", err)
-			}
+			// upSince is set now, not after the repair, so a repair that hangs
+			// cannot make the next tick try again -- once is the contract, and
+			// paying four round trips at the health interval forever would be
+			// a worse bug than the one this fixes. A table cleared later,
+			// while this supervisor keeps running, is still only reported --
+			// by `skrog doctor` (#480) -- not repaired.
 			s.upSince = time.Now()
+			adopted = true
 		}
 		// A running engine can't be idle-stopped state; clear a stale marker
 		// (someone started the engine by hand while the file said idle).
@@ -458,6 +487,7 @@ func (s *Supervisor) tick(ctx context.Context) {
 		s.maybePrune(ctx)
 		s.maybeIdleStop(ctx)
 	}
+	return adopted
 }
 
 // maybeIdleStop stops a healthy engine that nothing is using, returning its

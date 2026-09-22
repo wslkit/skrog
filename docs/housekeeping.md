@@ -71,6 +71,14 @@ slow pull later.
 An idle stop will also wait while a prune is running, rather than stopping the
 engine out from under it.
 
+> **A short `prune.every` can suppress idle-stop entirely**
+> ([#496](https://github.com/wslkit/skrog/issues/496), open). The prune talks
+> to the engine, and that traffic stamps the same "last activity" clock the
+> idle timeout reads — so a `prune.every` shorter than your `idle-timeout`
+> keeps resetting it and the engine never goes idle. Two features that are
+> each working as described, quietly cancelling each other. Until that is
+> settled, keep `prune.every` comfortably longer than `idle-timeout`.
+
 ### Finding out what it did
 
 Every run is logged, because a missing image needs an explanation somewhere:

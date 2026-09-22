@@ -243,6 +243,64 @@ before.
 
 ### Fixed
 
+- **Findings from an independent pre-release review.** Two reviewers were run
+  over everything since v0.7.1 with no knowledge of why any of it was written.
+  Between them they found four defects serious enough to have held the release,
+  all of them in code added this cycle:
+
+  - **The reconciler held its lock across the adopted-engine repair**, with no
+    timeout — reintroducing [#437](https://github.com/wslkit/skrog/issues/437)
+    on a path added days earlier. A `wslservice` that stopped answering would
+    have parked the supervisor while holding `mu`, so every `docker` command
+    hung instead of failing and `skrog status` could not even report it. The
+    repair now runs outside the lock and bounded, like the health probe beside
+    it, and a test holds it in flight and checks that `Demand` still answers.
+
+  - **The provenance engine round trip had no timeout at all.** `resolveTimeout`
+    bounded only the dial; after that it blocked in `ReadResponse` with no
+    deadline, and the vsock dialer clears the deadline it used for its own
+    handshake before handing the connection over. An engine that accepted the
+    connection and wedged would hang `docker run` forever with no output, and —
+    on the recording path, which runs on the relay goroutine — leave the
+    bridge's client count above zero so idle-stop was vetoed for the life of
+    the process. It goes through an `http.Client` now, the way the container
+    probe already did.
+
+  - **An unreadable store refused every container**, which is the exact
+    opposite of what this page and the changelog both promised. `read` returned
+    `nil` for any failure and `Lookup` could not tell "no record" from "could
+    not read"; `sc.Err()` was never checked either, so one over-long line
+    silently discarded every record after it. Read failures are now an error
+    all the way up and the request is allowed, with `skrog policy show` saying
+    the store could not be read rather than quietly reporting zero.
+
+  - **Pre-existing images were never seeded on the ordinary first boot.**
+    Seeding was gated on the store existing, and the store is also created by
+    the first recorded pull — so on the normal sequence (supervisor starts
+    before the engine, pull creates the store) the seed short-circuited
+    forever and a machine's whole pre-upgrade image cache stayed
+    unattributable, silently. It has its own marker file now.
+
+  Also from the review: compaction could evict the record of an image that is
+  **still installed** (a base image pulled months ago, refused today), so the
+  180-day expiry is gone and compaction asks what the engine still holds before
+  evicting anything; `ReapplyRunning` always returned nil, making the
+  supervisor's warning about a failed re-apply dead code; and four tests
+  asserted less than their names claimed — including the one added for the
+  previous release's `Close` fix, which never reaches the line it was written
+  for on Windows.
+
+- **`skrog --help` lines up.** The command list was padded to a fixed width of
+  10 and `healthcheck` is 11, so that row had no gap at all and `wsl-integrate`
+  overflowed by three. The column is derived from the longest name now, with a
+  three-space gap, and a test fails if any name collides.
+
+  The settings list in `skrog config --help` had the same problem differently:
+  its column was baked into a format string per row, at 22 for some keys and 26
+  for others, and **`gpu` and `gpu.vendor` were missing from it entirely** —
+  settable, documented nowhere, and therefore absent from `docs/reference.md`
+  too. Both lists now render through one helper.
+
 - **A supervisor that adopts a running engine re-applies its settings**
   ([#501](https://github.com/wslkit/skrog/issues/501)). Found on a real machine
   while writing the multi-platform docs for this release: `emulation.platforms`

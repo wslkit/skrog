@@ -66,10 +66,11 @@ func MachineDir() string {
 	// It is NOT administrator-writable-only, which this comment used to say.
 	// The default ACL carries BUILTIN\Users:(CI)(WD,AD) plus CREATOR
 	// OWNER:(OI)(CI)(IO)(F), so a standard user can create ProgramData\skrog
-	// first and own it -- and LoadMachine checks neither owner nor DACL
-	// before reading. On a machine where an administrator created the
-	// directory first the shape is right; skrog just never verifies that it
-	// was. #418.
+	// first and own it. LoadMachine checks the OWNER now and refuses a file
+	// that fails (#418) -- so the wrong ACL means the layer does not load,
+	// rather than the user's own rules wearing the administrator's authority.
+	// An earlier version of this comment said skrog "checks neither owner nor
+	// DACL", forty lines above the function that does.
 	if pd := os.Getenv("ProgramData"); pd != "" {
 		return filepath.Join(pd, "skrog")
 	}

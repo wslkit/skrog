@@ -53,6 +53,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -106,16 +107,33 @@ type Entry struct {
 	At time.Time `json:"at"`
 }
 
-// maxEntries and maxAge bound the store. Image IDs accumulate on a machine
-// that pulls a lot, and a file nobody prunes is a file that eventually becomes
-// the problem.
-const (
-	maxEntries = 4096
-	maxAge     = 180 * 24 * time.Hour
-)
+// maxEntries bounds the store. Image IDs accumulate on a machine that pulls a
+// lot, and a file nobody prunes is a file that eventually becomes the problem.
+//
+// There is deliberately NO age limit any more. One was tried, at 180 days, and
+// it is a time bomb: a base image pulled seven months ago and still installed
+// loses its only record, and `deny-unattributable-images` then refuses a
+// container that has been running fine since spring. Age says nothing about
+// whether an image is still on the machine -- so the cap is on count, and
+// compaction asks the caller which images still exist before evicting any.
+const maxEntries = 4096
+
+// maxLineBytes bounds one record. Large enough that no honest entry reaches it
+// (an entry is an ID, a registry, a reference and a timestamp), small enough
+// that a corrupt file cannot make the reader allocate without limit.
+const maxLineBytes = 1024 * 1024
 
 // mu serialises this process's writes. It does not coordinate with another
 // process -- the append is what makes that safe.
+//
+// With ONE exception, stated rather than glossed: Compact is a
+// read-modify-write, so a second skrog process appending between its read and
+// its rename loses those records. Compaction only runs on a store past
+// maxEntries, and a lost record means a refused container, so this is a real
+// if narrow hole. It is not closed with a lock file because the failure needs
+// two skrog processes writing the same state dir at the same moment AND a
+// store over the cap; naming it here is worth more than a lock nobody can
+// test the absence of.
 var mu sync.Mutex
 
 func storePath(stateDir string) string { return filepath.Join(stateDir, FileName) }
@@ -179,18 +197,27 @@ func supersedes(candidate, current Entry) bool {
 }
 
 // Lookup returns the newest record for an image ID.
-func Lookup(stateDir, id string) (Entry, bool) {
+//
+// Three outcomes, not two, and the third is the one that matters: an error
+// means the store could not be READ, which is not the same as the store having
+// nothing to say. A caller that collapses them refuses a container because a
+// file was unreadable -- see the fail-open promise in docs/policy.md.
+func Lookup(stateDir, id string) (Entry, bool, error) {
 	if id == "" {
-		return Entry{}, false
+		return Entry{}, false, nil
+	}
+	entries, err := read(stateDir)
+	if err != nil {
+		return Entry{}, false, err
 	}
 	var found Entry
 	var ok bool
-	for _, e := range read(stateDir) {
+	for _, e := range entries {
 		if e.ID == id && (!ok || supersedes(e, found)) {
 			found, ok = e, true
 		}
 	}
-	return found, ok
+	return found, ok, nil
 }
 
 // Stats is what `skrog policy show` and doctor report: how much of this
@@ -203,9 +230,18 @@ type Stats struct {
 }
 
 // Summarize counts the newest record per ID.
-func Summarize(stateDir string) Stats {
+//
+// The error matters here for a different reason than in Lookup: a report that
+// silently under-counts is worse than one that says it could not read the
+// store, because the number is exactly what someone uses to decide whether it
+// is safe to turn the rule on.
+func Summarize(stateDir string) (Stats, error) {
+	entries, err := read(stateDir)
+	if err != nil {
+		return Stats{}, err
+	}
 	newest := map[string]Entry{}
-	for _, e := range read(stateDir) {
+	for _, e := range entries {
 		if prev, ok := newest[e.ID]; !ok || supersedes(e, prev) {
 			newest[e.ID] = e
 		}
@@ -220,17 +256,40 @@ func Summarize(stateDir string) Stats {
 			s.PreExisting++
 		}
 	}
-	return s
+	return s, nil
 }
 
-// Seed records images that were already present, once. It is a no-op when the
-// store already exists, so it cannot relabel a machine's history on every
-// start.
+// SeededFileName marks that this machine's pre-existing images were recorded.
+//
+// A marker of its own, and NOT the store's existence, which is what the first
+// version used (#343). The store is also created by the first recorded pull,
+// and on the ordinary first boot the pull comes first: the supervisor starts
+// while the engine is still down, the seed finds no images and correctly does
+// nothing, then a `docker pull` cold-starts the engine and creates the store.
+// Every later seed then short-circuited on "the file exists" and the machine's
+// entire pre-upgrade image cache stayed unattributable forever, silently --
+// the outcome SourcePreExisting exists to prevent.
+const SeededFileName = "image-provenance.seeded"
+
+// Seeded reports whether this machine's pre-existing images have been
+// recorded. Callers use it to decide whether to pay for an image listing.
+func Seeded(stateDir string) bool {
+	_, err := os.Stat(filepath.Join(stateDir, SeededFileName))
+	return err == nil
+}
+
+// Seed records images that were already present, once.
+//
+// The marker is written even when the list is EMPTY of usable ids, because
+// "this machine had nothing" is just as much an answer as a list -- but the
+// caller decides whether it got a real answer: an engine that could not be
+// reached must not be recorded as a machine with no images. See the contract
+// on the ids argument.
+//
+// ids must be the engine's real image list. Pass nil only when the engine
+// answered and genuinely holds nothing.
 func Seed(stateDir string, ids []string) (seeded int, err error) {
-	mu.Lock()
-	_, statErr := os.Stat(storePath(stateDir))
-	mu.Unlock()
-	if statErr == nil {
+	if Seeded(stateDir) {
 		return 0, nil
 	}
 
@@ -244,34 +303,57 @@ func Seed(stateDir string, ids []string) (seeded int, err error) {
 		}
 		seeded++
 	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		return seeded, fmt.Errorf("provenance: creating state dir: %w", err)
+	}
+	// Written last: a marker written before the records would, if the process
+	// died between the two, leave a machine that believes it seeded and did
+	// not. This way the worst case is seeding twice, which is idempotent --
+	// the same ids, the same source, and Lookup takes the newest.
+	if err := os.WriteFile(filepath.Join(stateDir, SeededFileName), nil, 0o644); err != nil {
+		return seeded, fmt.Errorf("provenance: recording the seed marker: %w", err)
+	}
 	return seeded, nil
 }
 
-// Compact rewrites the store with one entry per ID, dropping anything older
-// than maxAge and keeping the newest maxEntries. Safe to call at any time; it
-// is a no-op while the file is small.
-func Compact(stateDir string) error {
+// Compact rewrites the store with one entry per ID, keeping the newest
+// maxEntries. A no-op while the file is small, which is the usual case.
+//
+// stillHere is consulted ONLY when compaction would actually evict something,
+// so the caller pays for an engine round trip on the rare sweep rather than on
+// every pull. It returns the set of image IDs the engine still holds; a record
+// for one of those is never evicted, however old.
+//
+// That guard is the difference between a bound and a time bomb. Evicting by
+// age or by position alone says nothing about whether the image is still on
+// the machine, so a base image pulled long ago and used every day loses its
+// only record and `deny-unattributable-images` then refuses a container that
+// has worked for months. nil means "cannot say what is installed", and then
+// nothing is evicted at all: growing the file is recoverable, refusing a
+// container that should run is what this feature promises not to do.
+func Compact(stateDir string, stillHere func() map[string]bool) error {
 	mu.Lock()
 	defer mu.Unlock()
 
-	entries := readLocked(stateDir)
+	entries, err := readLocked(stateDir)
+	if err != nil {
+		return err
+	}
 	if len(entries) <= maxEntries {
 		return nil
 	}
+
 	// Winners and the cap are both decided by POSITION, not by the clock.
 	//
 	// In an append-only log the order records arrived in is a fact, and it is
 	// the one thing a coarse clock cannot blur -- which matters here for the
 	// same reason it matters in supersedes: a seed and the pull right after it
-	// routinely share a timestamp on Windows. Comparing timestamps to pick a
-	// winner, or sorting by them to apply the cap, resolves those ties
-	// arbitrarily and can drop the record that is actually current.
+	// routinely share a timestamp on Windows.
 	newestIdx := map[string]int{}
-	cutoff := time.Now().Add(-maxAge)
 	for i, e := range entries {
-		if e.At.Before(cutoff) {
-			continue
-		}
 		if j, ok := newestIdx[e.ID]; !ok || supersedes(e, entries[j]) {
 			newestIdx[e.ID] = i
 		}
@@ -281,22 +363,41 @@ func Compact(stateDir string) error {
 		idxs = append(idxs, i)
 	}
 	sort.Ints(idxs)
-	// The newest are furthest down the file, so the cap takes the TAIL.
-	if len(idxs) > maxEntries {
-		idxs = idxs[len(idxs)-maxEntries:]
-	}
-	// Written back in file order. Nothing reads a tie out of the compacted
-	// block -- there is one line per ID by construction -- but keeping the
-	// order means the file still reads as the log it is, and a record appended
-	// afterwards is still the last line.
-	kept := make([]Entry, 0, len(idxs))
-	for _, i := range idxs {
-		kept = append(kept, entries[i])
+	if len(idxs) <= maxEntries {
+		// Deduplication alone got us under the cap; nothing has to be evicted,
+		// so nothing needs to be asked about.
+		return writeCompacted(stateDir, entries, idxs)
 	}
 
+	var keep map[string]bool
+	if stillHere != nil {
+		keep = stillHere()
+	}
+	if keep == nil {
+		// Cannot say what is installed: keep everything rather than evict
+		// something that is.
+		return writeCompacted(stateDir, entries, idxs)
+	}
+
+	// Evict from the OLDEST end, skipping anything still installed.
+	over := len(idxs) - maxEntries
+	pruned := make([]int, 0, len(idxs))
+	for _, i := range idxs {
+		if over > 0 && !keep[entries[i].ID] {
+			over--
+			continue
+		}
+		pruned = append(pruned, i)
+	}
+	return writeCompacted(stateDir, entries, pruned)
+}
+
+// writeCompacted replaces the store with the entries at the given indices, in
+// file order. Caller holds mu.
+func writeCompacted(stateDir string, entries []Entry, idxs []int) error {
 	var b strings.Builder
-	for _, e := range kept {
-		line, err := json.Marshal(e)
+	for _, i := range idxs {
+		line, err := json.Marshal(entries[i])
 		if err != nil {
 			return err
 		}
@@ -314,27 +415,38 @@ func Compact(stateDir string) error {
 	return nil
 }
 
-func read(stateDir string) []Entry {
+func read(stateDir string) ([]Entry, error) {
 	mu.Lock()
 	defer mu.Unlock()
 	return readLocked(stateDir)
 }
 
-// readLocked parses the store, skipping lines it cannot parse.
+// readLocked parses the store.
 //
-// A truncated final line is expected rather than exceptional: an append
-// interrupted by a power loss leaves one, and losing one record is not a
-// reason to refuse to read the rest.
-func readLocked(stateDir string) []Entry {
+// The error is load-bearing and must not be collapsed into "no records"
+// (#343). A caller that cannot tell "the store says nothing about this image"
+// from "the store could not be read" refuses a container for a missing disk,
+// a permissions change or a half-written file -- which is the opposite of what
+// this feature promises, and the opposite of what its own documentation says.
+//
+// A truncated FINAL line is still expected rather than exceptional: an append
+// interrupted by a power loss leaves one, and losing the last record is not a
+// reason to refuse to read the rest. That is why a line that will not parse is
+// skipped, while a failure of the READ itself is reported.
+func readLocked(stateDir string) ([]Entry, error) {
 	f, err := os.Open(storePath(stateDir))
 	if err != nil {
-		return nil
+		if errors.Is(err, fs.ErrNotExist) {
+			// No store is a fact, not a failure: nothing has been recorded.
+			return nil, nil
+		}
+		return nil, fmt.Errorf("provenance: reading the store: %w", err)
 	}
 	defer f.Close()
 
 	var out []Entry
 	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	sc.Buffer(make([]byte, 0, 64*1024), maxLineBytes)
 	for sc.Scan() {
 		line := strings.TrimSpace(sc.Text())
 		if line == "" {
@@ -346,5 +458,12 @@ func readLocked(stateDir string) []Entry {
 		}
 		out = append(out, e)
 	}
-	return out
+	// Checked, and this is the half that was missing: without it a read error
+	// partway through -- or one line longer than the scanner's buffer -- ends
+	// the loop silently and every record AFTER it disappears, with the result
+	// indistinguishable from a store that never held them.
+	if err := sc.Err(); err != nil {
+		return nil, fmt.Errorf("provenance: reading the store: %w", err)
+	}
+	return out, nil
 }

@@ -58,7 +58,7 @@ condition: the engine must find an `nvidia-cdi-hook` binary **when dockerd
 starts** — that is what makes moby register its NVIDIA GPU driver and route
 `--gpus` to the CDI spec instead of the legacy runtime hook. Rootfs 29.7.2-4
 and later ship it; `skrog enable-gpu` tells you which spelling your rootfs
-supports. On an older rootfs `--gpus all` reports "AMD CDI spec not found" —
+supports. On an older rootfs `--gpus all` fails to find a CDI spec —
 use `--device nvidia.com/gpu=all`, which works everywhere.
 
 Two honest notes about that binary. It is the one glibc program in the

@@ -33,40 +33,47 @@ so nothing here needs a restart to take effect. Where "live" needs a
 qualifier, the setting below says so — settings that configure the engine
 itself land when the engine next starts, which `+"`skrog restart`"+` asks for.
 
-  %s   how long the bridge must be quiet (no connections, no running
-                 containers) before the engine is stopped to reclaim its RAM;
-                 the next docker command starts it again. A duration like 20m
-                 or 1h, or "off" (the default).
-  %s          record container-affecting API calls to audit.log in the state
-                 dir; on/off ("off" by default). Takes effect on the next
-                 docker call. See `+"`skrog audit tail`"+`.
-  %s  refuse the rootfs at install time unless its signature verifies
-  %s free-space floor under which `+"`skrog doctor`"+` warns, e.g. 10GB
-  %s    how often the supervisor reclaims disk on its own: a duration
-                 like 168h, or "off" (the default). It prunes stopped
-                 containers and unused images older than prune.keep-since,
-                 skipping entirely while containers are running. NEVER volumes.
-  %s how much history an automatic prune keeps; nothing younger is
-                 touched. Defaults to 168h, and cannot be turned off — clear
-                 the key to restore the default.
-  %s also drop the BuildKit cache on an automatic prune; on/off
-                 ("off" by default, because the cache is expensive to rebuild).
-  %s run containers built for another CPU architecture, e.g.
-                 "linux/amd64" (empty by default). For docker run --platform;
-                 cross-architecture BUILDS already work without this, see
-                 docs/docker-cli.md. Registering an emulator affects EVERY WSL2
-                 distro on the machine, not just Skrog's -- they share one
-                 kernel -- which is why it is opt-in. Removed again on
-                 skrog stop and uninstall.
-
+`)
+		helpRows(os.Stderr, [][2]string{
+			{config.KeyIdleTimeout, `how long the bridge must be quiet (no connections, no running
+containers) before the engine is stopped to reclaim its RAM; the
+next docker command starts it again. A duration like 20m or 1h,
+or "off" (the default).`},
+			{config.KeyAudit, `record container-affecting API calls to audit.log in the state
+dir; on/off ("off" by default). Takes effect on the next docker
+call. See ` + "`skrog audit tail`" + `.`},
+			{config.KeyVerifySignature, `refuse the rootfs at install time unless its signature verifies`},
+			{config.KeyDiskWarnBelow, `free-space floor under which ` + "`skrog doctor`" + ` warns, e.g. 10GB`},
+			{config.KeyPruneEvery, `how often the supervisor reclaims disk on its own: a duration
+like 168h, or "off" (the default). It prunes stopped containers
+and unused images older than prune.keep-since, skipping entirely
+while containers are running. NEVER volumes.`},
+			{config.KeyPruneKeepSince, `how much history an automatic prune keeps; nothing younger is
+touched. Defaults to 168h, and cannot be turned off — clear the
+key to restore the default.`},
+			{config.KeyPruneBuildCache, `also drop the BuildKit cache on an automatic prune; on/off
+("off" by default, because the cache is expensive to rebuild).`},
+			{config.KeyEmulationPlatforms, `run containers built for another CPU architecture, e.g.
+"linux/amd64" (empty by default). For docker run --platform;
+cross-architecture BUILDS already work without this, see
+docs/docker-cli.md. Registering an emulator affects EVERY WSL2
+distro on the machine, not just Skrog's -- they share one kernel
+-- which is why it is opt-in. Removed again on skrog stop and
+uninstall.`},
+			{config.KeyGPU, `install the vendor CDI spec in the engine on every start, so a
+container can use the GPU; on/off ("off" by default).
+` + "`skrog enable-gpu`" + ` sets this for you and checks the driver.`},
+			{config.KeyGPUVendor, `which vendor's CDI spec ` + "`gpu`" + ` installs: nvidia (the default)
+or amd. Separate from gpu so switching vendors does not mean
+turning the feature off and on.`},
+		})
+		fmt.Fprintf(os.Stderr, `
 Engine settings (engine.<key>) are written into the engine's daemon.json,
 validated with `+"`dockerd --validate`"+` before they replace the live file, and
 applied by bouncing the engine (rolled back if it does not come back). Set an
 empty value to clear a key. Lists are comma-separated; maps are k=v,k=v.
 
-`, config.KeyIdleTimeout, config.KeyAudit, config.KeyVerifySignature, config.KeyDiskWarnBelow,
-			config.KeyPruneEvery, config.KeyPruneKeepSince, config.KeyPruneBuildCache,
-			config.KeyEmulationPlatforms)
+`)
 		for _, k := range engineconfig.KeyHelp() {
 			fmt.Fprintf(os.Stderr, "  engine.%-24s %s\n", k.Name, k.Help)
 		}

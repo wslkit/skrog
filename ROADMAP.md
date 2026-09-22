@@ -145,7 +145,7 @@ Goal: the difference between a repo and a tool people install at work. Holiday g
 
 What actually moves with it is **the MSI and SmartScreen reputation** — an installer that asks for elevation unsigned is worse than a zip, and reputation is earned by signed downloads.
 
-**winget and scoop do not, and that sentence used to say they did.** It was wrong, and the cost was real: it held the scoop bucket empty for no reason. Both ship unsigned binaries routinely — winget's `portable` type unpacks per-user with no elevation and no Authenticode, and ripgrep and fzf are distributed exactly that way. [scoop-skrog](https://github.com/wslkit/scoop-skrog) is live and serving 0.5.1 today; winget is [#412](https://github.com/wslkit/skrog/issues/412). `RELEASING.md` corrected this for winget some time ago; this line is the same correction arriving where it should have arrived at the same moment.
+**winget and scoop do not, and that sentence used to say they did.** It was wrong, and the cost was real: it held the scoop bucket empty for no reason. Both ship unsigned binaries routinely — winget's `portable` type unpacks per-user with no elevation and no Authenticode, and ripgrep and fzf are distributed exactly that way. [scoop-skrog](https://github.com/wslkit/scoop-skrog) is live and current; winget is [#412](https://github.com/wslkit/skrog/issues/412). `RELEASING.md` corrected this for winget some time ago; this line is the same correction arriving where it should have arrived at the same moment.
 
 ---
 
