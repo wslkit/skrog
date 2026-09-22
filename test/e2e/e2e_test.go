@@ -2032,6 +2032,31 @@ func stageClean(t *testing.T, s *state) {
 		t.Errorf("wsl.exe count grew from %d to %d; relay processes are leaking beyond the bound",
 			s.wslProcsBefore, after)
 	}
+
+	// The supervisor must not outlive the install it served (#474).
+	//
+	// Nothing else here can catch that, and until SupervisorRestart ran the
+	// suite was not even exposed to it: the supervisor this asks about is not
+	// the one stageProxy started and stageUninstall killed by handle.
+	// `restart --supervisor` replaced that one, and the replacement was
+	// spawned detached and released by `skrog start` — an orphan with no
+	// parent to kill it. That is not an artefact of the suite. It is what a
+	// supervisor looks like on every real install, where autostart or
+	// skrogw.exe launched it exactly the same way.
+	//
+	// `skrog status` cannot answer this: it reports a supervisor only for an
+	// install it can still find, so after uninstall it says "stopped" however
+	// many are running. supervisor.lock is the product's own record, and the
+	// file status itself reads — an exclusively-opened DELETE_ON_CLOSE handle
+	// (internal/supervise), so it exists while a supervisor holds it and the
+	// OS removes it when that process dies.
+	lock := filepath.Join(s.stateDir, "supervisor.lock")
+	if _, err := os.Stat(lock); err == nil {
+		t.Errorf("a supervisor is still running after uninstall: %s is still held.\n"+
+			"It serves a pipe into a distro that no longer exists, can re-point the "+
+			"`skrog` docker context the uninstall just unwired, and holds skrog.exe open "+
+			"so the directory it lives in cannot be deleted", lock)
+	}
 }
 
 func stageDesktopIntact(t *testing.T, s *state) {
