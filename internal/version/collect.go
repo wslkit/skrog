@@ -46,6 +46,7 @@ func (c *Collector) Collect(ctx context.Context) *Report {
 				Version:      m.EngineVersion,
 				Distro:       m.Distro,
 				Rootfs:       m.RootfsSHA256,
+				Ref:          m.EngineRefOrDerived(),
 				WSLAtInstall: m.WSLVersion,
 			}
 		}

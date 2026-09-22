@@ -15,6 +15,7 @@ import (
 
 	"github.com/wslkit/skrog/internal/engineconfig"
 	"github.com/wslkit/skrog/internal/gpu"
+	"github.com/wslkit/skrog/internal/release"
 	"github.com/wslkit/skrog/internal/rootfsverify"
 	"github.com/wslkit/skrog/internal/winpath"
 	"github.com/wslkit/skrog/internal/wsl"
@@ -1099,6 +1100,27 @@ func (m *Manifest) BackendName() string {
 		return BackendDistro
 	}
 	return m.Backend
+}
+
+// EngineRefOrDerived is the installed engine's ref -- "29.8.1-3" -- from the
+// recorded field when there is one, derived from the rootfs URL when there is
+// not (#484).
+//
+// Installs made before EngineRef existed, and installs made with an explicit
+// --rootfs-url, have no recorded ref. Deriving it from the asset name answers
+// most of those; when even that cannot, the bare engine version is the honest
+// answer rather than a guess.
+//
+// A nil receiver reports "", for the same reason BackendName tolerates one:
+// callers reach this from a manifest that may not have loaded.
+func (m *Manifest) EngineRefOrDerived() string {
+	if m == nil {
+		return ""
+	}
+	if m.EngineRef != "" {
+		return m.EngineRef
+	}
+	return release.RefFromURL(m.EngineVersion, m.RootfsURL)
 }
 
 // IsLegacySession reports whether this manifest was written by an install

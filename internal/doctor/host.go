@@ -86,6 +86,16 @@ type Facts struct {
 	// MultiArch is whether the default buildx driver can cross-build (#384).
 	MultiArch MultiArchInfo
 
+	// EmulationPlatforms is the `emulation.platforms` setting verbatim (#462).
+	// Empty is the default and means nothing was asked for.
+	//
+	// Kept beside MultiArch rather than folded into it because the two ask
+	// different questions of the same table: MultiArch reports what the machine
+	// CAN do, this reports whether what the user ASKED FOR actually happened.
+	// Registration can fail after a successful-looking `config set` (#480), and
+	// only the second question catches that.
+	EmulationPlatforms string
+
 	// MountTransport is what the engine distro actually mounts Windows drives
 	// over: "virtiofs", "9p", or "" when the engine was down and nothing was
 	// measured (#327). Read live rather than inferred from ~/.wslconfig,
@@ -291,6 +301,7 @@ func Gather(ctx context.Context, opts GatherOptions) Facts {
 		f.GPU.Vendor = c.GPUVendor
 		pOpts.GPUVendor = c.GPUVendor
 		f.DiskWarnBelow = c.DiskWarnBelow
+		f.EmulationPlatforms = c.EmulationPlatforms
 	}
 
 	// GPU distro probes only when the engine is already up: GPUAvailable uses

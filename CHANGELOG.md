@@ -10,6 +10,93 @@ This file starts at 0.6.0. Earlier releases have hand-written notes on their
 reconstructed here — inventing a tidy history after the fact would be less
 useful than saying where the real one is.
 
+## [Unreleased]
+
+Three things doctor and `version` were reporting badly, all found by running
+0.7.0 and 0.7.1 on a real machine and reading what they said.
+
+### Added
+
+- **`skrog doctor` checks the emulation you asked for is actually live**
+  ([#480](https://github.com/wslkit/skrog/issues/480)).
+  `skrog config set emulation.platforms linux/arm64` reports success and takes
+  effect on the next engine start — where registration can fail. When it did,
+  the only evidence was a `WARN` in `supervisor.log`: `skrog restart` printed
+  "engine is running", and the container then died with `exec format error`,
+  which is the exact symptom the setting was turned on to remove.
+
+  ```
+  [warn] foreign-architecture containers: emulation.platforms asks for
+         linux/arm64, but no handler is registered for arm64
+  ```
+
+  Separate from the `cross-architecture builds` check next door, which reads
+  the same table. That one asks *what can this machine do* and never warns,
+  because a standing warning about a capability nobody uses is what teaches
+  people to skim. This one asks *did what you asked for happen*, is silent
+  unless you asked, and warns when the answer is no. The first cannot catch
+  this: with no handlers at all it reports "the default builder is native-only
+  … nothing is wrong here", which on a machine that requested emulation is
+  wrong twice.
+
+  The remedy names the likeliest cause, which is not guessable: the emulator
+  ships **in the engine image**, and images before `29.8.1-3` do not carry it
+  (#479).
+
+### Changed
+
+- **`skrog version` and `skrog doctor` name the rootfs revision, not just its
+  checksum** ([#484](https://github.com/wslkit/skrog/issues/484)).
+
+  ```
+  rootfs   29.8.1-3  (f1be49d99b9a...)
+  ```
+
+  It used to be the truncated SHA-256 alone — a value that identifies the bytes
+  exactly and answers none of the questions asked of it. Which revision am I
+  on, and is it the one that carries the emulator, were unanswerable from the
+  output of the two commands whose job is to answer them. `doctor` was worse:
+  it printed `version 29.8.1` one line above, so the two lines together gave
+  the engine version twice and the revision never.
+
+  The checksum stays, because it is what `--rootfs-sha256`, the manifest and a
+  bug report speak, and it is the only identifier an image installed from
+  outside the manifest has. Without a ref the line degrades to the checksum
+  alone rather than inventing one.
+
+  `version --json` gains `engineRef` as a **new field**; `rootfsSha256` and
+  `version` are untouched, because `docs/cli-json.md` pins them and a reader
+  switching on either must keep working.
+
+  The naming rule moved to `internal/release` on the way. It had one caller
+  when it was written and now has four, and a rule with four copies is a rule
+  that drifts.
+
+### Fixed
+
+- **`skrog doctor` no longer reports WSL's own COM stub as an injected
+  third-party module** ([#488](https://github.com/wslkit/skrog/issues/488)).
+
+  ```
+  [warn] injected modules: 1 third-party module(s) are loaded into this process
+         wslserviceproxystub.dll  (C:\Program Files\WSL\wslserviceproxystub.dll)
+       fix: ... ask whoever manages the agent for an exclusion
+  ```
+
+  There is no agent and nobody to ask. That DLL is Microsoft-signed, ships with
+  WSL, and **Skrog loads it itself**: it talks to `wslservice` over COM (#380),
+  and Windows maps the marshalling stub into any process that does. Doctor said
+  as much two lines above, in the `WSL service access` check.
+
+  The filter treated only `C:\Windows\...` as the platform's own, and modern
+  WSL is serviced separately and installs to `%ProgramFiles%\WSL`. It now
+  exempts a directory named `wsl`, matched as a whole path segment so that
+  something shipping in `wslhook\` is still reported — the point is to quieten
+  one component, not to hand anything WSL-shaped a free pass.
+
+  This fired on every healthy machine, which is the specific way a check whose
+  value is that its output means something becomes a check people skim.
+
 ## [0.7.1] — 2026-09-21
 
 A patch release for one thing: 0.7.0's headline feature could not reach an

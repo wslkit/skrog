@@ -296,10 +296,7 @@ func installedEngineRef(opts provision.Options) string {
 	if err != nil {
 		return ""
 	}
-	if m.EngineRef != "" {
-		return m.EngineRef
-	}
-	return engineRef(m.EngineVersion, m.RootfsURL)
+	return m.EngineRefOrDerived()
 }
 
 // bundledCLIVersion is the docker CLI version this build ships, taken from the

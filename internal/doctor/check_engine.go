@@ -1,6 +1,10 @@
 package doctor
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/wslkit/skrog/internal/version"
+)
 
 // checkEngine reports whether an engine is installed and flags WSL version skew
 // since install — the "WSL was X at install and is Y now" class that produces
@@ -20,7 +24,7 @@ func checkEngine() Check {
 			fmt.Sprintf("  distro  %s", e.Distro),
 		}
 		if e.Rootfs != "" {
-			detail = append(detail, "  rootfs  "+shortSHA(e.Rootfs))
+			detail = append(detail, "  rootfs  "+version.RootfsLine(e.Ref, e.Rootfs))
 		}
 
 		if e.WSLAtInstall != "" && f.Report.WSL != "" && e.WSLAtInstall != f.Report.WSL {
