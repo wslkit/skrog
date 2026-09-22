@@ -482,3 +482,160 @@ func TestExtractBinariesIgnoresPathTraversal(t *testing.T) {
 		}
 	}
 }
+
+// makeRootfsAt writes a tarball whose keys are full archive paths, so a test
+// can put a file outside usr/local/bin. makeRootfs cannot: every key it takes
+// goes into that one directory, which is the assumption #479 broke.
+func makeRootfsAt(t *testing.T, dir string, files map[string]string) string {
+	t.Helper()
+	p := filepath.Join(dir, "skrog-rootfs-paths.tar.gz")
+	f, err := os.Create(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	gz := gzip.NewWriter(f)
+	tw := tar.NewWriter(gz)
+	for name, content := range files {
+		if err := tw.WriteHeader(&tar.Header{
+			Name: name, Mode: 0o755, Size: int64(len(content)), Typeflag: tar.TypeReg,
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tw.Write([]byte(content)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := gz.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+// The emulator is engine payload that does not live in usr/local/bin, and
+// skipping it meant `skrog engine upgrade` could move an install to 29.8.1-3
+// and not deliver the one thing that revision was cut for (#479).
+func TestExtractBinariesTakesTheEmulator(t *testing.T) {
+	dir := t.TempDir()
+	// An amd64 image: qemu-aarch64 and no qemu-x86_64, because each image
+	// carries exactly one, for the architecture it is NOT (#462).
+	src := makeRootfsAt(t, dir, map[string]string{
+		"usr/local/bin/dockerd": "dockerd-bytes",
+		"usr/bin/qemu-aarch64":  "emulator-bytes",
+		// Decoys in both directions: the pairing of directory and name has to
+		// be checked, not just the name. A flat staging area means a decoy
+		// that IS accepted silently overwrites the real file.
+		"usr/bin/dockerd":           "not the engine's dockerd",
+		"usr/local/bin/qemu-x86_64": "not where an interpreter lives",
+		"usr/local/bin/socat":       "alpine's own",
+	})
+	dest := filepath.Join(dir, "staging")
+
+	got, err := engineupgrade.ExtractBinaries(src, dest)
+	if err != nil {
+		t.Fatalf("ExtractBinaries: %v", err)
+	}
+	if want := []string{"dockerd", "qemu-aarch64"}; strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	if b, err := os.ReadFile(filepath.Join(dest, "qemu-aarch64")); err != nil || string(b) != "emulator-bytes" {
+		t.Errorf("qemu-aarch64 content = %q (%v)", b, err)
+	}
+	// If /usr/bin/dockerd had been accepted it would have clobbered the real
+	// one, and the upgrade would install the wrong bytes as the engine.
+	if b, err := os.ReadFile(filepath.Join(dest, "dockerd")); err != nil || string(b) != "dockerd-bytes" {
+		t.Errorf("dockerd content = %q (%v); a decoy outside %s was taken", b, err, "usr/local/bin")
+	}
+	if _, err := os.Stat(filepath.Join(dest, "qemu-x86_64")); err == nil {
+		t.Error("staged qemu-x86_64 from usr/local/bin: an interpreter is only an interpreter in /usr/bin")
+	}
+}
+
+// Staging is one flat directory keyed by name, so a name in both sets would
+// make one file silently overwrite the other. Asserted rather than assumed,
+// because the failure would be a wrong binary installed, not an error.
+func TestEngineFileSetsDoNotOverlap(t *testing.T) {
+	for _, b := range engineupgrade.EngineBinaries {
+		for _, e := range engineupgrade.EngineEmulators {
+			if b == e {
+				t.Errorf("%q is in both EngineBinaries and EngineEmulators; "+
+					"flat staging would make one overwrite the other", b)
+			}
+		}
+	}
+}
+
+// The emulator has to land in /usr/bin, because that is the path the
+// registration in internal/emulation/*.reg names and the path the start-up
+// `test -x` checks. Installing it beside dockerd would satisfy the extractor
+// and still leave the feature broken.
+func TestUpgradeInstallsTheEmulatorInUsrBin(t *testing.T) {
+	dir := t.TempDir()
+	src := makeRootfsAt(t, dir, map[string]string{
+		"usr/local/bin/dockerd": "new",
+		"usr/bin/qemu-aarch64":  "emulator",
+	})
+	d := &fakeDistro{version: "Docker version 29.7.2, build abcdef"}
+	r, _ := runner(t, d, &fakeFetcher{tarball: src})
+
+	if _, err := r.Run(context.Background(), opts(t, dir)); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	var copyCmd string
+	for _, c := range d.calls {
+		if strings.Contains(c, "install -m") {
+			copyCmd = c
+		}
+	}
+	if copyCmd == "" {
+		t.Fatal("no install command was run")
+	}
+	if !strings.Contains(copyCmd, `"/usr/bin/qemu-aarch64"`) {
+		t.Errorf("emulator not installed into /usr/bin:\n%s", copyCmd)
+	}
+	if !strings.Contains(copyCmd, `"/usr/local/bin/dockerd"`) {
+		t.Errorf("dockerd not installed into /usr/local/bin:\n%s", copyCmd)
+	}
+	if strings.Contains(copyCmd, `"/usr/local/bin/qemu-aarch64"`) {
+		t.Errorf("emulator installed beside the engine binaries, where nothing looks for it:\n%s", copyCmd)
+	}
+}
+
+// A failed copy has to say which file it died on, and has to say so even when
+// the command printed nothing at all (#483).
+func TestUpgradeFailureNamesTheFileAndSurvivesSilence(t *testing.T) {
+	dir := t.TempDir()
+	src := makeRootfsAt(t, dir, map[string]string{"usr/local/bin/dockerd": "new"})
+	d := &fakeDistro{
+		version:    "Docker version 29.7.2, build abcdef",
+		installErr: errors.New("exit status 1"),
+	}
+	r, _ := runner(t, d, &fakeFetcher{tarball: src})
+
+	_, err := r.Run(context.Background(), opts(t, dir))
+	if err == nil {
+		t.Fatal("Run succeeded while the copy failed")
+	}
+	// The old message ended in a bare ": ", which reads as truncated.
+	if strings.HasSuffix(err.Error(), ": ") || strings.Contains(err.Error(), ": : ") {
+		t.Errorf("error ends in an empty output section: %q", err)
+	}
+	if !strings.Contains(err.Error(), "no output") {
+		t.Errorf("error should say the command printed nothing: %q", err)
+	}
+	// And the command itself must name each file, so the transcript of a real
+	// failure identifies the one that broke.
+	var copyCmd string
+	for _, c := range d.calls {
+		if strings.Contains(c, "install -m") {
+			copyCmd = c
+		}
+	}
+	if !strings.Contains(copyCmd, "installing dockerd") {
+		t.Errorf("copy command does not name the file it is installing:\n%s", copyCmd)
+	}
+}

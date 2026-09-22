@@ -71,6 +71,34 @@ var EngineBinaries = []string{
 // distroBinDir is where the rootfs puts them, and where they must land.
 const distroBinDir = "/usr/local/bin"
 
+// EngineEmulators are the foreign-architecture interpreters (#462). They are
+// engine payload in every sense that matters -- `docker run --platform` works
+// or does not work depending on whether they are there -- but they live in
+// /usr/bin rather than distroBinDir, and the extractor took one directory.
+//
+// So `skrog engine upgrade` moved an install to 29.8.1-3, the revision cut to
+// carry them, and did not carry them: the handler registration then failed on
+// `test -x /usr/bin/qemu-aarch64` and the feature was unreachable for everyone
+// who had not installed fresh (#479). Same reasoning as nvidia-cdi-hook above,
+// which is in the list for exactly this reason -- an upgrade that skips what a
+// revision was cut for has not delivered that revision.
+//
+// Each rootfs carries exactly one, for the architecture it is NOT, so the
+// extractor takes whichever is present and skips the other, as with the agent.
+//
+// The matching /usr/lib/binfmt.d/*.conf is deliberately NOT carried. Skrog
+// composes the registration itself from internal/emulation/*.reg and writes it
+// to /proc directly, and this distro runs without systemd, so nothing in the
+// engine ever reads that file. Copying it would be cargo cult.
+var EngineEmulators = []string{
+	"qemu-aarch64",
+	"qemu-x86_64",
+}
+
+// distroEmulatorDir is where the rootfs puts the interpreters, and where the
+// registration in internal/emulation/*.reg names them.
+const distroEmulatorDir = "/usr/bin"
+
 // Distro is the slice of wsl.WSL this package needs.
 type Distro interface {
 	Exec(ctx context.Context, distro, user string, args ...string) (string, error)
@@ -169,9 +197,11 @@ func (r *Runner) Run(ctx context.Context, opts Options) (Report, error) {
 	if opts.DryRun {
 		rep.Steps = []string{
 			"fetch and verify " + opts.Target.URL,
-			fmt.Sprintf("extract %d engine binaries", len(EngineBinaries)),
+			fmt.Sprintf("extract %d engine binaries and the emulator, if the image carries one",
+				len(EngineBinaries)),
 			"stop the engine",
-			"replace the binaries in " + opts.Distro + ":" + distroBinDir,
+			"replace them in " + opts.Distro + ":" + distroBinDir +
+				" and " + distroEmulatorDir,
 			"start the engine and confirm it answers",
 		}
 		if opts.From != "" {
@@ -288,13 +318,33 @@ func (r *Runner) install(ctx context.Context, opts Options, staging string, name
 	var b strings.Builder
 	b.WriteString("set -e; ")
 	for _, n := range names {
-		fmt.Fprintf(&b, "install -m 0755 %q %q; ", mnt+"/"+n, distroBinDir+"/"+n)
+		// Each file is named before it is copied, so a failure says WHICH one
+		// it died on (#483). `set -e` stops at the first error, so the last
+		// name in the output is the one that failed. Exec returns combined
+		// output, so this is captured; and on the path that works nobody sees
+		// it, because nobody sees a successful upgrade's transcript.
+		fmt.Fprintf(&b, "echo %q; ", "installing "+n+" -> "+destDirFor(n))
+		fmt.Fprintf(&b, "install -m 0755 %q %q; ", mnt+"/"+n, destDirFor(n)+"/"+n)
 	}
 	out, err := r.WSL.Exec(ctx, opts.Distro, "root", "sh", "-c", b.String())
 	if err != nil {
-		return fmt.Errorf("copying binaries into %s: %w: %s", opts.Distro, err, strings.TrimSpace(out))
+		return fmt.Errorf("copying binaries into %s: %w: %s", opts.Distro, err, describeOutput(out))
 	}
 	return nil
+}
+
+// describeOutput renders a command's output for an error message.
+//
+// Silence is a fact worth stating. The failure that prompted #483 ended in
+// `exit status 1: ` with nothing after the colon, which reads like a truncated
+// message and sent the reader looking for the missing half. There was no
+// missing half: the command said nothing, which is itself the clue, because it
+// means the shell never got far enough to complain.
+func describeOutput(out string) string {
+	if s := strings.TrimSpace(out); s != "" {
+		return s
+	}
+	return "(the command produced no output, so it likely never ran)"
 }
 
 // engineVersion asks the newly installed dockerd what it is, which is the only
@@ -323,6 +373,39 @@ func matchEngineBinary(base string) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// matchEngineFile resolves an archive entry to the name an upgrade knows it
+// by, given the directory it came from. Two directories now, not one (#479),
+// and the pairing is checked: an entry called `dockerd` under /usr/bin is not
+// the engine, and an interpreter under /usr/local/bin is not one either.
+//
+// As with matchEngineBinary, the returned name is the constant rather than the
+// archive's string, so the path that reaches filepath.Join is provably ours.
+func matchEngineFile(dir, base string) (string, bool) {
+	switch dir {
+	case strings.TrimPrefix(distroBinDir, "/"):
+		return matchEngineBinary(base)
+	case strings.TrimPrefix(distroEmulatorDir, "/"):
+		for _, n := range EngineEmulators {
+			if n == base {
+				return n, true
+			}
+		}
+	}
+	return "", false
+}
+
+// destDirFor says where a staged file has to land. Staging is flat and keyed
+// by name, which is safe only because the two sets do not overlap -- asserted
+// by TestEngineFileSetsDoNotOverlap rather than assumed.
+func destDirFor(name string) string {
+	for _, n := range EngineEmulators {
+		if n == name {
+			return distroEmulatorDir
+		}
+	}
+	return distroBinDir
 }
 
 // ExtractBinaries pulls the engine binaries out of a rootfs tarball into dest,
@@ -357,17 +440,16 @@ func ExtractBinaries(tarball, dest string) ([]string, error) {
 		if h.Typeflag != tar.TypeReg {
 			continue
 		}
-		// Entries are "usr/local/bin/dockerd" (or "./usr/local/bin/dockerd").
+		// Entries are "usr/local/bin/dockerd" (or "./usr/local/bin/dockerd"),
+		// and since #479 also "usr/bin/qemu-aarch64".
 		clean := strings.TrimPrefix(path.Clean("/"+h.Name), "/")
-		if path.Dir(clean) != strings.TrimPrefix(distroBinDir, "/") {
-			continue
-		}
 		// As in internal/upgrade: resolve to the constant from EngineBinaries
-		// rather than reusing the tar header's string, so the path we write is
-		// provably ours. path.Clean, the exact-directory check above and
-		// path.Base already prevented an escape; this stops the tainted name
-		// reaching filepath.Join at all (CodeQL go/zipslip).
-		name, ok := matchEngineBinary(path.Base(clean))
+		// or EngineEmulators rather than reusing the tar header's string, so
+		// the path we write is provably ours. path.Clean, the exact-directory
+		// check inside matchEngineFile and path.Base already prevented an
+		// escape; this stops the tainted name reaching filepath.Join at all
+		// (CodeQL go/zipslip).
+		name, ok := matchEngineFile(path.Dir(clean), path.Base(clean))
 		if !ok {
 			continue
 		}

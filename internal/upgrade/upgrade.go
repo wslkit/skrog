@@ -70,6 +70,11 @@ type Report struct {
 type Installed struct {
 	// EngineVersion is empty when no engine is installed.
 	EngineVersion string
+	// EngineRef is the installed engine BUILD -- version plus rootfs revision,
+	// "29.8.1-3". Empty on an install made before the ref was recorded, and on
+	// one made with an explicit --rootfs-url, which is why the version above
+	// stays and is used as the fallback.
+	EngineRef string
 	// CLIVersion is empty when the bundled docker CLI is not installed.
 	CLIVersion string
 }
@@ -89,6 +94,8 @@ type Checker struct {
 	// Empty when the build ships no published engine, which happens in a dev
 	// build before the rootfs release is cut.
 	EngineLatest string
+	// EngineLatestRef is that engine as a ref, revision included.
+	EngineLatestRef string
 	// CLILatest is the docker CLI version this build bundles.
 	CLILatest string
 
@@ -172,16 +179,31 @@ func (c *Checker) appStream(ctx context.Context, rep *Report) Stream {
 }
 
 func (c *Checker) engineStream() Stream {
-	s := Stream{Name: "engine", Current: c.Installed.EngineVersion, Latest: c.EngineLatest}
+	// Refs when both are known, versions otherwise (#481).
+	//
+	// The rootfs revision exists precisely because the tarball's contents can
+	// change while ENGINE_VERSION stays put, so comparing bare versions asks
+	// the wrong question: 29.8.1-1 and 29.8.1-3 are both "29.8.1", and only
+	// one of them carries the emulator #462 shipped. Someone on the older one
+	// asked the command named "upgrade" whether there was anything to do and
+	// was told no.
+	//
+	// Compare already understands the revision suffix, so this is a change of
+	// input rather than of comparison.
+	cur, latest := c.Installed.EngineVersion, c.EngineLatest
+	if c.Installed.EngineRef != "" && c.EngineLatestRef != "" {
+		cur, latest = c.Installed.EngineRef, c.EngineLatestRef
+	}
+	s := Stream{Name: "engine", Current: cur, Latest: latest}
 
 	switch {
 	case c.Installed.EngineVersion == "":
 		s.Status = StatusNotInstalled
 		s.Command = "skrog install"
-	case c.EngineLatest == "":
+	case latest == "":
 		s.Status = StatusUnknown
 		s.Note = "this build's manifest lists no published engine"
-	case Compare(c.EngineLatest, c.Installed.EngineVersion) > 0:
+	case Compare(latest, cur) > 0:
 		s.Status = StatusAvailable
 		s.Command = "skrog engine upgrade"
 	default:

@@ -10,6 +10,48 @@ This file starts at 0.6.0. Earlier releases have hand-written notes on their
 reconstructed here — inventing a tidy history after the fact would be less
 useful than saying where the real one is.
 
+## [Unreleased]
+
+### Fixed
+
+- **`skrog engine upgrade` now carries the foreign-architecture emulator**
+  ([#479](https://github.com/wslkit/skrog/issues/479)). 0.7.0 shipped
+  `emulation.platforms` (#462) with its payload in the rootfs, and the
+  extractor took one directory — `/usr/local/bin`. The emulator lives in
+  `/usr/bin`. So an existing install could move to engine `29.8.1-3`, the
+  revision cut to carry it, and not receive it: handler registration then
+  failed on `test -x /usr/bin/qemu-aarch64`, and **the feature was unreachable
+  for anyone who had not installed fresh**.
+
+  0.7.0's entry for #462 said `skrog engine upgrade` was the fix for an older
+  image. It was not, and that line was wrong on the release page as well as
+  here. It is now true.
+
+  The extractor takes the interpreter from `/usr/bin` as well, checking the
+  directory and the name as a pair — `dockerd` under `/usr/bin` is not the
+  engine, and an interpreter under `/usr/local/bin` is not an interpreter. The
+  matching `binfmt.d` conf is deliberately not carried: Skrog composes the
+  registration itself and this distro runs without systemd, so nothing would
+  read it.
+
+- **`skrog upgrade` sees rootfs revisions**
+  ([#481](https://github.com/wslkit/skrog/issues/481)). It compared bare
+  engine versions, so `29.8.1-1` and `29.8.1-3` both read as "29.8.1" and the
+  answer was "current" — on exactly the machines that needed the newer
+  revision. It compares refs now, and the engine row names them, so the report
+  says `29.8.1-1 -> 29.8.1-3 available` rather than repeating one number. An
+  install with no recorded ref still falls back to versions, because an empty
+  ref compared against a real one would read as an upgrade forever.
+
+- **A failed engine upgrade says which file it died on**
+  ([#483](https://github.com/wslkit/skrog/issues/483)). One copy failed in the
+  field with `exit status 1` and no output at all, which read as a truncated
+  message and named neither a cause nor a file. Each file is now announced
+  before it is copied, so the last name in the transcript is the one that
+  failed, and silence is reported as silence — "the command produced no
+  output, so it likely never ran" is a clue, where a bare trailing colon is
+  not. Rollback already worked correctly and is unchanged.
+
 ## [0.7.0] — 2026-09-21
 
 ### Added
@@ -82,6 +124,22 @@ useful than saying where the real one is.
   asked for — an amd64-only image that fails fast today will start succeeding
   *slowly* instead, with nothing announcing it. `skrog doctor` reports which
   handlers are live.
+
+  > **Two corrections to the two paragraphs above, found validating this
+  > release on a real machine.** They are left as written, because this section
+  > is the record of what 0.7.0 shipped, and corrected here rather than
+  > silently edited.
+  >
+  > `skrog engine upgrade` was **not** the fix for an older image: it copied
+  > only `/usr/local/bin`, so it could move an install to `29.8.1-3` and still
+  > not deliver the emulator. In 0.7.0, emulation works **only on a fresh
+  > install**. Fixed in 0.7.1 ([#479](https://github.com/wslkit/skrog/issues/479)).
+  >
+  > `skrog doctor` does **not** report which handlers are live. Its only
+  > emulation check is about cross-architecture *builds*, and it reports OK on
+  > a machine where runtime registration has failed. Tracked as
+  > [#480](https://github.com/wslkit/skrog/issues/480); the failure is a `WARN`
+  > in `supervisor.log` and nowhere else.
 
 - **Windows on ARM: a `docker` CLI, built here because upstream ships none**
   ([#450](https://github.com/wslkit/skrog/issues/450)). `skrog cli install` on
