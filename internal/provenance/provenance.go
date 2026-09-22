@@ -51,6 +51,7 @@ package provenance
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -147,9 +148,12 @@ func Record(stateDir string, e Entry) error {
 	// reach the disk. Write can succeed into a buffer that Close then fails to
 	// flush, and a provenance store that silently lost its last append is the
 	// exact failure this package exists to make visible.
-	if _, err := f.Write(append(line, '\n')); err != nil {
-		f.Close()
-		return fmt.Errorf("provenance: appending: %w", err)
+	if _, werr := f.Write(append(line, '\n')); werr != nil {
+		// Both, not just the first. A failed Write and a Close that then also
+		// failed are two different things to have gone wrong, and dropping the
+		// second is the same data loss the deferred Close used to hide, just
+		// on the path where something had already gone wrong.
+		return fmt.Errorf("provenance: appending: %w", errors.Join(werr, f.Close()))
 	}
 	if err := f.Close(); err != nil {
 		return fmt.Errorf("provenance: closing the store: %w", err)

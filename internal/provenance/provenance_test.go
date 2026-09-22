@@ -3,6 +3,7 @@ package provenance
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -244,5 +245,24 @@ func TestCompactDecidesByPositionWhenEveryTimestampIsEqual(t *testing.T) {
 	}
 	if got.Source != SourcePull {
 		t.Errorf("after compaction Lookup = %+v, want the pull — the later line is the current one", got)
+	}
+}
+
+// The Write error must still be identifiable when Close also fails: the
+// joined error is for reporting both, not for burying the first.
+func TestAppendFailureStillReportsTheWriteError(t *testing.T) {
+	dir := t.TempDir()
+	// A directory where the store file must go: the open succeeds on some
+	// platforms and the write does not, which is the shape this path handles.
+	// Where the open fails instead, the error still names the store.
+	if err := os.MkdirAll(filepath.Join(dir, FileName), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	err := Record(dir, Entry{ID: "sha256:a", Source: SourcePull})
+	if err == nil {
+		t.Fatal("recording into a directory succeeded")
+	}
+	if !strings.Contains(err.Error(), "provenance:") {
+		t.Errorf("error does not identify the store: %v", err)
 	}
 }
