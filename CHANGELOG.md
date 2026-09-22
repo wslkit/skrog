@@ -107,6 +107,51 @@ before.
   pipe: `skrog serve` and `skrog proxy` too, for the reason
   [#257](https://github.com/wslkit/skrog/issues/257) gives.
 
+- **`skrog` logs where an engine start spent its time**
+  ([#398](https://github.com/wslkit/skrog/issues/398)). One line per start:
+
+  ```
+  engine start phases probe=17ms prelaunch=1.085s launch=17ms
+                      dockerdReady=2.96s agent=0s shareSocket=129ms total=4.206s
+  ```
+
+  #404 had to reconstruct this from the timestamps of three unrelated log
+  lines, and a 1.2 s stretch sat unexamined in the gap between two of them for
+  two releases. Anyone asking "where does a start go" now gets the answer from
+  one run instead of arithmetic on a log.
+
+  **What it immediately showed is that there is no five-second win in Skrog's
+  own code.** Of a ~4.2 s start: ~1.1 s is the WSL distro booting, ~2.6–3.3 s is
+  dockerd starting itself, and Skrog's own share — the health probe, the launch
+  call, the socket share — is about **160 ms**. Two optimisations were written
+  against this issue and measured; one is in this release and one was reverted,
+  both described below.
+
+  It also settled the ROADMAP item that has carried "measure the real number"
+  since v0.2: the **idle-wake** path is **4.8–6.3 s**, against **5.0–8.4 s** for
+  a full `stop`/`start`. The wake is not meaningfully cheaper, and the reason
+  the README gave for expecting it to be was wrong — an idle stop is
+  `wsl --terminate`, the same operation `skrog stop` performs, so the wake pays
+  the same distro boot and the same dockerd startup. There is no cheaper resume
+  path to reach for. The README and ROADMAP now say the measured numbers.
+
+- **The engine agent starts alongside the wait for dockerd, not before it**
+  ([#398](https://github.com/wslkit/skrog/issues/398)). Provisioning the agent
+  secret and launching the agent are ~430 ms of `wsl` round trips, and they sat
+  between launching dockerd and starting to wait for it — while dockerd was
+  already busy taking ~3 s to come up. They now overlap that wait, and the
+  phase log reads `agent=0s` on every start.
+
+  Still fully started before `StartEngine` returns, on every exit path
+  including the failure one: nothing may observe a half-started agent, because
+  the symptom would not be a crash but a silent fall back to the socat relay at
+  ~165 ms per connection instead of ~0.6 ms.
+
+  **End to end this is worth about 100 ms, not 430** — median 4.50 s → 4.20 s
+  over ten paired runs — because dockerd's own startup is the binding
+  constraint and the agent work was already hiding inside it. Reported that way
+  rather than quoting the 430 ms the phase log removes.
+
 ### Changed
 
 - **`skrog version` and `skrog doctor` name the rootfs revision, not just its

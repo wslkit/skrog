@@ -562,9 +562,45 @@ func (p *Provisioner) writeDistroFile(ctx context.Context, opts Options, path st
 	return err
 }
 
+// startPhases records where an engine start spent its time (#398).
+//
+// One line at the end rather than a line per phase, because the question it
+// answers -- which phase is slow -- needs them side by side. #404 had to
+// reconstruct this from the timestamps of three unrelated log lines, and a
+// 1.2 s stretch of pure wsl.exe round-trip latency sat unnoticed in the gap
+// between two of them for two releases. Anyone asking "where does a start go"
+// should get the answer from one run, not from arithmetic on a log.
+//
+// At Info, and unapologetically: an engine start is a rare event, one line is
+// cheap, and this is the number the project has been repeatedly wrong about.
+type startPhases struct {
+	began time.Time
+	last  time.Time
+	kv    []any
+}
+
+func newStartPhases() *startPhases {
+	now := time.Now()
+	return &startPhases{began: now, last: now}
+}
+
+// mark closes the phase that ends here.
+func (s *startPhases) mark(name string) {
+	now := time.Now()
+	s.kv = append(s.kv, name, now.Sub(s.last).Round(time.Millisecond))
+	s.last = now
+}
+
+// args returns the phases plus the total, for one log call.
+func (s *startPhases) args() []any {
+	return append(append([]any(nil), s.kv...), "total", time.Since(s.began).Round(time.Millisecond))
+}
+
 // StartEngine launches dockerd and waits for its socket.
 func (p *Provisioner) StartEngine(ctx context.Context, opts Options) error {
 	opts = opts.withDefaults()
+
+	ph := newStartPhases()
 
 	if running, _ := p.engineRunning(ctx, opts); running {
 		p.logger().Info("engine already running", "distro", opts.Distro)
@@ -579,8 +615,11 @@ func (p *Provisioner) StartEngine(ctx context.Context, opts Options) error {
 		// healthy engine cannot assume the handlers are still there. A
 		// `wsl --shutdown` takes them with it.
 		p.applyEmulation(ctx, opts)
+		ph.mark("alreadyRunning")
+		p.logger().Info("engine start phases", ph.args()...)
 		return nil
 	}
+	ph.mark("probe")
 
 	// Corporate-network config is applied before launch and sourced by the
 	// dockerd command, so proxy env and trusted CAs are in place for the very
@@ -600,6 +639,20 @@ func (p *Provisioner) StartEngine(ctx context.Context, opts Options) error {
 	// and only after `dockerd --validate` accepts the result; a failure here
 	// is logged, not fatal -- the engine must still come up.
 	p.applyEngineDefaults(ctx, opts)
+	ph.mark("prelaunch")
+
+	// These four stay SERIAL, and that is a measured decision rather than an
+	// oversight (#398).
+	//
+	// Running them concurrently looks like the obvious win -- four wsl round
+	// trips at ~165 ms each on a warm distro -- and it is worth nothing. The
+	// engine is started from a TERMINATED distro, so the first exec of the
+	// four pays the distro boot and the other three queue behind it inside
+	// WSL: the cost is one boot, not four latencies. Measured over four
+	// paired runs on the reporter's machine, concurrency moved a 4.23 s start
+	// to 4.38 s -- slightly worse, from the extra goroutines, and inside the
+	// noise either way. The phase log below is what showed it: `prelaunch`
+	// stayed at ~880 ms with and without.
 
 	p.logger().Info("starting dockerd", "distro", opts.Distro)
 	// Output goes to a log inside the distro; the caller gets it via
@@ -608,25 +661,63 @@ func (p *Provisioner) StartEngine(ctx context.Context, opts Options) error {
 		"sh", "-c", "[ -f /etc/skrog/network.env ] && . /etc/skrog/network.env; dockerd >>/var/log/dockerd.log 2>&1"); err != nil {
 		return fmt.Errorf("launching dockerd: %w", err)
 	}
-	p.ensureAgentSecret(ctx, opts)
-	p.startAgent(ctx, opts)
+	ph.mark("launch")
+
+	// The agent starts ALONGSIDE the wait for dockerd's socket, not before it
+	// (#398).
+	//
+	// These two are ~430 ms of wsl round trips, and they used to sit on the
+	// critical path between launching dockerd and starting to wait for it --
+	// while dockerd was already busy taking ~2.9 s to come up. That is 430 ms
+	// of a ~4.3 s start spent doing nothing but delaying the first probe.
+	//
+	// Safe to overlap because the agent does not need dockerd: it is a
+	// separate in-distro process that dials the engine socket per connection,
+	// and nothing uses it until StartEngine has returned. It is still fully
+	// started before that return -- the wait below is joined on every exit
+	// path -- so a caller cannot observe a half-started agent.
+	agentDone := make(chan struct{})
+	go func() {
+		defer close(agentDone)
+		defer func() {
+			if r := recover(); r != nil {
+				// The agent is never fatal by design (see agentStartCmd); a
+				// panic must not become fatal by moving to a goroutine, where
+				// it would take the supervisor's whole process down.
+				p.logger().Error("starting the engine agent panicked; "+
+					"falling back to the socat transport", "panic", r)
+			}
+		}()
+		p.ensureAgentSecret(ctx, opts)
+		p.startAgent(ctx, opts)
+	}()
+	waitForAgent := func() {
+		<-agentDone
+		ph.mark("agent")
+	}
 
 	deadline := time.Now().Add(opts.StartTimeout)
 	for time.Now().Before(deadline) {
 		if running, _ := p.engineRunning(ctx, opts); running {
 			p.logger().Info("engine socket is up", "distro", opts.Distro)
+			ph.mark("dockerdReady")
+			waitForAgent()
 			// Shared only once the socket exists: a bind mount of a missing
 			// file cannot be made, and the share is re-done on every start
 			// because the previous engine's bind went stale with it.
 			p.shareEngineSocket(ctx, opts)
+			ph.mark("shareSocket")
+			p.logger().Info("engine start phases", ph.args()...)
 			return nil
 		}
 		select {
 		case <-ctx.Done():
+			waitForAgent()
 			return ctx.Err()
 		case <-time.After(250 * time.Millisecond):
 		}
 	}
+	waitForAgent()
 
 	// Include the daemon's own last words; without them this is undiagnosable.
 	log, _ := p.wsl().Exec(ctx, opts.Distro, "root", "tail", "-30", "/var/log/dockerd.log")
