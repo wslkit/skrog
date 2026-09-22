@@ -12,10 +12,12 @@ useful than saying where the real one is.
 
 ## [Unreleased]
 
-What the product was reporting badly, and then what it was doing badly — each
-one found by running the previous release on a real machine rather than by
-reading the diff, and the last two found while validating the fix for the one
-before.
+## [0.8.0] — 2026-09-22
+
+Admission control learns to ask where an image came from, the engine start path
+finally says where its time goes, and a chain of silent failures gets found —
+several of them by running the product rather than by reading the diff, and
+four of them by an independent review of this release's own code.
 
 ### Added
 
@@ -1057,7 +1059,8 @@ Below are not ours, but you will hit them.
   both preserved. If you use the wslc backend with non-root containers, this
   is a reason to update WSL. The distro backend was never affected.
 
-[Unreleased]: https://github.com/wslkit/skrog/compare/v0.7.1...HEAD
+[Unreleased]: https://github.com/wslkit/skrog/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/wslkit/skrog/compare/v0.7.1...v0.8.0
 [0.7.1]: https://github.com/wslkit/skrog/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/wslkit/skrog/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/wslkit/skrog/compare/v0.5.1...v0.6.0
