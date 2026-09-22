@@ -209,7 +209,7 @@ A normal release is the same pipeline with three differences:
 
    | channel | what to do |
    |---|---|
-   | [scoop-skrog](https://github.com/wslkit/scoop-skrog) | bump `version`, both URLs and both hashes in `bucket/skrog.json`. `checkver`/`autoupdate` are configured, so `scoop bucket` tooling can do it, but **nothing runs automatically** — cut a release and forget this and the bucket silently serves the previous version |
+   | [scoop-skrog](https://github.com/wslkit/scoop-skrog) | bump `version`, both URLs and both hashes in `bucket/skrog.json`. `checkver`/`autoupdate` are configured, so `scoop bucket` tooling can do it, but **nothing runs automatically** — cut a release and forget this and the bucket silently serves the previous version. **Check the change reached `main`:** the manifest sat on an unmerged branch from 0.5.1 to 0.8.0, so the bucket served *nothing* for three releases while local checkouts on that branch looked current |
    | [winget](#publishing-to-winget) | new manifest directory under `manifests/w/wslkit/skrog/<version>/` |
    | [setup-skrog](https://github.com/wslkit/setup-skrog) | only if the action pins a version |
    | [skrog-vscode](https://github.com/wslkit/skrog-vscode) | only if it pins one |
