@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"log/slog"
 	"os"
 
 	"github.com/wslkit/skrog/internal/autostart"
@@ -56,6 +57,10 @@ flags:
 		SkrogBin:            skrogBin,
 		AppVersion:          buildVersion,
 		AutostartConfigured: autostartOn,
+		// Listing published ports needs the engine transport, which doctor
+		// deliberately does not know about (#507).
+		PublishedPorts: publishedPorts(
+			engineDialer(installedDistro(opts), "", opts.StateDir, slog.New(slog.DiscardHandler)), nil),
 	})
 
 	reg := doctor.Registry()

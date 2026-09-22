@@ -1262,3 +1262,32 @@ func (m *Manifest) EngineRefOrDerived() string {
 // gone. It can only be uninstalled and replaced, and the point of detecting
 // it is to say exactly that.
 func (m *Manifest) IsLegacySession() bool { return m.BackendName() == backendLegacySession }
+
+// DistroAddress returns the engine distro's IPv4 address on its default
+// interface (#508).
+//
+// Under WSL2 NAT this is what Windows can reach the distro on directly --
+// measured: a published port answers on it while binding only 127.0.0.1 on the
+// Windows side. It is reassigned on every distro start, so callers must treat
+// the answer as perishable rather than caching it.
+//
+// Not gated on the engine being up, because the distro can be running with a
+// dead dockerd and the address is still the distro's. It IS an exec, so a
+// caller must already know the distro is running (#82: exec boots a stopped
+// distro, and nothing in this package may do that by accident).
+func (p *Provisioner) DistroAddress(ctx context.Context, opts Options) (string, error) {
+	opts = opts.withDefaults()
+	// `ip -4 -o addr show` over parsing `hostname -I`: the latter returns every
+	// address space-separated, including docker0's, and the bridge address is
+	// the wrong answer in the most confusing possible way.
+	out, err := p.wsl().Exec(ctx, opts.Distro, "root", "sh", "-c",
+		`ip -4 -o addr show eth0 | awk '{print $4}' | cut -d/ -f1`)
+	if err != nil {
+		return "", fmt.Errorf("reading the engine distro address: %w", err)
+	}
+	addr := strings.TrimSpace(out)
+	if addr == "" {
+		return "", errors.New("the engine distro reported no IPv4 address on eth0")
+	}
+	return addr, nil
+}

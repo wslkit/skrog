@@ -60,6 +60,11 @@ docs/docker-cli.md. Registering an emulator affects EVERY WSL2
 distro on the machine, not just Skrog's -- they share one kernel
 -- which is why it is opt-in. Removed again on skrog stop and
 uninstall.`},
+			{config.KeyPublishScope, `how far a published container port reaches: "loopback" (the
+default, what WSL does on its own -- the port answers on 127.0.0.1
+and nowhere else) or "lan", where the supervisor relays published
+ports to every interface so another device can reach them. Opt-in:
+"lan" puts your containers on the network. See docs/ports.md.`},
 			{config.KeyGPU, `install the vendor CDI spec in the engine on every start, so a
 container can use the GPU; on/off ("off" by default).
 ` + "`skrog enable-gpu`" + ` sets this for you and checks the driver.`},

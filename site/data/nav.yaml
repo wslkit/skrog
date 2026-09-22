@@ -8,7 +8,7 @@
 # would link to it.
 sections:
   - section: Start
-    pages: [install, docker-cli, devcontainers]
+    pages: [install, docker-cli, ports, devcontainers]
   - section: Keep it healthy
     pages: [housekeeping, snapshots, upgrading, engine-upgrade, vm-sizing]
   - section: At work

@@ -104,6 +104,14 @@ type Facts struct {
 	IdleTimeout time.Duration
 	PruneEvery  time.Duration
 
+	// PublishedPorts is what running containers publish on the host side, and
+	// WSLNetworkingMode is the `networkingMode` from ~/.wslconfig ("" means the
+	// default, NAT). PublishScopeLAN is `network.publish-scope`. Together they
+	// answer whether a published port is reachable beyond this machine (#507).
+	PublishedPorts    []PublishedPort
+	WSLNetworkingMode string
+	PublishScopeLAN   bool
+
 	// MountTransport is what the engine distro actually mounts Windows drives
 	// over: "virtiofs", "9p", or "" when the engine was down and nothing was
 	// measured (#327). Read live rather than inferred from ~/.wslconfig,
@@ -246,6 +254,11 @@ type GatherOptions struct {
 	// AutostartConfigured reports whether logon autostart is set up; supplied by
 	// the caller because it lives in an OS-specific package.
 	AutostartConfigured bool
+	// PublishedPorts lists what running containers publish, supplied by the
+	// caller for the same reason: it needs the engine transport, which lives in
+	// cmd/skrog and which this package deliberately knows nothing about.
+	// Nil is allowed and means "not asked".
+	PublishedPorts func(ctx context.Context) []PublishedPort
 }
 
 // Gather reads the machine into Facts, degrading gracefully: doctor is what you
@@ -312,6 +325,7 @@ func Gather(ctx context.Context, opts GatherOptions) Facts {
 		f.EmulationPlatforms = c.EmulationPlatforms
 		f.IdleTimeout = c.IdleTimeout
 		f.PruneEvery = c.PruneEvery
+		f.PublishScopeLAN = c.PublishScope == config.PublishScopeLAN
 	}
 
 	// GPU distro probes only when the engine is already up: GPUAvailable uses
@@ -328,6 +342,22 @@ func Gather(ctx context.Context, opts GatherOptions) Facts {
 		// honest way to answer "am I on virtiofs": the config file says what
 		// was asked for, not what took.
 		f.MountTransport = p.MountTransport(ctx, pOpts)
+		// Published ports come from the caller (see GatherOptions): listing them
+		// needs the engine transport, which lives in cmd/skrog.
+		if opts.PublishedPorts != nil {
+			f.PublishedPorts = opts.PublishedPorts(ctx)
+		}
+	}
+
+	// Read rather than assumed: ~/.wslconfig says what was ASKED for, and for
+	// this question that is the right source -- mirrored is opt-in, so its
+	// absence is the default, NAT.
+	if p, err := wslconfig.Path(); err == nil {
+		if wc, err := wslconfig.Load(p); err == nil {
+			if v, ok := wc.Get("networkingMode"); ok {
+				f.WSLNetworkingMode = strings.ToLower(strings.TrimSpace(v))
+			}
+		}
 	}
 
 	f.VPNs = vpnfingerprint.Detect(gatherAdapters(ctx))
@@ -594,4 +624,17 @@ func endpointFacts(
 		active, _ = endpointOf(ctx, activeContext)
 	}
 	return served, active
+}
+
+// PublishedPort is one host-side port mapping of a running container.
+//
+// HostIP is what dockerd reports for the mapping INSIDE the distro, which is
+// why it is not the answer to "can anything reach this": it is 0.0.0.0 in the
+// ordinary case, and the address that matters is the one WSL binds on the
+// Windows side.
+type PublishedPort struct {
+	Container string `json:"container"`
+	HostIP    string `json:"hostIp"`
+	HostPort  int    `json:"hostPort"`
+	Proto     string `json:"proto"`
 }
