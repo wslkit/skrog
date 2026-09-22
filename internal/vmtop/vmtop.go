@@ -360,7 +360,10 @@ func parseGroup(body string) *rawGroup {
 			// "max" means unlimited, and parses to zero: the same thing here.
 			g.limit = num()
 		case "pids.current":
-			g.pids = int(num())
+			// Parsed straight to int rather than narrowed from uint64, which
+			// is the conversion CodeQL (go/incorrect-integer-conversion)
+			// rightly refuses; a count that will not parse reads as zero.
+			g.pids, _ = strconv.Atoi(f[1])
 		case "anon":
 			g.anon = num()
 		case "file":
