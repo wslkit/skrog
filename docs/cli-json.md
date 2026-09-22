@@ -657,6 +657,7 @@ shown.
         "memoryBytes": 15872000, "anonBytes": 3911680,
         "fileBytes": 10186752, "kernelBytes": 1155072,
         "cpuPercent": 0, "ioReadBytes": 10104832, "ioWriteBytes": 8192,
+        "limitBytes": 268435456, "pids": 5,
         "pressure": { "cpu": 0, "memory": 0, "io": 0.36 }
       }
     ],
@@ -681,6 +682,9 @@ shown.
   reading would look like an empty VM.
 - **`cpuPercent`** is of one CPU, like `docker stats`: two busy cores read
   `200`. It is averaged over **`windowSecs`**, which is `--interval`.
+- **`limitBytes`** is the group's `memory.max`, **omitted when there is no
+  limit** — not the VM total, which `docker stats` reports as the limit of
+  every unconstrained container. **`pids`** is `pids.current`.
 - **`pressure`** is PSI `some` avg10, in percent: the share of the last ten
   seconds in which work was stalled on that resource.
 - **`memUsedBytes`** is total minus free, page cache included — what Windows

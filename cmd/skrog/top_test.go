@@ -88,7 +88,7 @@ func TestTopShape(t *testing.T) {
 		"memUsedBytes", "anonBytes", "pageCacheBytes", "kernelBytes", "unitemisedBytes", "pressure")
 	c := r["containers"].([]any)[0].(map[string]any)
 	requireKeys(t, c, "id", "name", "memoryBytes", "anonBytes", "fileBytes", "kernelBytes",
-		"cpuPercent", "ioReadBytes", "ioWriteBytes", "pressure")
+		"cpuPercent", "ioReadBytes", "ioWriteBytes", "pids", "pressure")
 	requireKeys(t, c["pressure"].(map[string]any), "cpu", "memory", "io")
 	requireKeys(t, r["vmmem"].(map[string]any), "process", "pid", "workingSetBytes",
 		"privateWorkingSetBytes", "privateBytes")
@@ -229,5 +229,37 @@ func TestRenderTopItemisesUsedAndLabelsTheRemainder(t *testing.T) {
 	}
 	if strings.Contains(text, "not charged to any group (kernel)") {
 		t.Error("the derived row still claims to be the kernel")
+	}
+}
+
+// LIMIT is the container's own memory.max, and a dash without one -- never
+// the VM total, which docker stats prints as every container's "limit".
+func TestRenderTopShowsLimitAndPIDs(t *testing.T) {
+	s := fixtureSnapshot(t)
+	s.Containers[0].LimitBytes = 256 << 20
+	s.Containers[0].PIDs = 7
+	var out strings.Builder
+	renderTop(&out, s, "")
+	text := out.String()
+	if !strings.Contains(text, "LIMIT") || !strings.Contains(text, "PIDS") {
+		t.Fatalf("header lacks LIMIT or PIDS:\n%s", text)
+	}
+	var limited, unlimited string
+	for _, line := range strings.Split(text, "\n") {
+		switch {
+		case strings.HasPrefix(line, s.Containers[0].Name+" "):
+			limited = line
+		case strings.HasPrefix(line, s.Containers[1].Name+" "):
+			unlimited = line
+		}
+	}
+	if !strings.Contains(limited, "256.0 MiB") || !strings.Contains(limited, " 7 ") {
+		t.Errorf("limited row should show its 256 MiB limit and 7 PIDs: %q", limited)
+	}
+	if f := strings.Fields(unlimited); len(f) < 4 || f[3] != "-" {
+		t.Errorf("unlimited row should show a dash for LIMIT: %q", unlimited)
+	}
+	if strings.Contains(unlimited, "7.6 GiB") {
+		t.Errorf("unlimited row shows the VM total as a limit: %q", unlimited)
 	}
 }

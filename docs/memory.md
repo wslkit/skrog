@@ -18,29 +18,97 @@ The table refreshes like `docker stats`. `--json` is one reading unless you
 add `--stream`, because a script reading it expects one document; with
 `--stream` each line is a complete object, ready for `jq` or a log shipper.
 
-## What it shows
+## What it adds to `docker stats`
 
-From the reference host, with two small containers running:
+Both, on the reference host, at the same moment — three containers, one of
+them (`cache`) started with `-m 256m`, a few seconds after pulling its image:
 
 ```
-VM        4 CPUs, CPU 8.7%   memory 558.4 MiB used of 7.6 GiB (7.1 GiB available)
-          used is 76.0 MiB processes, 161.6 MiB page cache, 76.2 MiB kernel, 244.6 MiB not itemised by the kernel
-          stalled (PSI, last 10s): cpu 0.0%  memory 0.0%  io 0.0%
-Windows   vmmem 846.8 MiB (Task Manager's figure), working set 846.8 MiB, committed 848.6 MiB
-
-                                              MEMORY     ANON       FILE       KERNEL     CPU%  MEM PSI  IO PSI
-web                                           9.1 MiB    3.8 MiB    4.0 MiB    836.0 KiB  0.0   0.0      0.0
-u1                                            6.2 MiB    1.2 MiB    4.4 MiB    336.0 KiB  0.0   0.0      0.0
-engine (dockerd, containerd, build)           203.2 MiB  70.0 MiB   124.5 MiB  7.8 MiB    7.3   0.0      0.0
-other WSL distros (0)                         0 B        0 B        0 B        0 B        0.0   0.0      0.0
-WSL itself                                    652.0 KiB  104.0 KiB  0 B        92.0 KiB   0.2   0.0      0.0
-kernel and drivers, not charged to any group  337.3 MiB
-
-Windows holds 288.3 MiB more for the VM than the VM is using: memory freed inside
-the VM that has not been handed back yet.
-~/.wslconfig does not set autoMemoryReclaim; `skrog config set wsl.auto-memory-reclaim gradual`
-asks WSL to hand idle memory back. See docs/vm-sizing.md.
+> docker stats --no-stream
+NAME      CPU %     MEM USAGE / LIMIT     MEM %     NET I/O         BLOCK I/O         PIDS
+cache     0.33%     5.719MiB / 256MiB     2.23%     712B / 126B     0B / 0B           6
+web       0.00%     4.578MiB / 7.611GiB   0.06%     1.45kB / 126B   8.48MB / 12.3kB   5
+u1        0.00%     1.523MiB / 7.611GiB   0.02%     1.8kB / 126B    11.3MB / 0B       1
 ```
+
+```
+> skrog top --once
+VM        4 CPUs, CPU 9.1%   memory 776.4 MiB used of 7.6 GiB (7.0 GiB available)
+          used is 111.7 MiB processes, 333.9 MiB page cache, 84.1 MiB kernel, 246.6 MiB not itemised by the kernel
+          stalled (PSI, last 10s): cpu 0.0%  memory 0.0%  io 0.3%
+Windows   vmmem 879.7 MiB (Task Manager's figure), working set 879.7 MiB, committed 1.0 GiB
+
+                                              MEMORY     LIMIT      ANON       FILE       KERNEL     CPU%  PIDS  MEM PSI  IO PSI
+web                                           8.5 MiB    -          3.8 MiB    3.9 MiB    832.0 KiB  0.0   5     0.0      0.0
+u1                                            5.8 MiB    -          1.2 MiB    4.3 MiB    336.0 KiB  0.0   1     0.0      0.0
+cache                                         5.7 MiB    256.0 MiB  4.6 MiB    0 B        608.0 KiB  0.3   6     0.0      0.0
+engine (dockerd, containerd, build)           412.5 MiB  -          101.0 MiB  296.1 MiB  15.2 MiB   8.0   101   0.0      0.2
+other WSL distros (0)                         0 B        -          0 B        0 B        0 B        0.0   0     0.0      0.0
+WSL itself                                    392.0 KiB  -          104.0 KiB  0 B        100.0 KiB  0.3   1     0.0      0.0
+kernel and drivers, not charged to any group  340.7 MiB
+```
+
+`docker stats` accounts for **11.8 MiB**. The VM is using **776.4 MiB**, and
+Windows is holding **879.7 MiB** for it. `docker stats` explains 1.5% of what
+the VM uses and has nothing to say about the rest; `top` accounts for all of
+it, row by row, and puts Windows' figure beside it.
+
+What that adds, concretely:
+
+- **Everything that is not a container.** The engine's own daemons and the
+  page cache *they* pulled in — 412.5 MiB here, 296.1 MiB of it the image
+  layers from pulling `redis:alpine` — are charged to the engine, not to any
+  container, so `docker stats` never shows them. Neither does the 340.7 MiB of
+  kernel and driver memory, or another WSL distro running in the same VM.
+- **Windows' side.** Vmmem is the number people arrive worried about, and it
+  is not the VM's own "used": here Windows holds 103 MiB more than the VM uses.
+  When that surplus is large, `top` says so and what to do about it (below).
+- **Where each container's memory actually is.** `docker stats` subtracts
+  inactive file cache from what it reports; `top` shows the whole charge and
+  splits it. `web` is 8.5 MiB in `top` and 4.578 MiB in `docker stats`; the
+  difference is its 3.9 MiB of FILE. Checked against the cgroup counters
+  directly for `web` and `u1`: `memory.current − inactive_file` came to
+  5,431,296 and 1,957,888 bytes, exactly the 5.18 MiB and 1.867 MiB
+  `docker stats` printed at that moment.
+- **Whether anything is short.** PSI says how much of the last ten seconds
+  work spent *stalled* waiting on memory, CPU or I/O. Usage cannot tell you
+  that; a container at 90% of its limit with 0.0 memory stall is fine, and one
+  at 40% with a high stall is not. A moment earlier, while the `redis:alpine`
+  pull was being unpacked, the VM showed 15.6% I/O stall and the engine row
+  13.4% — the pull, visible as what it cost.
+- **A limit only where there is one.** `docker stats` prints the VM total
+  (7.611 GiB) as the "limit" of every unconstrained container, which no single
+  container can reach on its own. `top` shows `cache`'s real 256 MiB and a dash
+  for the others.
+- **It leaves the engine alone.** A streaming `docker stats` is a docker
+  connection like any other: measured on the reference host, the supervisor
+  counted 3 open pipe connections while it ran and 0 before and after, and
+  idle-stop is vetoed while any are open. `top` reads inside the distro and
+  counts as nothing — with it refreshing every 2 s and a 1 minute idle
+  timeout, the engine still idle-stopped at 66 s. Against an idle-stopped
+  engine, `docker stats` wakes it; `top` reports it and waits.
+
+| | `docker stats` | `skrog top` |
+|---|---|---|
+| memory outside any container: engine daemons, their page cache, kernel and drivers | not shown | separate rows |
+| what Windows says Vmmem holds | not shown | shown, with a hint when it is well above the VM's use |
+| a container's page cache | inactive file cache subtracted (measured) | shown as FILE, inside MEMORY |
+| other distros in the same VM | not shown | shown, as a count and a total |
+| stall time (PSI) | not shown | per group and for the VM |
+| memory limit | the VM total when none is set | the container's own, or `-` |
+| PIDs | yes | yes |
+| effect on idle-stop | holds pipe connections open (3, measured), so the engine cannot idle | none |
+| engine idle-stopped | wakes it | reports it, and waits |
+| network bytes per container | yes | no |
+| block I/O per container | yes | in `--json` (`ioReadBytes`, `ioWriteBytes`) |
+| a remote engine (`skrog remote use`) | yes | no: it reads the local engine's VM |
+
+**Where `docker stats` is still the tool:** per-container network traffic,
+and any engine that is not this machine's — `top` measures a VM, and a remote
+engine's VM is on another machine. For "which of my containers is busy",
+either will do; for "why is Vmmem this big", only `top` has the answer.
+
+## Reading the output
 
 **The VM lines** are the kernel's own view. *Used* is total minus free —
 everything the VM is holding, cache included, because that is what Windows has
@@ -48,15 +116,20 @@ to back. It splits into four parts that add up to it: process memory, **page
 cache** (file data kept in memory: image layers, build contexts, anything read
 or written recently), what `/proc/meminfo` itemises as the **kernel**'s own
 (slab, stacks, page tables, vmalloc, per-CPU), and what it **does not itemise
-at all**. The last one is not small on WSL — about 245 MiB on the reference
-host. Pages a driver allocates directly are counted by no meminfo field, and
-WSL's VM runs several (`dxgkrnl`, `hv_netvsc`, the balloon); that they are
-most of it is an inference, not a measurement. It is shown so the line adds up
-rather than leaving a gap that reads like an accounting error.
+at all**. In the reading above: 111.7 + 333.9 + 84.1 + 246.6 = 776.3 MiB, the
+used figure to rounding.
+
+The last part is not small on WSL — about 245 MiB on the reference host,
+steady across readings. Pages a driver allocates directly are counted by no
+meminfo field, and WSL's VM runs several (`dxgkrnl`, `hv_netvsc`, the
+balloon); that they are most of it is an inference, not a measurement. It is
+shown so the line adds up rather than leaving a gap that reads like an
+accounting error.
 
 **The Windows line** is the Vmmem process as Windows sees it. The first figure
-is the one in Task Manager's *Memory* column (the private working set). It is
-read from the system process list, which needs no elevation.
+is the one in Task Manager's *Memory* column (the private working set); the
+working set and the committed total follow. All three come from the system
+process list, which needs no elevation.
 
 **The rows** are cgroups, which is how the kernel itself keeps count:
 
@@ -65,34 +138,49 @@ read from the system process list, which needs no elevation.
 | each container | one of this engine's running containers |
 | engine | the `skrog-engine` distro's own processes — dockerd, containerd, BuildKit, the shims — and the page cache *they* pulled in. Image pulls and builds land here, not in a container |
 | another engine's containers | container groups this engine did not start that still hold memory — Docker Desktop, if it shares the VM. Hidden when there are none |
-| other WSL distros | every other running distro, together. Their names are not visible from inside the VM, so they are counted, not named |
+| other WSL distros | every other running distro, together. Their names are not visible from inside the VM, so they are counted, not named. Measured: a running Ubuntu showed up as its own group |
 | WSL itself | WSL's own processes in the VM |
 | kernel and drivers, not charged to any group | used memory no group accounts for: mostly the part the kernel does not itemise, plus cache nothing is charged for. **Derived**, not measured: used minus every top-level group |
 
-**MEMORY** is everything charged to the group; **ANON** is its heaps and stacks,
-**FILE** its page cache, **KERNEL** kernel memory spent on its behalf.
+In the reading above the rows sum to 773.6 MiB of the 776.4 used; the rest is
+groups `top` does not list on their own, such as those left by exited
+containers.
 
-**CPU%** is of one CPU, the same convention as `docker stats`, so two busy
-cores read 200. The first frame shows a dash: there is nothing to average over
-yet.
+**The columns:**
 
-**PSI** (pressure stall information) is the share of the last ten seconds in
-which work was *stalled* waiting on memory or I/O. Usage says a resource is
-used; pressure says it is short. A container at 0.0 is not being slowed down,
-however much it holds.
+| column | what it is |
+|---|---|
+| MEMORY | everything charged to the group (`memory.current`), page cache included |
+| LIMIT | the group's `memory.max`, or `-` when it has none |
+| ANON | heaps and stacks: memory that is not file-backed |
+| FILE | page cache charged to the group — files it read or wrote |
+| KERNEL | kernel memory spent on the group's behalf |
+| CPU% | of **one** CPU, like `docker stats`: two busy cores read 200. The first frame shows a dash — there is nothing to average over yet |
+| PIDS | processes and threads in the group |
+| MEM PSI, IO PSI | share of the last ten seconds the group spent stalled on memory, or on I/O |
 
 ## The two usual answers
 
 ### Windows has not been given the memory back
 
 When Windows' Vmmem figure is well above what the VM is using — by at least
-256 MiB and a quarter of *used* — `top` says so, as in the reading above:
-288 MiB of guest memory that is free inside the VM and still held on the host.
+256 MiB and a quarter of *used* — `top` says so. On the reference host, an
+earlier reading showed 288 MiB of guest memory free inside the VM and still
+held on the host:
+
+```
+Windows holds 288.3 MiB more for the VM than the VM is using: memory freed inside
+the VM that has not been handed back yet.
+~/.wslconfig does not set autoMemoryReclaim; `skrog config set wsl.auto-memory-reclaim gradual`
+asks WSL to hand idle memory back. See docs/vm-sizing.md.
+```
+
 The two figures are different measures (Windows' private working set, the
-guest's total minus free), which is why a small difference either way is not
-reported. The engine's kernel log shows the balloon returning free memory in
-2 MiB chunks (`page_reporting_order 9`), which is one reason a fragmented free
-list stays with Windows; that is read from the log, not measured.
+guest's total minus free), which is why a small difference either way — the
+103 MiB in the reading above — is not reported. The engine's kernel log shows
+the balloon returning free memory in 2 MiB chunks (`page_reporting_order 9`),
+which is one reason a fragmented free list stays with Windows; that is read
+from the log, not measured.
 
 ### Page cache
 
@@ -109,32 +197,8 @@ asks WSL to hand idle memory back. See docs/vm-sizing.md.
 That cache is not a leak and nothing needs killing: Linux gives it up the
 moment a process needs the room. What it costs is the host's memory in the
 meantime, which is what [`wsl.auto-memory-reclaim`](vm-sizing.md) is for.
-Both lines end with the same pointer. The thresholds are a judgement about
-where each stops being noise, set before looking at this machine, not a
-measurement.
-
-## How it differs from `docker stats`
-
-`docker stats` covers the containers. `skrog top` covers the whole VM,
-including everything that runs outside them, and does it without keeping the
-engine awake. If containers are all you care about, `docker stats` is enough.
-
-| | `docker stats` | `skrog top` |
-|---|---|---|
-| memory outside any container: page cache, kernel, the engine's daemons | not shown | separate rows |
-| what Windows says Vmmem holds | not shown | shown |
-| page cache inside a container | mostly hidden¹ | shown as FILE |
-| other distros in the same VM | not shown | shown, as a count and a total |
-| stall time (PSI) | not shown | per group and for the VM |
-| effect on idle-stop | holds a docker connection open, so the engine cannot idle² | none: reads inside the distro |
-| engine idle-stopped | goes through the bridge, which wakes it | reports it, and waits |
-| network bytes per container | yes | no |
-
-¹ Reasoned from how the upstream docker CLI computes memory on cgroup v2
-(it subtracts inactive file cache), not checked against a Skrog install.
-² Reasoned from the code: idle-stop is vetoed while any client connection to
-the pipe is open (`internal/supervise`), and a streaming `docker stats` is
-one. Not driven live.
+The thresholds for both hints are a judgement about where each stops being
+noise, set before looking at this machine, not a measurement.
 
 ## What it will not do
 

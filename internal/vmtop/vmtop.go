@@ -60,10 +60,16 @@ type Group struct {
 	KernelBytes uint64 `json:"kernelBytes"`
 	// CPUPercent is of ONE CPU, like `docker stats`, so a group using two
 	// full cores reads 200.
-	CPUPercent   float64  `json:"cpuPercent"`
-	IOReadBytes  uint64   `json:"ioReadBytes"`
-	IOWriteBytes uint64   `json:"ioWriteBytes"`
-	Pressure     Pressure `json:"pressure"`
+	CPUPercent   float64 `json:"cpuPercent"`
+	IOReadBytes  uint64  `json:"ioReadBytes"`
+	IOWriteBytes uint64  `json:"ioWriteBytes"`
+	// LimitBytes is memory.max, the container's memory limit; zero when
+	// none is set. The VM total is not shown as a "limit" here the way
+	// `docker stats` shows it: it is not one the container can hit alone.
+	LimitBytes uint64 `json:"limitBytes,omitempty"`
+	// PIDs is pids.current: processes and threads in the group.
+	PIDs     int      `json:"pids"`
+	Pressure Pressure `json:"pressure"`
 }
 
 // VM is the utility VM as its kernel sees it.
@@ -192,6 +198,8 @@ for d in /sys/fs/cgroup/*/ /sys/fs/cgroup/docker/*/ /sys/fs/cgroup/wsl-user/*/; 
   [ -f "${d}memory.current" ] || continue
   echo "==cg ${d#/sys/fs/cgroup/}"
   echo "memory.current $(cat "${d}memory.current")"
+  echo "memory.max $(cat "${d}memory.max" 2>/dev/null)"
+  echo "pids.current $(cat "${d}pids.current" 2>/dev/null)"
   grep -E '^(anon|file|kernel) ' "${d}memory.stat" 2>/dev/null
   grep -E '^usage_usec ' "${d}cpu.stat" 2>/dev/null
   sed 's/^/io /' "${d}io.stat" 2>/dev/null
@@ -217,6 +225,8 @@ type Sample struct {
 
 type rawGroup struct {
 	mem, anon, file, kernel uint64
+	limit                   uint64 // 0: no limit ("max")
+	pids                    int
 	cpuUsec                 uint64
 	ioR, ioW                uint64
 	psi                     Pressure
@@ -346,6 +356,11 @@ func parseGroup(body string) *rawGroup {
 		switch f[0] {
 		case "memory.current":
 			g.mem = num()
+		case "memory.max":
+			// "max" means unlimited, and parses to zero: the same thing here.
+			g.limit = num()
+		case "pids.current":
+			g.pids = int(num())
 		case "anon":
 			g.anon = num()
 		case "file":
@@ -437,6 +452,7 @@ func Compute(a, b *Sample) Snapshot {
 		out := Group{
 			ID: id, Name: name,
 			MemoryBytes: g.mem, AnonBytes: g.anon, FileBytes: g.file, KernelBytes: g.kernel,
+			LimitBytes: g.limit, PIDs: g.pids,
 			IOReadBytes: g.ioR, IOWriteBytes: g.ioW, Pressure: g.psi,
 		}
 		if prev := a.groups[path]; prev != nil && elapsed > 0 && g.cpuUsec >= prev.cpuUsec {
@@ -452,6 +468,7 @@ func Compute(a, b *Sample) Snapshot {
 		dst.CPUPercent = round1(dst.CPUPercent + g.CPUPercent)
 		dst.IOReadBytes += g.IOReadBytes
 		dst.IOWriteBytes += g.IOWriteBytes
+		dst.PIDs += g.PIDs
 	}
 
 	snap.Engine = group(b.self, "", "engine")
