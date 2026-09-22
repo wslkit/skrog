@@ -72,6 +72,12 @@ useful than saying where the real one is.
   one thing the Windows e2e suite cannot test. `linux/amd64` and `linux/arm64`
   only.
 
+  Because the emulator is *in the image*, this needs engine **29.8.1-3 or
+  newer** — the revision that first carries it. On an older image the start
+  path says `missing interpreter` and carries on without emulation, rather
+  than registering a handler that points at nothing; `skrog engine upgrade`
+  is the fix. A fresh `skrog install` is already on a new enough image.
+
   Worth knowing: it is slow, and the thing that changes is not only what you
   asked for — an amd64-only image that fails fast today will start succeeding
   *slowly* instead, with nothing announcing it. `skrog doctor` reports which
@@ -256,6 +262,105 @@ fixed in time for it, plus the first of the policy gaps.
   either. Now judged, including `device=/`. See
   [docs/policy.md](docs/policy.md) for what this means for third-party volume
   drivers.
+
+Then the chain the acceptance suite found once it actually ran (#11). Each of
+these was uncovered by the stage after the one before it was fixed, which is
+the suite doing its job rather than a run of bad luck: #429 had been killing
+the run two stages in since 0.6.0, so nothing behind it had ever executed in
+CI at all.
+
+- **`skrog restart --supervisor` keeps the pipe it was serving**
+  ([#429](https://github.com/wslkit/skrog/issues/429)). 0.6.0 shipped with
+  this in Known issues. The replacement supervisor re-ran pipe selection from
+  scratch, so a `skrog supervise --pipe <custom>` setup came back on the
+  default, `DOCKER_HOST` stopped working, and the error named a missing
+  *file* rather than a moved pipe. The watchdog path had the same gap — skrogw
+  relaunches through the same choke point — so a crash lost the pipe the same
+  way.
+
+  Two attempts failed before this one, both reading the pipe out of
+  `endpoint.json`, and the third is the first that explains why neither could
+  have worked. That record is cleared on a clean exit, and it must be (#288):
+  a record outliving its process makes `skrog status` name a pipe nothing is
+  listening on. **A record that is correctly deleted cannot also be a handoff
+  channel.** So the two facts were separated by lifetime — `endpoint.json` is
+  where the engine is answering *right now*, `served-pipe` is what the
+  supervisor was *asked* to serve and survives the process that served it.
+
+  Only a genuinely custom pipe is carried over. The default is not pinned,
+  because normal selection takes it again when it is free and falls back
+  correctly when Docker Desktop has it; the fallback is not pinned either, or
+  a machine that stopped running Desktop would never take the default back.
+  Ordinary installs see no change at all.
+
+- **A dead `dockerd` reads as DOWN, not as "cannot tell"**
+  ([#468](https://github.com/wslkit/skrog/issues/468)). `enginePing` pipes
+  into `socat`, and `socat` exits non-zero when nothing is listening — an exit
+  status that reached `engineRunning` as an *error* rather than as the answer
+  "no". Since #437 the supervisor skips its tick entirely on a probe error,
+  which is correct reasoning ("cannot tell" must not start an engine that is
+  probably already running) applied to a value that was lying. **The
+  supervisor stopped repairing a dead engine whenever the distro stayed up**,
+  which is its whole job, and `enginePing` had claimed to handle exactly this
+  since #82: a stale socket left by a crashed dockerd must read as down.
+
+  Any dockerd that dies while its distro survives is this shape.
+  `skrog reset --to <snapshot>` is simply the routine path that produces it
+  reliably, and it sat behind an e2e stage that had never once run.
+
+  A failed restore also says what it saw now, per case, because each wants a
+  different next move: the probe failing, with the underlying error; the
+  engine arriving just after the wait expired, which is a timeout too short
+  for that machine rather than a broken restore; or genuinely down, with or
+  without a supervisor — the last being the entire explanation, since on that
+  branch nothing was ever going to start it. Every case names the distro. The
+  old message named nothing, and the bug report written from it was three
+  hypotheses and no evidence.
+
+- **`skrog uninstall` no longer disowns a docker context its own supervisor
+  set** ([#471](https://github.com/wslkit/skrog/issues/471)). `install`
+  records the context it wired — normally `docker_engine`. A supervisor
+  started with `--pipe <custom>` then re-points that same shared context at
+  its own endpoint, and nothing writes that back to the manifest. Uninstall
+  compared the live endpoint against the install-time value, concluded another
+  install owned it, and left a `skrog` context pointing at a pipe it was about
+  to delete — so every later `docker --context skrog` failed, on a machine
+  that had just uninstalled Skrog. The #217 protection against reaching too
+  far is right and stays; it was simply also not reaching far enough. The
+  `served-pipe` record added for #429 turns out to be the missing fact here
+  too.
+
+- **`skrog uninstall` stops the supervisor**
+  ([#472](https://github.com/wslkit/skrog/issues/472)). It removed the distro,
+  the data directory, the manifest, the autostart entry and the docker
+  context — and left the always-on process that serves the pipe running.
+  Nothing was stopping it, and nothing could have: on a real install the
+  supervisor is detached. `skrog start` spawns it and releases it, autostart
+  launches it at logon, skrogw relaunches it after a crash, so uninstall was
+  never its parent. The only uninstall that ever ran beside a live supervisor
+  and still looked clean was the acceptance suite's, which kills its own child
+  by handle first.
+
+  What survived served a pipe into a distro that had just been unregistered,
+  could re-point the shared context the step above had just unwired, rewrote
+  endpoint records into the state directory being emptied, and held
+  `skrog.exe` open — so on Windows the directory Skrog was installed into
+  could not be deleted, which is what a package-manager uninstall does next.
+  "Removed. Nothing else on the system was modified." was printed over all of
+  it. A supervisor that will not exit is now a warning, not an aborted
+  uninstall.
+
+- **Autostart works on a profile with no `Run` key**
+  ([#444](https://github.com/wslkit/skrog/issues/444)).
+  `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` is created by Windows
+  on demand, so a profile that has never registered a logon entry does not
+  have one — the normal state of a fresh hosted runner, and of a new or
+  freshly imaged user profile. All three entry points opened it expecting it
+  to exist: `enable` could not register autostart at all, and `status` and
+  `disable` returned errors, which made `skrog status` and `skrog doctor` fail
+  outright. "The system cannot find the file specified" then read as a missing
+  file and sent people looking for `skrogw.exe`. `enable` creates the key now,
+  and an absent key reads as "not registered" rather than as a failure.
 
 ## [0.6.0] — 2026-09-18
 
