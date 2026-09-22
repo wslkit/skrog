@@ -87,7 +87,7 @@ The e2e suite (#11) runs on any Windows machine with WSL2 — the development ma
 - [ ] pipe round-trip latency within 2× of Docker Desktop on `docker version` (vsock agent)
 - [ ] relay process count returns to baseline after killing clients mid-request (#35 closed, not bounded)
 - [ ] `migrate --from-desktop` round-trips images + volumes on a machine with real Desktop state
-- [ ] idle-timeout stops the VM; first `docker ps` after cold-starts it (measure the real number; "~2 s" is still an assumption)
+- [x] idle-timeout stops the VM; first `docker ps` after cold-starts it — **measured: 4.8–6.3 s** (#398), not the "~2 s" this line assumed. An idle stop is `wsl --terminate`, so the wake pays a full distro boot plus dockerd startup; there is no cheaper resume to reach for
 - [ ] Docker Desktop fully functional after a Skrog install → exercise → uninstall cycle
 
 **Retires risks:** idle-RAM complaint, unattended recovery, the #35 leak. **Note:** wslc GA likely lands during this window — have the comparison post ready, and note wslc inherits the same session requirement.

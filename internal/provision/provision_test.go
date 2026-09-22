@@ -41,6 +41,21 @@ type fakeWSL struct {
 
 	// engineVersionFile is what /etc/skrog/engine-version contains; empty
 	// means the file is absent.
+	// panicOnExecContaining makes one exec panic, to prove a step cannot take
+	// the process down with it.
+	panicOnExecContaining string
+
+	// delayExecContaining makes one exec slow. Without it a goroutine started
+	// by StartEngine finishes before StartEngine does no matter what, and a
+	// test for "this was joined" passes whether the join is there or not.
+	delayExecContaining string
+	execDelay           time.Duration
+
+	// order interleaves Exec and Start calls, which the separate slices cannot:
+	// #398 made the pre-launch steps concurrent, and what has to hold is that
+	// every one of them finishes BEFORE dockerd is launched.
+	order []string
+
 	engineVersionFile string
 	agentVersion      string // skrog-agent -version output
 
@@ -114,6 +129,18 @@ func (f *fakeWSL) Exec(_ context.Context, _, _ string, args ...string) (string, 
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.execs = append(f.execs, args)
+	f.order = append(f.order, "exec: "+strings.Join(args, " "))
+	if f.delayExecContaining != "" && strings.Contains(strings.Join(args, " "), f.delayExecContaining) {
+		// Released while sleeping: a real wsl round trip does not hold a
+		// lock, and holding one here would serialize the very overlap under
+		// test.
+		f.mu.Unlock()
+		time.Sleep(f.execDelay)
+		f.mu.Lock()
+	}
+	if f.panicOnExecContaining != "" && strings.Contains(strings.Join(args, " "), f.panicOnExecContaining) {
+		panic("fakeWSL: deliberate panic in " + f.panicOnExecContaining)
+	}
 	if len(args) >= 3 && args[0] == "sh" && strings.Contains(args[2], "_ping") {
 		const ok = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nOK"
 		if f.socketAlwaysUp {
@@ -152,6 +179,7 @@ func (f *fakeWSL) Start(_ context.Context, distro, _ string, args ...string) (fu
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.started = append(f.started, args)
+	f.order = append(f.order, "start: "+strings.Join(args, " "))
 	// wsl.exe boots a stopped distro to run anything in it — model that, since
 	// the health probe's stopped-distro gate (#82) depends on it.
 	f.setState(distro, "Running")
@@ -780,5 +808,134 @@ func TestEnsureAgentSecretGatedOnAgentVersion(t *testing.T) {
 		if got != tc.wantSecret {
 			t.Errorf("agent %q: host secret present=%v, want %v", tc.version, got, tc.wantSecret)
 		}
+	}
+}
+
+// The pre-launch steps run concurrently now (#398), and the one property that
+// must survive that is ORDERING AGAINST THE LAUNCH: every one of them has to
+// finish before dockerd starts.
+//
+// Each has its own reason, written at its call site — network.env is sourced
+// by the dockerd command line, the CDI spec and daemon.json are read by the
+// daemon at startup, binfmt_misc has to be there for the first container. A
+// refactor that let any of them drift past the launch would break all four
+// quietly, on a path no unit test otherwise crosses.
+func TestPreLaunchStepsAllFinishBeforeDockerdStarts(t *testing.T) {
+	w := healthyWSL()
+	p := &provision.Provisioner{WSL: w, Logger: quietLogger()}
+
+	opts := provision.Options{
+		StateDir:           t.TempDir(),
+		StartTimeout:       5 * time.Second,
+		EmulationPlatforms: "linux/arm64",
+		GPUEnabled:         true,
+	}
+	if err := p.StartEngine(context.Background(), opts); err != nil {
+		t.Fatalf("StartEngine: %v", err)
+	}
+
+	w.mu.Lock()
+	order := append([]string(nil), w.order...)
+	w.mu.Unlock()
+
+	launch := -1
+	for i, entry := range order {
+		if strings.HasPrefix(entry, "start: ") && strings.Contains(entry, "dockerd") {
+			launch = i
+			break
+		}
+	}
+	if launch < 0 {
+		t.Fatalf("dockerd was never launched; calls were:\n%s", strings.Join(order, "\n"))
+	}
+
+	// Each step is identified by something only it writes.
+	steps := map[string]string{
+		"network":         "/etc/skrog/network.env",
+		"emulation":       "binfmt",
+		"engine-defaults": "daemon.json",
+	}
+	for name, marker := range steps {
+		seen := -1
+		for i, entry := range order {
+			if strings.HasPrefix(entry, "exec: ") && strings.Contains(entry, marker) {
+				seen = i
+				break
+			}
+		}
+		if seen < 0 {
+			t.Errorf("the %s step never ran; calls were:\n%s", name, strings.Join(order, "\n"))
+			continue
+		}
+		if seen > launch {
+			t.Errorf("the %s step ran AFTER dockerd launched (index %d > %d); the daemon never saw it",
+				name, seen, launch)
+		}
+	}
+}
+
+// The agent now starts alongside the wait for dockerd (#398), and the property
+// that makes that safe is the JOIN: it must be fully started before
+// StartEngine returns.
+//
+// Without it the supervisor would return to a caller that immediately dials
+// the engine, with the vsock agent possibly not up -- which is not a crash,
+// just a silent fall back to the socat relay at ~165 ms per connection instead
+// of ~0.6 ms. That is exactly the kind of regression the agentBinaries comment
+// warns is invisible.
+func TestTheAgentIsStartedBeforeStartEngineReturns(t *testing.T) {
+	w := healthyWSL()
+	w.socketUpAfter = 0 // dockerd is up at once, so only the join can hold the return
+	w.delayExecContaining = "skrog-agent -version"
+	w.execDelay = 750 * time.Millisecond
+	p := &provision.Provisioner{WSL: w, Logger: quietLogger()}
+
+	opts := provision.Options{StateDir: t.TempDir(), StartTimeout: 5 * time.Second}
+	if err := p.StartEngine(context.Background(), opts); err != nil {
+		t.Fatalf("StartEngine: %v", err)
+	}
+	// Read immediately, with no settling time: the point is that the join
+	// already happened, not that the goroutine gets there eventually.
+	if n := startedMatching(w, "skrog-agent"); n != 1 {
+		t.Errorf("skrog-agent started %d times by the time StartEngine returned, want 1", n)
+	}
+}
+
+// ...and the same on the failure path, where there is no socket to wait for.
+// A goroutine still running when StartEngine returns an error is one still
+// exec'ing into a distro the caller is about to give up on.
+func TestTheAgentIsJoinedEvenWhenTheEngineNeverComesUp(t *testing.T) {
+	w := healthyWSL()
+	w.socketUpAfter = 1000 // never, within the timeout below
+	w.delayExecContaining = "skrog-agent -version"
+	w.execDelay = 900 * time.Millisecond // outlives the StartTimeout below
+	p := &provision.Provisioner{WSL: w, Logger: quietLogger()}
+
+	opts := provision.Options{StateDir: t.TempDir(), StartTimeout: 600 * time.Millisecond}
+	if err := p.StartEngine(context.Background(), opts); err == nil {
+		t.Fatal("StartEngine succeeded, want a timeout")
+	}
+	if n := startedMatching(w, "skrog-agent"); n != 1 {
+		t.Errorf("skrog-agent started %d times, want 1 — the agent goroutine was not joined", n)
+	}
+}
+
+// A panic starting the agent must not take the supervisor with it.
+//
+// The agent is never fatal by design (agentStartCmd says so at length), and
+// moving it to a goroutine would have quietly made it fatal: a panic there
+// cannot unwind into StartEngine, it kills the process. The supervisor IS the
+// process, and a machine with no supervisor has no bridge at all.
+func TestAPanickingAgentStartDoesNotKillTheEngineStart(t *testing.T) {
+	w := healthyWSL()
+	w.panicOnExecContaining = "agent-secret"
+	p := &provision.Provisioner{WSL: w, Logger: quietLogger()}
+
+	opts := provision.Options{StateDir: t.TempDir(), StartTimeout: 5 * time.Second}
+	if err := p.StartEngine(context.Background(), opts); err != nil {
+		t.Fatalf("StartEngine: %v", err)
+	}
+	if n := startedMatching(w, "dockerd"); n != 1 {
+		t.Errorf("dockerd started %d times, want 1 — the engine must come up without the agent", n)
 	}
 }

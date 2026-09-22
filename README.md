@@ -131,11 +131,14 @@ docker context. Nothing else on the system is touched.
   parity claim; this line used to assert "~80 ms, at parity with Desktop" and neither
   half had a measurement behind it
 - **Idle RAM answer**: `skrog config set idle-timeout 30m` stops a quiet engine and wakes
-  it on your next `docker` command. **The wake is not yet measured**
-  ([#398](https://github.com/wslkit/skrog/issues/398)) — what is measured is a full
-  `skrog stop` then `start` to a running container, 6.6–9.4 s. Idle-wake should be well
-  under that, because the distro stays registered and only dockerd has to come back; but
-  "should be" is not a number, and the "~1 s" this line used to quote was a guess
+  it on your next `docker` command. **Measured**
+  ([#398](https://github.com/wslkit/skrog/issues/398)): the wake is **4.8–6.3 s** to an
+  answered `docker ps`, against **5.0–8.4 s** for a full `skrog stop` then `start`. The
+  wake is *not* meaningfully cheaper, and the reason this line used to give for expecting
+  it to be — "only dockerd has to come back" — is wrong: an idle stop is
+  `wsl --terminate`, the same operation `skrog stop` performs, so the wake pays the same
+  distro boot (~1.1 s) and the same dockerd startup (~2.6–3.3 s). Skrog's own share of a
+  start is about 160 ms. `~1 s` was a guess and it was off by five
 - **`skrog doctor`**: diagnoses the WSL / PATH / credential-helper / ssh-agent / supervisor quirk zoo,
   with `--json`, `--report` (paste straight into an issue), and `--fix` for the safe subset;
   recognizes corporate VPNs (GlobalProtect, AnyConnect, Zscaler…) and prints the MTU/DNS fix
