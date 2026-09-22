@@ -200,6 +200,70 @@ meantime, which is what [`wsl.auto-memory-reclaim`](vm-sizing.md) is for.
 The thresholds for both hints are a judgement about where each stops being
 noise, set before looking at this machine, not a measurement.
 
+## When something looks off
+
+What each reading means, and what to do about it. Only the two hints above
+are printed by `top` itself; the rest is how to read the rows. The "above 0"
+and "near the limit" readings are rules of thumb, not thresholds tuned on
+failing machines.
+
+| what you see | what it means | what to do |
+|---|---|---|
+| the *Windows holds … more* hint | memory free inside the VM that Windows has not taken back | `skrog config set wsl.auto-memory-reclaim gradual`, then `skrog wsl-config apply` ([vm-sizing.md](vm-sizing.md)); applies from the next VM start. For now: drop the cache, below |
+| the *page cache* hint, or a large FILE on the engine row after pulls and builds | file data kept in memory | nothing, usually: Linux drops it the moment something needs the room. If the host is short, drop it (below) or set `autoMemoryReclaim` |
+| a container's MEMORY close to its LIMIT, MEM PSI 0.0 | the cache has filled up to the limit | nothing: that is what a limit with spare cache looks like |
+| a container's MEMORY close to its LIMIT, MEM PSI above 0 | the container is being slowed by reclaim at its limit | raise the limit, or find what the app is holding (below) |
+| VM memory PSI above 0, or unlimited containers with MEM PSI | the VM itself is short of memory | `skrog config set wsl.memory 8GB`, then `skrog wsl-config apply`; or stop what the rows show is using it |
+| VM CPU PSI above 0, VM CPU% near CPUs × 100 | not enough CPUs | `skrog config set wsl.processors 8`, then `skrog wsl-config apply` |
+| high IO PSI on a container that bind-mounts from `C:` | reads and writes crossing to Windows over 9p | `skrog config set wsl.virtiofs true` ([vm-sizing.md](vm-sizing.md)); `skrog doctor` also warns about this |
+| high IO PSI on the engine row during a pull or build | the engine unpacking layers | nothing: that is the cost of the pull. 13–16% during a `redis:alpine` pull on the reference host |
+| a large *other WSL distros* row | another distro sharing the VM | `wsl -l --running` names them (`top` cannot, from inside the VM); close or `wsl --terminate <name>` the one you do not need. They are not Skrog's |
+| an *another engine's containers* row | another Docker engine running containers in the same VM, usually Docker Desktop | stop those containers, or quit that engine if you do not need it |
+| *kernel and drivers* climbing across readings | not normal: it has held steady at about 340 MiB on the reference host | `wsl --shutdown` resets it; open an issue with `skrog top --json` output attached. Not yet seen happen |
+| engine CPU% with nothing running | partly `top`'s own reads, which run in the engine distro | check with `--interval 10s` before concluding dockerd is busy |
+| engine ANON staying high after builds | BuildKit or dockerd holding memory | `skrog restart` restarts the daemons. Images and volumes stay, but **running containers stop** unless they have a restart policy — do it between jobs |
+
+### Dropping the page cache now
+
+When the host needs the memory back immediately, dropping the VM's page cache
+hands it back without stopping anything:
+
+```powershell
+wsl -d skrog-engine -u root -- sh -c "sync; echo 1 > /proc/sys/vm/drop_caches"
+```
+
+Measured on the reference host, after filling the cache by reading the image
+store:
+
+| | used | page cache | Vmmem (Windows) |
+|---|---|---|---|
+| after filling the cache | 6,589 MiB | 5,907 MiB | 6,424 MiB |
+| right after the drop | 833 MiB | 181 MiB | 6,430 MiB |
+| 15 s later | 827 MiB | 181 MiB | **954 MiB** |
+
+The cache emptied at once, and Windows had about 5.5 GiB back within
+15 seconds. It is safe: only clean cache is dropped, and nothing running loses
+data. What it costs is speed afterwards, because the next reads of those files
+come from disk again. It is the whole VM's cache, other distros' included,
+not only the engine's.
+
+### Raising a container's limit
+
+```powershell
+docker update --memory 1g --memory-swap 2g <container>
+```
+
+Pass `--memory-swap` too. A container started with `-m 256m` has a swap limit
+of 512 MiB, and raising the memory limit past it on its own is refused —
+checked on the reference host:
+
+```
+Error response from daemon: Cannot update container …: Memory limit should be
+smaller than already set memoryswap limit, update the memoryswap at the same time
+```
+
+The new limit applies to the running container; nothing restarts.
+
 ## What it will not do
 
 - **Start the engine.** A stopped or idle-stopped engine is reported, and a
