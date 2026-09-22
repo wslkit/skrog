@@ -363,8 +363,8 @@ func runUninstall(args []string) int {
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, `usage: skrog uninstall [--yes]
 
-Unregisters the engine distro and removes Skrog's own state. Nothing else on
-the system is touched.
+Stops the supervisor, unregisters the engine distro and removes Skrog's own
+state. Nothing else on the system is touched.
 
 This DELETES the distro, and with it every image, container and volume it
 holds. Export anything you want to keep first.
@@ -421,6 +421,28 @@ flags:
 	}
 	if err := logging.UnregisterEventSource(); err != nil {
 		log.Debug("event log source not unregistered (needs elevation; cosmetic)", "error", err)
+	}
+
+	// Then the supervisor, and it has to be here rather than nowhere (#474).
+	//
+	// Nothing was stopping it before. On a real install it is a DETACHED
+	// process — `skrog start` spawns it and releases it, autostart launches
+	// it at logon, skrogw.exe relaunches it after a crash — so uninstall is
+	// not its parent and never was. The only uninstall that ever ran beside a
+	// live supervisor and looked clean was the e2e suite's, which kills its
+	// own child by handle first.
+	//
+	// What the leftover does is why this is not tidiness: it serves a pipe
+	// into a distro about to be unregistered, it rewrites endpoint records
+	// into the state dir being emptied, and it re-points the shared `skrog`
+	// docker context — which is exactly the object the step below is deciding
+	// whether it may remove (#217, #471). Hence the order: a supervisor
+	// stopped after that step could hand the context straight back.
+	//
+	// It must not be able to abort an uninstall, though. A wedged supervisor
+	// is a warning; everything else still has to go.
+	if err := stopSupervisor(optsWithResolvedStateDir(opts).StateDir); err != nil {
+		log.Warn("continuing the uninstall with the supervisor still running", "error", err)
 	}
 
 	// Unwire every distro wsl-integrate touched: "nothing else on the system

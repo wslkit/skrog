@@ -667,15 +667,46 @@ func recycleSupervisor(stateDir string) int {
 		return exitOK
 	}
 	fmt.Println("  stopping the supervisor")
-	if err := supervise.RequestRestart(stateDir); err != nil {
+	if err := stopSupervisor(stateDir); err != nil {
 		fmt.Fprintf(os.Stderr, "skrog: %v\n", err)
 		return exitError
 	}
+	return exitOK
+}
 
-	deadline := time.Now().Add(supervisorExitTimeout)
+// stopSupervisor asks a running supervisor to exit and waits for it to let go
+// of the single-instance claim. It reports nil once nothing holds the claim,
+// including when nothing held it to begin with.
+//
+// The note is the only way to ask. There is no SIGTERM on Windows and no pid
+// to aim one at — the claim is a handle, not a pid file, deliberately (see
+// internal/supervise) — so the supervisor polls for the request, clears it,
+// and exits 0. Exiting 0 is load-bearing beyond this function: it is what
+// tells skrogw.exe the exit was asked for rather than a crash, so the
+// watchdog does not respawn what was just stopped (internal/watchdog).
+//
+// Two callers, and what is NOT here is the difference between them:
+// `restart --supervisor` starts a replacement afterwards, `uninstall` (#474)
+// does not.
+func stopSupervisor(stateDir string) error {
+	return stopSupervisorWithin(stateDir, supervisorExitTimeout)
+}
+
+// stopSupervisorWithin is stopSupervisor with the wait as a parameter, so the
+// give-up path can be tested without a test spending the real 20 seconds
+// waiting for a supervisor that is never going to exit.
+func stopSupervisorWithin(stateDir string, wait time.Duration) error {
+	if !supervise.Held(stateDir) {
+		return nil
+	}
+	if err := supervise.RequestRestart(stateDir); err != nil {
+		return err
+	}
+
+	deadline := time.Now().Add(wait)
 	for time.Now().Before(deadline) {
 		if !supervise.Held(stateDir) {
-			return exitOK
+			return nil
 		}
 		time.Sleep(200 * time.Millisecond)
 	}
@@ -686,10 +717,8 @@ func recycleSupervisor(stateDir string) int {
 	if err := supervise.ClearRestart(stateDir); err != nil {
 		fmt.Fprintf(os.Stderr, "skrog: withdrawing the restart request: %v\n", err)
 	}
-	fmt.Fprintf(os.Stderr,
-		"skrog: the supervisor did not exit within %s and is still running; "+
-			"see supervisor.log in %s\n", supervisorExitTimeout, stateDir)
-	return exitError
+	return fmt.Errorf("the supervisor did not exit within %s and is still running; "+
+		"see supervisor.log in %s", wait, stateDir)
 }
 
 func runStatus(args []string) int {
