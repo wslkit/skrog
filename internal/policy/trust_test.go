@@ -9,53 +9,53 @@ import (
 
 // TestMain trusts the fixture files every other test in this package writes.
 //
-// They live in t.TempDir(), which on Windows is owned by the user running the
-// tests -- exactly what checkOwner refuses, and correctly so. Without this,
-// every existing machine-layer test would be asserting the refusal path rather
-// than the behaviour it was written for.
+// They live in t.TempDir(), whose owner depends on the host: a developer's box
+// makes them user-owned, and a CI runner that runs elevated makes them
+// Administrators-owned. Without this, half the machine-layer tests would
+// assert the refusal path on one and the acceptance path on the other.
 //
-// The refusal path has its own tests below, which restore the real check.
+// The refusal path has its own tests below, which drive it deterministically.
 func TestMain(m *testing.M) {
 	trustMachineFile = func(string) (bool, string) { return true, "" }
 	os.Exit(m.Run())
 }
 
-// withRealTrustCheck restores the production check for one test.
-func withRealTrustCheck(t *testing.T) {
+// withTrust forces a verdict for one test, so the plumbing can be exercised
+// without depending on who happens to own a temp directory.
+func withTrust(t *testing.T, trusted bool, why string) {
 	t.Helper()
 	saved := trustMachineFile
-	trustMachineFile = checkOwner
+	trustMachineFile = func(string) (bool, string) { return trusted, why }
 	t.Cleanup(func() { trustMachineFile = saved })
 }
 
-// A file the user owns is not fleet configuration, whatever it says (#418).
-// On Windows a temp file is owned by the user running the test, which is the
-// shape of the ProgramData hole: CREATOR OWNER grants Full Control because the
-// user owns the object.
-func TestMachineFileOwnedByTheUserIsRefused(t *testing.T) {
-	if runtime.GOOS != "windows" {
-		t.Skip("ownership is a Windows question; checkOwner is a stub elsewhere")
-	}
-	withRealTrustCheck(t)
-
+func writeMachinePolicy(t *testing.T, body string) string {
+	t.Helper()
 	dir := t.TempDir()
-	path := filepath.Join(dir, FileName)
-	if err := os.WriteFile(path, []byte("allow-registries:\n  - evil.example.com\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, FileName), []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv(MachineDirEnv, dir)
+	return dir
+}
+
+// An untrusted machine file is not fleet configuration, whatever it says
+// (#418). It must not reach the rules, and the refusal must be visible.
+func TestUntrustedMachineFileIsRefusedAndReported(t *testing.T) {
+	dir := writeMachinePolicy(t, "allow-registries:\n  - evil.example.com\n")
+	withTrust(t, false, "it is owned by CONTOSO\\alice, not by Administrators or SYSTEM")
 
 	rules, err := LoadMachine()
 	if err != nil {
 		t.Fatalf("LoadMachine: %v", err)
 	}
 	if !rules.Empty() {
-		t.Errorf("a user-owned machine file was trusted: %+v", rules)
+		t.Errorf("an untrusted machine file was trusted: %+v", rules)
 	}
 
 	p := MachineProvenance()
 	if p.Trusted {
-		t.Error("provenance reports a user-owned file as trusted")
+		t.Error("provenance reports an untrusted file as trusted")
 	}
 	if p.Why == "" {
 		t.Error("a refusal with no reason is not tamper-evidence")
@@ -65,27 +65,40 @@ func TestMachineFileOwnedByTheUserIsRefused(t *testing.T) {
 	}
 }
 
-// The refusal has to be visible even when the file parses and says something
-// plausible -- that is the whole point. A silently ignored machine layer and a
-// trusted one look identical to a fleet operator otherwise.
-func TestProvenanceReportsAnUntrustedFile(t *testing.T) {
-	if runtime.GOOS != "windows" {
-		t.Skip("ownership is a Windows question")
-	}
-	withRealTrustCheck(t)
+// And it must not be merged into the effective rules, nor listed as a
+// contributing layer -- `policy show` printed the refusal and then "deployed
+// machine-wide" about the same file until Source stopped listing it.
+func TestUntrustedMachineLayerIsNotMergedOrListed(t *testing.T) {
+	writeMachinePolicy(t, "require-digest: true\n")
+	withTrust(t, false, "not owned by an administrator")
 
-	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, FileName), []byte("require-digest: true\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv(MachineDirEnv, dir)
-
-	rules, _, err := LoadLayered(t.TempDir())
+	rules, src, err := LoadLayered(t.TempDir())
 	if err != nil {
 		t.Fatalf("LoadLayered: %v", err)
 	}
 	if rules.RequireDigest {
 		t.Error("an untrusted machine layer was merged into the effective rules")
+	}
+	if src.MachinePath != "" {
+		t.Errorf("an untrusted file is listed as a contributing layer: %q", src.MachinePath)
+	}
+}
+
+// The accepting path still works, or the check would be a way to disable fleet
+// policy rather than to verify it.
+func TestTrustedMachineLayerIsMergedAndListed(t *testing.T) {
+	writeMachinePolicy(t, "require-digest: true\n")
+	withTrust(t, true, "")
+
+	rules, src, err := LoadLayered(t.TempDir())
+	if err != nil {
+		t.Fatalf("LoadLayered: %v", err)
+	}
+	if !rules.RequireDigest {
+		t.Error("a trusted machine layer was not merged")
+	}
+	if src.MachinePath == "" {
+		t.Error("a trusted machine layer is not listed as contributing")
 	}
 }
 
@@ -96,4 +109,37 @@ func TestProvenanceWithNoMachineFile(t *testing.T) {
 	if p.Path != "" || p.Why != "" {
 		t.Errorf("reported something about a machine file that does not exist: %+v", p)
 	}
+	if !p.Redirected {
+		t.Error("a redirect to a directory with no policy file is the documented bypass; it must be reported")
+	}
+}
+
+// checkOwner against whatever this host actually produces.
+//
+// The verdict is asserted against the file's REAL owner rather than against an
+// assumption about it: a developer's box owns temp files as the user, and an
+// elevated CI runner owns them as Administrators. An earlier version of this
+// test assumed the first and failed only on the runner.
+func TestCheckOwnerMatchesTheRealOwner(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("ownership is a Windows question; checkOwner is a stub elsewhere")
+	}
+	path := filepath.Join(t.TempDir(), "probe")
+	if err := os.WriteFile(path, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	trusted, why := checkOwner(path)
+	admin, err := ownedByAdminOrSystem(path)
+	if err != nil {
+		t.Skipf("could not read the owner independently: %v", err)
+	}
+
+	if trusted != admin {
+		t.Errorf("checkOwner = %v (%s), but the file's owner is admin/SYSTEM = %v", trusted, why, admin)
+	}
+	if !trusted && why == "" {
+		t.Error("a refusal must carry a reason")
+	}
+	t.Logf("this host creates temp files owned by admin/SYSTEM = %v; checkOwner agreed", admin)
 }
