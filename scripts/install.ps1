@@ -125,8 +125,13 @@ try {
         Where-Object { $_.Path -and $_.Path.StartsWith($Dir, [StringComparison]::OrdinalIgnoreCase) }
     if ($running) {
         $names = ($running.Name | Sort-Object -Unique) -join ', '
+        # `skrog stop` alone is NOT enough and used to be all this said (#482):
+        # it stops the ENGINE and leaves the supervisor and its watchdog
+        # running, which are the processes holding the binary. Following the
+        # old advice produced this identical error a second time, with no next
+        # step.
         throw ("Skrog is running from $Dir ($names). " +
-            "Stop it first: skrog stop; then quit the tray if it is open.")
+            "Stop it first: skrog stop --supervisor; then quit the tray if it is open.")
     }
 
     New-Item -ItemType Directory -Force $Dir | Out-Null

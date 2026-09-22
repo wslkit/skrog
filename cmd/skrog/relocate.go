@@ -133,7 +133,7 @@ flags:
 			if err := supervise.WriteDesired(opts.StateDir, supervise.DesiredRunning); err != nil {
 				return err
 			}
-			return p.StartEngine(ctx, opts)
+			return p.StartEngine(ctx, startOptions(ctx, opts))
 		},
 		Commit: func(dir string) error {
 			m.DataDir = dir

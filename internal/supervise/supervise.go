@@ -127,6 +127,10 @@ type Supervisor struct {
 	// can tell "down because I idled it" from "down unexpectedly" without
 	// re-reading, and re-adopted from the file after a supervisor restart.
 	idleStopped bool
+	// heldLogged keeps a maintenance hold (#486) from restating itself on
+	// every tick. A hold lasts minutes and a tick is seconds; the events worth
+	// a line are that it began and that it ended.
+	heldLogged bool
 	// lifecycle and startedAt feed `skrog status --stats` (#179): counters the
 	// CLI cannot derive, because only this process sees the transitions.
 	lifecycle Lifecycle
@@ -262,6 +266,31 @@ func (s *Supervisor) readIntent() intent {
 const probeTimeout = 60 * time.Second
 
 func (s *Supervisor) tick(ctx context.Context) {
+	// Someone else is driving (#486). Do nothing at all -- not even probe,
+	// because the probe boots the distro it asks about, and booting the distro
+	// is half of what the holder is trying to control.
+	//
+	// This is not a desired state and cannot be written as one. `skrog engine
+	// upgrade` already sets desired=stopped, and honoring THAT is what made
+	// the reconciler terminate the distro mid-copy, killing the exec doing the
+	// copying. "Stop the engine" and "keep your hands off the distro" are
+	// different instructions.
+	//
+	// Logged at most once per hold, because a hold lasts minutes and a tick is
+	// seconds: the interesting events are that it started and that it ended,
+	// not that it is still in force.
+	if HoldActive(s.Config.StateDir) {
+		if !s.heldLogged {
+			s.heldLogged = true
+			s.log().Info("maintenance hold in place; pausing reconciliation")
+		}
+		return
+	}
+	if s.heldLogged {
+		s.heldLogged = false
+		s.log().Info("maintenance hold released; resuming reconciliation")
+	}
+
 	// The probe runs OUTSIDE mu, and bounded (#437).
 	//
 	// It used to run under the lock with the supervisor's process-lifetime

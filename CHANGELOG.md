@@ -12,10 +12,30 @@ useful than saying where the real one is.
 
 ## [Unreleased]
 
-Three things doctor and `version` were reporting badly, all found by running
-0.7.0 and 0.7.1 on a real machine and reading what they said.
+What the product was reporting badly, and then what it was doing badly — each
+one found by running the previous release on a real machine rather than by
+reading the diff, and the last two found while validating the fix for the one
+before.
 
 ### Added
+
+- **`skrog stop --supervisor`** ([#482](https://github.com/wslkit/skrog/issues/482)).
+  There was no supported way to stop the supervisor, and the installer told
+  people to use one: refusing to overwrite a running `skrog.exe`, it said
+  *"Stop it first: `skrog stop`"*. `skrog stop` is the engine only — by design
+  and by its own usage text — so the supervisor and its watchdog kept the
+  binary locked, the user followed the instruction, retried, and got the
+  identical error with no next step. Every in-place upgrade hit this.
+
+  The flag stops the engine, then the supervisor. The watchdog goes with it
+  without being asked, because a clean exit is final (`internal/watchdog`) —
+  the same property that stops it racing `restart --supervisor`. The installer
+  now names the command that works.
+
+  Still the rarer intent by far, which is why it is a flag and not the
+  default: nearly everything anyone wants from `stop` is the engine, and a
+  supervisor that survives is what makes `skrog start` quick and keeps the pipe
+  where it was.
 
 - **`skrog doctor` checks the emulation you asked for is actually live**
   ([#480](https://github.com/wslkit/skrog/issues/480)).
@@ -73,6 +93,51 @@ Three things doctor and `version` were reporting badly, all found by running
   that drifts.
 
 ### Fixed
+
+- **`skrog engine upgrade` no longer races the supervisor**
+  ([#486](https://github.com/wslkit/skrog/issues/486)). It failed
+  intermittently, with `exit status 1` and no message, on a different file each
+  time — and succeeded every time with the supervisor stopped. 0.7.1 shipped it
+  as a known issue with "run it again" as the remedy.
+
+  The upgrade already wrote `desired=stopped` before the swap, with a comment
+  saying it was to keep the supervisor out of the way. **Honoring that state is
+  what caused the failure.** The reconciler, seeing "stopped but up", calls
+  `Terminate` — and terminating a WSL distro kills every process in it,
+  including the `wsl --exec` copying binaries into that same distro. The exec
+  itself boots the distro, dockerd comes up with it, and the next tick sees
+  exactly the state that makes it terminate. Both sides agreed on the goal and
+  fought over the route.
+
+  "Stop the engine" and "keep your hands off the distro" are different
+  instructions, and the second could not be written as a desired state. So
+  there is now a maintenance hold: while it is held the reconciler does
+  nothing — not even probe, since the probe boots the distro it asks about. It
+  carries an expiry, because a crashed holder must not leave a supervisor that
+  has silently stopped reconciling forever; that would present as an engine
+  that never recovers with nothing in any log to say why.
+
+  Four upgrades in a row on the machine that reproduced it, supervisor running
+  throughout, all clean.
+
+- **A restart after `engine upgrade`, `compact`, `relocate` or a snapshot
+  restore no longer drops emulation, GPU, proxy and host CA settings**
+  ([#490](https://github.com/wslkit/skrog/issues/490)). Found while validating
+  the fix above: after an upgrade, `docker run --platform linux/arm64` failed
+  with `exec format error` on a machine where it had just worked.
+
+  The supervisor re-reads every per-start setting and has since #83 and #202.
+  Every one-shot command that restarts the engine built its own options and
+  read no config at all, so the engine came back with emulation off, no GPU
+  spec, no proxy and no imported CAs — until something else restarted it.
+
+  Emulation is the one that fails loudly. On a corporate network the others are
+  worse: pulls stop working, or fail on a certificate, some time after an
+  unrelated maintenance command, with nothing connecting the two.
+
+  There is one list now, used by the supervisor and by all seven one-shot
+  paths. The bug was that there were two — the supervisor's, which was right,
+  and everyone else's, which did not exist.
 
 - **`skrog doctor` no longer reports WSL's own COM stub as an injected
   third-party module** ([#488](https://github.com/wslkit/skrog/issues/488)).

@@ -202,7 +202,7 @@ func restoreWithEngine(ctx context.Context, mgr *snapshot.Manager, p *provision.
 		if held {
 			supervise.WriteDesired(opts.StateDir, supervise.DesiredRunning)
 		} else {
-			p.StartEngine(ctx, opts)
+			p.StartEngine(ctx, startOptions(ctx, opts))
 		}
 		return err
 	}
@@ -223,7 +223,7 @@ func restoreWithEngine(ctx context.Context, mgr *snapshot.Manager, p *provision.
 		}
 		return nil
 	}
-	return p.StartEngine(ctx, opts)
+	return p.StartEngine(ctx, startOptions(ctx, opts))
 }
 
 // restoreDiagnosis describes what was actually observed when a restore wait

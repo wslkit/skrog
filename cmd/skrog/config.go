@@ -287,7 +287,7 @@ func bounceEngine(ctx context.Context, p *provision.Provisioner, opts provision.
 		if err := p.StopEngine(ctx, opts); err != nil {
 			return err
 		}
-		return p.StartEngine(ctx, opts)
+		return p.StartEngine(ctx, startOptions(ctx, opts))
 	}
 
 	if err := supervise.WriteDesired(opts.StateDir, supervise.DesiredStopped); err != nil {

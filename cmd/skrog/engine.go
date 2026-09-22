@@ -276,7 +276,7 @@ flags:
 			if err := supervise.WriteDesired(opts.StateDir, supervise.DesiredRunning); err != nil {
 				return err
 			}
-			return p.StartEngine(ctx, opts)
+			return p.StartEngine(ctx, startOptions(ctx, opts))
 		},
 		Healthy: func(ctx context.Context) bool {
 			deadline := time.Now().Add(*waitEngine)
@@ -302,6 +302,33 @@ flags:
 			StateDir: opts.StateDir, Distro: distro, Target: prev,
 		})
 		return err
+	}
+
+	// Hold the supervisor off for the whole swap (#486).
+	//
+	// Stop() below writes desired=stopped, and that is not enough on its own --
+	// it is the supervisor HONORING it that terminates the distro, which kills
+	// the `wsl --exec` copying binaries into that same distro. The exec boots
+	// the distro, dockerd comes up with it, the next tick reads "stopped but
+	// up" and terminates. Measured: three runs with a supervisor failed on
+	// three different files with no error text; three without it succeeded.
+	//
+	// Not for a dry run, which changes nothing and should not pause anything.
+	//
+	// The expiry is the whole operation plus room: a download, a distro
+	// restart and eleven file copies. It exists so a crashed upgrade cannot
+	// leave a supervisor that has silently stopped reconciling -- that would
+	// present as an engine that never recovers, with nothing saying why.
+	if !*dryRun {
+		release, herr := supervise.Hold(opts.StateDir, time.Now().Add(*waitEngine+10*time.Minute))
+		if herr != nil {
+			// Not fatal. Without the hold the upgrade races the supervisor and
+			// may need a retry, which is strictly better than refusing to
+			// upgrade at all.
+			fmt.Fprintf(os.Stderr, "skrog: could not pause the supervisor: %v\n", herr)
+		} else {
+			defer release()
+		}
 	}
 
 	rep, err := r.Run(ctx, engineupgrade.Options{

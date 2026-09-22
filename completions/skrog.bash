@@ -63,7 +63,7 @@ _skrog() {
             snapshot) flags="--force --json --state-dir --yes" ;;
             start) flags="--state-dir --timeout" ;;
             status) flags="--json --prometheus --state-dir --stats" ;;
-            stop) flags="--state-dir --timeout" ;;
+            stop) flags="--state-dir --supervisor --timeout" ;;
             supervise) flags="--distro --no-context --pipe --state-dir" ;;
             uninstall) flags="--distro --state-dir --yes" ;;
             upgrade) flags="--apply --check --dry-run --force --json --offline --state-dir --timeout --yes" ;;
