@@ -113,6 +113,14 @@ type Facts struct {
 	WSLNetworkingMode string
 	PublishScopeLAN   bool
 
+	// AutostartIntent is the recorded `autostart` setting (#515): "on", "off",
+	// or "" when none was recorded. Compared with Session0.AutostartConfigured,
+	// it tells "turned off on purpose" from "went missing".
+	AutostartIntent string
+	// enableAutostart re-registers the logon entry for --fix; nil when the
+	// caller supplied none. Unexported: a capability, not a fact to report.
+	enableAutostart func() error
+
 	// ContainerListeners is what is listening INSIDE each container that
 	// publishes a TCP port, keyed by container ID and read from the container's
 	// own network namespace (#510). A container absent from the map was not
@@ -262,6 +270,11 @@ type GatherOptions struct {
 	// AutostartConfigured reports whether logon autostart is set up; supplied by
 	// the caller because it lives in an OS-specific package.
 	AutostartConfigured bool
+	// AutostartIntent is the recorded `autostart` setting: "on", "off", or ""
+	// on an install that never recorded one (#515). EnableAutostart re-registers
+	// the Run entry, for --fix; nil disables the fix.
+	AutostartIntent string
+	EnableAutostart func() error
 	// PublishedPorts lists what running containers publish, supplied by the
 	// caller for the same reason: it needs the engine transport, which lives in
 	// cmd/skrog and which this package deliberately knows nothing about.
@@ -284,6 +297,9 @@ func Gather(ctx context.Context, opts GatherOptions) Facts {
 		AppVersion: opts.AppVersion,
 		Desired:    string(supervise.ReadDesired(stateDir)),
 		Session0:   Session0Info{AutostartConfigured: opts.AutostartConfigured},
+
+		AutostartIntent: opts.AutostartIntent,
+		enableAutostart: opts.EnableAutostart,
 	}
 
 	f.WSLFastPath, f.WSLFastPathWhy = w.Accelerated()

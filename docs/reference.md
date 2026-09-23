@@ -112,6 +112,10 @@ Controls whether the supervisor starts at logon, via a per-user Run entry
 entry runs skrogw.exe, the windowless launcher, so nothing flashes at logon.
 
 install registers this by default; uninstall removes it.
+
+enable and disable also record the choice, exactly as `skrog config set
+autostart on|off` does, so `skrog doctor` can tell an entry turned off on
+purpose from one that went missing, and put a missing one back with --fix.
 ```
 
 ## bundle
@@ -269,6 +273,11 @@ itself land when the engine next starts, which `skrog restart` asks for.
   audit                      record container-affecting API calls to audit.log in the state
                              dir; on/off ("off" by default). Takes effect on the next docker
                              call. See `skrog audit tail`.
+  autostart                  start the supervisor at logon; on/off. Setting it writes or
+                             removes the per-user Run entry at once, the same as `skrog autostart
+                             enable|disable`, and records the choice so `skrog doctor` can tell
+                             "turned off on purpose" from "went missing" -- and put a missing
+                             entry back with --fix.
   install.verify-signature   refuse the rootfs at install time unless its signature verifies
   disk.warn-below            free-space floor under which `skrog doctor` warns, e.g. 10GB
   prune.every                how often the supervisor reclaims disk on its own: a duration

@@ -169,6 +169,20 @@ const KeyPruneKeepSince = "prune.keep-since"
 // database because nothing referenced it this week.
 const KeyPruneBuildCache = "prune.build-cache"
 
+// KeyAutostart records whether the user wants the supervisor to start at
+// logon (#515): "on" or "off", and unset on an install from before it existed.
+//
+// It records INTENT; it is not the mechanism. What starts the supervisor is
+// the per-user Run entry (internal/autostart), and `skrog config set autostart`
+// writes or removes that entry first and records the choice only once it has.
+// A stored flag that merely claimed autostart was on would be the same drift
+// #515 was: a machine that said one thing and did another after a reboot.
+//
+// What the record buys is the difference between "turned off on purpose" and
+// "went missing". Without it, a missing Run entry looks the same either way,
+// so doctor could only guess, and could not safely repair it.
+const KeyAutostart = "autostart"
+
 // path is the settings file inside the state dir.
 func path(stateDir string) string {
 	return filepath.Join(stateDir, "config.json")
@@ -321,6 +335,7 @@ var validators = map[string]func(string) (string, error){
 	KeyPruneKeepSince:     validatePruneKeepSince,
 	KeyPruneBuildCache:    validateOnOff,
 	KeyVerifySignature:    validateOnOff,
+	KeyAutostart:          validateOnOff,
 
 	// Validated the way WSL reads them, so a typo fails here rather than
 	// silently sizing the VM as something else (#148).
@@ -361,6 +376,14 @@ func validateEmulationPlatforms(v string) (string, error) {
 		archs = append(archs, h.Arch)
 	}
 	return strings.Join(archs, ","), nil
+}
+
+// OnOff parses a boolean-ish setting the way every on/off key does, for a
+// caller that has to act on the value before it is stored (#515: `config set
+// autostart` changes the Run entry first).
+func OnOff(v string) (bool, error) {
+	n, err := validateOnOff(v)
+	return n == "on", err
 }
 
 // validateOnOff normalizes a boolean-ish setting to "on" or "off".

@@ -147,6 +147,12 @@ could be written, because the engine's state is *in* the metrics).
 
 - `settings`: every known key with its stored value **or default** — a stable
   key set.
+  - `autostart` is the one exception to "stored": it is the recorded choice
+    (`on`/`off`), or, on an install that never recorded one, what the logon
+    Run entry actually says — never an empty value for a setting with a real
+    state (#515). Whether the entry is registered right now is
+    `skrog autostart status`, and a mismatch between the two is what
+    `skrog doctor` reports.
 - `engine`: the engine's `daemon.json` keys. **`null` when no engine is
   installed; `{}` when installed with nothing set.** The two are different
   answers.

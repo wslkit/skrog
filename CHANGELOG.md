@@ -134,9 +134,27 @@ useful than saying where the real one is.
   [warn] starts at logon: Skrog will not start at logon: no autostart entry is registered
   ```
 
-  It is quiet when the engine is stopped by request, and it has no `--fix`:
-  nothing records whether autostart was turned off on purpose, so
-  re-registering it is not a safe remedy to apply unasked.
+  It is quiet when the engine is stopped by request.
+
+  **And the choice is now recorded**, as a new `autostart` setting:
+
+  ```powershell
+  skrog config set autostart on    # or off
+  ```
+
+  It writes or removes the logon entry at once, exactly like `skrog autostart
+  enable|disable`, which now record the choice too. So do `install`,
+  `install --no-autostart` and `install --config`. A missing entry the user
+  asked for is then a real finding: doctor warns that "autostart is on, but no
+  logon entry is registered", and **`skrog doctor --fix` registers it again**.
+  An entry turned off on purpose is reported as that, and stays quiet. An
+  install from before the setting keeps the heuristic, with no `--fix`: nothing
+  says whether its missing entry was deliberate. `skrog config` shows the live
+  state beside the setting when the two disagree.
+
+  Driven on the reference host with the entry deleted from the Run key by
+  hand: doctor warned, `--fix` re-registered it, and `config set autostart
+  off` removed it and turned the check into "not started at logon, by choice".
 
 ## [0.8.0] — 2026-09-22
 

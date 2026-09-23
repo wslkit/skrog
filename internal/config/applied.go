@@ -24,6 +24,8 @@ func Applies(key string) string {
 		return AppliesOnStart
 	case KeyVerifySignature, KeyDiskWarnBelow:
 		return AppliesOnUse
+	case KeyAutostart:
+		return AppliesAtLogon
 	}
 	// The wsl.* keys are the furthest thing from "in effect now": they are
 	// recorded in Skrog's own config, written to the GLOBAL ~/.wslconfig only
@@ -47,6 +49,7 @@ const (
 	AppliesNow        = "in effect now"
 	AppliesOnStart    = "applies to the engine on its next start (`skrog restart`)"
 	AppliesOnUse      = "applies the next time it is read"
+	AppliesAtLogon    = "the logon entry is written or removed now; it takes effect at your next logon"
 	AppliesOnWSLApply = "recorded; `skrog wsl-config apply` writes it to ~/.wslconfig, " +
 		"and WSL reads it when the VM next starts"
 )

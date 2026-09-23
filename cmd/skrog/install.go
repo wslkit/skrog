@@ -237,6 +237,15 @@ flags:
 			}
 		}
 	}
+	// The choice is recorded either way (#515), including when registration
+	// just failed: "you asked for autostart and do not have it" is what doctor
+	// should then say. --no-autostart records off WITHOUT removing an existing
+	// entry, because the Run entry is per user while this install's state is
+	// per state dir -- a second install beside a real one (the e2e suite runs
+	// exactly that) must not unregister the first.
+	if err := recordAutostart(optsWithResolvedStateDir(opts).StateDir, !*noAutostart); err != nil {
+		log.Warn("autostart choice not recorded", "error", err)
+	}
 
 	// Registering the Event Log source needs elevation; cosmetic when absent
 	// (entries render with a boilerplate prefix), so best-effort by design.

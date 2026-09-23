@@ -14,11 +14,12 @@ func TestAppliesAnswersForEveryKey(t *testing.T) {
 		AppliesOnStart:    true,
 		AppliesOnUse:      true,
 		AppliesOnWSLApply: true,
+		AppliesAtLogon:    true,
 	}
 	for _, k := range Keys() {
 		got := Applies(k)
 		if !valid[got] {
-			t.Errorf("Applies(%q) = %q, which is none of the three answers", k, got)
+			t.Errorf("Applies(%q) = %q, which is none of the known answers", k, got)
 		}
 	}
 }
@@ -41,6 +42,7 @@ func TestAppliesMatchesWhatTheSupervisorDoes(t *testing.T) {
 		{KeyGPU, AppliesOnStart, "the CDI spec is installed at engine start"},
 		{KeyVerifySignature, AppliesOnUse, "only `skrog install` reads it"},
 		{KeyDiskWarnBelow, AppliesOnUse, "only `skrog doctor` reads it"},
+		{KeyAutostart, AppliesAtLogon, "`config set autostart` writes the Run entry now; Windows reads it at logon"},
 	}
 	for _, c := range cases {
 		if got := Applies(c.key); got != c.want {
@@ -61,7 +63,7 @@ func TestAppliesCoversEveryHookKey(t *testing.T) {
 func TestAppliesSentencesReadAsSentences(t *testing.T) {
 	// They are printed straight after "key = value", so a trailing period or
 	// a capital would look wrong there.
-	for _, s := range []string{AppliesNow, AppliesOnStart, AppliesOnUse} {
+	for _, s := range []string{AppliesNow, AppliesOnStart, AppliesOnUse, AppliesAtLogon} {
 		if strings.HasSuffix(s, ".") {
 			t.Errorf("%q ends with a period", s)
 		}
