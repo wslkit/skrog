@@ -16,7 +16,12 @@ func checkSession0() Check {
 		if f.Session0.AutostartConfigured {
 			return result(c, OK, "logon autostart configured; the engine starts when you sign in")
 		}
-		r := result(c, Skip, "no autostart configured (only matters for headless/unattended hosts)")
+		// Not "only matters for headless hosts": a desktop install without
+		// autostart does not come back after a reboot either, and saying it
+		// only mattered elsewhere is how that went unnoticed (#515). The
+		// autostart check carries that verdict; this one stays about
+		// unattended hosts.
+		r := result(c, Skip, "no logon autostart configured, so there is no unattended startup to check")
 		r.Detail = []string{
 			"for a build agent or server that must run before any user logs in, the",
 			"engine needs the WSL VM's service account to hold the service logon right",

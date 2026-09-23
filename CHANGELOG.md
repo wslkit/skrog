@@ -119,6 +119,25 @@ useful than saying where the real one is.
   costs one `wsl.exe` round trip, about 0.2 s. [docs/memory.md](docs/memory.md)
   has how to read it and how it differs from `docker stats`.
 
+### Fixed
+
+- **`skrog doctor` says when Skrog will not start at logon**
+  ([#515](https://github.com/wslkit/skrog/issues/515)). An install with no
+  autostart entry works until the machine restarts, and then docker has no
+  engine until someone runs `skrog start`. That is how this was found: a
+  supervisor healthy for 26 hours, killed at shutdown, and nothing registered
+  to start it again. Doctor used to mention a missing entry only as a skip
+  that called it irrelevant outside headless hosts. A new `autostart` check
+  now warns when an engine is installed, set to run, and not registered:
+
+  ```
+  [warn] starts at logon: Skrog will not start at logon: no autostart entry is registered
+  ```
+
+  It is quiet when the engine is stopped by request, and it has no `--fix`:
+  nothing records whether autostart was turned off on purpose, so
+  re-registering it is not a safe remedy to apply unasked.
+
 ## [0.8.0] — 2026-09-22
 
 Admission control learns to ask where an image came from, the engine start path

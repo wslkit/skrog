@@ -167,7 +167,7 @@ Useful flags:
 
 | flag | why |
 |---|---|
-| `--no-autostart` | do not start the supervisor at logon |
+| `--no-autostart` | do not start the supervisor at logon. Skrog then does not come back after a reboot until you run `skrog start`, and `skrog doctor` warns about it; `skrog autostart enable` registers it later |
 | `--headless` | never prompt; for CI and unattended installs |
 | `--locked skrog.lock` | install the exact engine a `skrog lock` pinned |
 | `--offline bundle.zip` | install from an air-gap bundle ([air-gap.md](air-gap.md)) |
