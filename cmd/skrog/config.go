@@ -42,6 +42,10 @@ or "off" (the default).`},
 			{config.KeyAudit, `record container-affecting API calls to audit.log in the state
 dir; on/off ("off" by default). Takes effect on the next docker
 call. See ` + "`skrog audit tail`" + `.`},
+			{config.KeyAutostart, `start the supervisor at logon; on/off. Setting it writes or
+removes the per-user Run entry at once, the same as ` + "`skrog autostart\nenable|disable`" + `, and records the choice so ` + "`skrog doctor`" + ` can tell
+"turned off on purpose" from "went missing" -- and put a missing
+entry back with --fix.`},
 			{config.KeyVerifySignature, `refuse the rootfs at install time unless its signature verifies`},
 			{config.KeyDiskWarnBelow, `free-space floor under which ` + "`skrog doctor`" + ` warns, e.g. 10GB`},
 			{config.KeyPruneEvery, `how often the supervisor reclaims disk on its own: a duration
@@ -166,6 +170,10 @@ func listAllConfig(opts provision.Options, asJSON bool) int {
 		fmt.Fprintf(os.Stderr, "skrog: %v\n", err)
 		return exitError
 	}
+	// autostart is reported as it is, not as a bare stored string: the
+	// recorded choice, or what is registered when nothing was recorded (#515).
+	as := readAutostart(opts.StateDir)
+	all[config.KeyAutostart] = as.Effective()
 
 	// Engine settings live in the distro; list them only when one is installed,
 	// so `skrog config` still works on a machine with no engine.
@@ -191,7 +199,11 @@ func listAllConfig(opts provision.Options, asJSON bool) int {
 	}
 	sort.Strings(keys)
 	for _, k := range keys {
-		fmt.Printf("%s = %s\n", k, all[k])
+		v := all[k]
+		if k == config.KeyAutostart {
+			v = as.Describe()
+		}
+		fmt.Printf("%s = %s\n", k, v)
 	}
 	ekeys := make([]string, 0, len(eng))
 	for k := range eng {
@@ -217,6 +229,11 @@ func getConfig(opts provision.Options, key string) int {
 			return exitError
 		}
 		fmt.Println(v)
+		return exitOK
+	}
+
+	if key == config.KeyAutostart {
+		fmt.Println(readAutostart(opts.StateDir).Effective())
 		return exitOK
 	}
 
@@ -248,6 +265,22 @@ func setConfig(opts provision.Options, key, value string) int {
 		case res.PendingRestart:
 			fmt.Println("engine is not running; the change applies on the next start")
 		}
+		return exitOK
+	}
+
+	// Not a plain stored value: the Run entry changes first, and the choice is
+	// recorded only once it has (#515).
+	if key == config.KeyAutostart {
+		on, err := config.OnOff(value)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "skrog: %v\n", err)
+			return exitError
+		}
+		if err := applyAutostart(opts.StateDir, on); err != nil {
+			fmt.Fprintf(os.Stderr, "skrog: %v\n", err)
+			return exitError
+		}
+		fmt.Printf("%s = %s (%s)\n", key, readAutostart(opts.StateDir).Describe(), config.Applies(key))
 		return exitOK
 	}
 

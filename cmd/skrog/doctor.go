@@ -57,6 +57,15 @@ flags:
 		SkrogBin:            skrogBin,
 		AppVersion:          buildVersion,
 		AutostartConfigured: autostartOn,
+		// The recorded choice, and the one repair doctor may make with it (#515).
+		AutostartIntent: readAutostart(opts.StateDir).Recorded,
+		EnableAutostart: func() error {
+			exe, err := os.Executable()
+			if err != nil {
+				return err
+			}
+			return autostart.Enable(exe)
+		},
 		// Listing published ports needs the engine transport, which doctor
 		// deliberately does not know about (#507).
 		PublishedPorts: publishedPorts(

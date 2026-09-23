@@ -152,13 +152,17 @@ func applySkrogFile(ctx context.Context, f skrogfile.File, opts provision.Option
 	if f.Autostart != nil {
 		want = *f.Autostart && !noAutostart
 	}
-	if err := setAutostart(want, log); err != nil {
+	if err := setAutostart(sd, want, log); err != nil {
 		return err
 	}
 	return nil
 }
 
-func setAutostart(want bool, log *slog.Logger) error {
+// setAutostart converges the Run entry and records the file's choice (#515),
+// so doctor can later tell a file that said "off" from an entry that went
+// missing. Recorded even when registration fails, for the reason install
+// records it: doctor should say the asked-for autostart is not there.
+func setAutostart(stateDir string, want bool, log *slog.Logger) error {
 	if want {
 		exe, err := os.Executable()
 		if err != nil {
@@ -166,16 +170,17 @@ func setAutostart(want bool, log *slog.Logger) error {
 		}
 		if err := autostart.Enable(exe); err != nil {
 			log.Warn("autostart not registered", "reason", err)
-			return nil // a bare go-build binary can't self-register; not fatal
+			// a bare go-build binary can't self-register; not fatal
+		} else {
+			log.Info("autostart enabled")
 		}
-		log.Info("autostart enabled")
-		return nil
+		return recordAutostart(stateDir, true)
 	}
 	if err := autostart.Disable(); err != nil {
 		return err
 	}
 	log.Info("autostart disabled")
-	return nil
+	return recordAutostart(stateDir, false)
 }
 
 // exportSkrogFile builds a skrog.yaml from the current install state, so an

@@ -1,6 +1,11 @@
 package doctor
 
-import "github.com/wslkit/skrog/internal/supervise"
+import (
+	"context"
+	"errors"
+
+	"github.com/wslkit/skrog/internal/supervise"
+)
 
 // checkAutostart reports an install that will not come back after a reboot
 // (#515).
@@ -12,25 +17,38 @@ import "github.com/wslkit/skrog/internal/supervise"
 // healthy supervisor killed at shutdown, and nothing registered to start it
 // again.
 //
-// Only session0 looked at autostart before, and it reported a missing entry
-// as a skip, "only matters for headless/unattended hosts". For a desktop
-// install that is exactly backwards.
+// The verdict compares two things: what is registered, and what the user asked
+// for, recorded by `autostart` (`skrog config set autostart`, `skrog autostart
+// enable|disable`, install and --no-autostart all record it).
 //
-// A heuristic, and says so: nothing records whether autostart was turned off
-// on purpose, so the verdict rests on the desired state -- someone who asked
-// for the engine running presumably wants it running after a reboot too. That
-// is also why this check has no fix: re-registering an entry the user may have
-// removed deliberately is not a safe remedy.
+//   - asked for, and missing: the drift #515 was. A warning, and --fix puts
+//     the entry back -- safe, because the user's own recorded choice says so.
+//   - turned off on purpose: nothing to report.
+//   - never recorded (an install from before the key): the old heuristic. The
+//     desired state is "running", so a reboot is presumably meant to bring it
+//     back too; warned about, but not fixed, since the entry may have been
+//     removed on purpose and nothing says otherwise.
 func checkAutostart() Check {
 	c := Check{Name: "autostart", Title: "starts at logon"}
 	c.Run = func(f Facts) Result {
 		if !f.Report.Engine.Installed {
 			return result(c, Skip, "no engine installed")
 		}
-		if f.Session0.AutostartConfigured {
+		registered := f.Session0.AutostartConfigured
+		switch {
+		case registered:
 			return result(c, OK, "the supervisor is registered to start at logon")
-		}
-		if f.Desired == string(supervise.DesiredStopped) {
+		case f.AutostartIntent == "off":
+			return result(c, OK, "not started at logon, by choice (`skrog config set autostart on` to change it)")
+		case f.AutostartIntent == "on":
+			r := result(c, Warn, "autostart is on, but no logon entry is registered: Skrog will not start after a reboot")
+			r.Detail = []string{
+				"the Run entry that starts the supervisor at logon is missing, although",
+				"autostart was turned on; after a reboot docker has no engine until `skrog start`",
+			}
+			r.Remedy = "`skrog doctor --fix` registers it again (or `skrog autostart enable`)."
+			return r
+		case f.Desired == string(supervise.DesiredStopped):
 			// Stopped by request: not coming back after a reboot is what was
 			// asked for, and nagging about it would be noise.
 			return result(c, OK, "not registered to start at logon, and the engine is stopped by request")
@@ -40,9 +58,23 @@ func checkAutostart() Check {
 			"the engine is set to run, but after a reboot nothing starts the supervisor,",
 			"so docker has no engine until you run `skrog start`",
 		}
-		r.Remedy = "`skrog autostart enable` registers it (a per-user Run entry; no elevation). " +
-			"If you turned it off on purpose, this is expected."
+		r.Remedy = "`skrog config set autostart on` registers it; " +
+			"`skrog config set autostart off` records that you do not want it, and this goes quiet."
 		return r
+	}
+	// Only the recorded-intent case is repaired. Re-registering an entry
+	// nobody said they wanted would override a choice the user may have made.
+	c.Fix = func(ctx context.Context, f Facts) (string, error) {
+		if !f.Report.Engine.Installed || f.Session0.AutostartConfigured || f.AutostartIntent != "on" {
+			return "", nil
+		}
+		if f.enableAutostart == nil {
+			return "", errors.New("re-registering autostart is not available from this build")
+		}
+		if err := f.enableAutostart(); err != nil {
+			return "", err
+		}
+		return "registered the supervisor to start at logon again", nil
 	}
 	return c
 }
