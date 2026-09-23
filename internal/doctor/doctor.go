@@ -85,6 +85,7 @@ func Registry() []Check {
 		checkEngine(),
 		checkContext(),
 		checkSupervisor(),
+		checkAutostart(),
 		checkCLI(),
 		checkNetwork(),
 		checkVPN(),
