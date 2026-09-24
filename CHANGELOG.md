@@ -158,6 +158,39 @@ useful than saying where the real one is.
   engine idle-stopped 61-71 s later; a remote `docker run` then woke it and
   answered in 5.8 s.
 
+- **`wsl --shutdown` sticks** ([#518](https://github.com/wslkit/skrog/issues/518)).
+  The supervisor used to treat any down engine as a crash, so a `wsl
+  --shutdown` was undone within seconds: it booted the engine, and with it the
+  whole WSL VM, straight back up. Now, when the engine's distro stops while the
+  supervisor was watching it run and nobody asked for a stop, the engine is
+  left down and marked **idle**. `skrog status` says `idle`, and the next
+  `docker` command wakes it through the same path an idle stop uses.
+  `wsl --terminate skrog-engine` behaves the same way.
+
+  A dockerd crash, where the distro keeps running, is still restarted. So is
+  every stop Skrog asks for itself: `skrog restart`, a daemon.json change, a
+  snapshot restore, `compact`, an engine upgrade. A supervisor that never saw
+  the engine run (after a reboot, `restart --supervisor`, the watchdog) starts
+  it as before. When the distro's state cannot be read, the supervisor
+  restarts rather than guesses.
+
+  **`snapshot save` brings the engine back.** On 0.8.0 it did not: the export
+  terminates the distro, and the engine was left `stopped` with the supervisor
+  running and `desired running`, with every `docker` command failing until
+  `skrog start` (seen on the reference host while preparing this release).
+  The export now runs under a maintenance hold, the mechanism `engine upgrade`
+  uses, so the engine is started again afterwards.
+
+  Driven live on WSL 3.0.1: after `wsl --shutdown` the engine stayed down and
+  `idle` for 80 s and more; the next `docker ps` woke it in 6 s; a `kill -9` of
+  dockerd was restarted within 5 s; `skrog restart`, two daemon.json changes,
+  `snapshot save` and `snapshot restore` each brought the engine back.
+
+  One consequence to know: containers with a restart policy used to come back
+  after a `wsl --shutdown` by themselves, and now wait for the next `docker`
+  command. Whether a sleep/resume ever stops the distro is not measured; if it
+  does, the same applies.
+
 - **The bundled docker CLI is 29.8.2**, from 29.8.1. amd64 is Docker's own
   zip, checksum computed from the official download as before; the arm64
   `docker.exe` is built from docker/cli at commit `7fc2dff`, pinned. Its

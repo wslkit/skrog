@@ -118,8 +118,9 @@ docker context. Nothing else on the system is touched.
   is translated by the bridge, and Features, `postCreateCommand` and
   docker-outside-of-docker all behave as they do on any Linux engine
   ([docs/devcontainers.md](docs/devcontainers.md))
-- **Always-on supervisor**: starts at logon, survives engine crashes, `wsl --shutdown`, and
-  sleep/resume; `skrog start/stop/restart/status --json`. Settings apply live — the
+- **Always-on supervisor**: starts at logon and survives engine crashes. A `wsl --shutdown`
+  sticks: the engine stays down until the next `docker` command wakes it, instead of Skrog
+  booting WSL straight back up; `skrog start/stop/restart/status --json`. Settings apply live — the
   supervisor follows the file, so nothing here needs a restart; `skrog restart
   --supervisor` replaces the supervisor process itself on the rare occasion that helps
 - **Low-overhead transport**: a vsock path to the engine, with an automatic fallback.

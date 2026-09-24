@@ -1,7 +1,8 @@
 # Running Skrog unattended (CI runners, build agents)
 
-Skrog's supervisor keeps the engine alive across crashes, `wsl --shutdown`,
-and sleep/resume — but it needs a **logged-on interactive session** to do it.
+Skrog's supervisor keeps the engine alive across crashes, and wakes it on the
+next docker command after a `wsl --shutdown` — but it needs a **logged-on
+interactive session** to do it.
 This page documents how to give a headless machine one. It is documentation on
 purpose: Skrog will not set up auto-logon for you, because doing so means
 writing an account password into the machine's LSA secrets, and a tool that

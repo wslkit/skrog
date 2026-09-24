@@ -737,9 +737,9 @@ Serves the Windows named pipe that stock docker.exe connects to, relaying it to
 the engine inside the WSL2 distro. Runs in the foreground until interrupted.
 
 This is the debug bridge. For everyday use, "skrog supervise" is the always-on
-layer: it serves the same pipe and also keeps the engine alive across crashes,
-"wsl --shutdown" and sleep/resume. "skrog install" registers it to start at
-logon.
+layer: it serves the same pipe and also keeps the engine alive across crashes
+(a "wsl --shutdown" is left alone until the next docker command wakes the
+engine). "skrog install" registers it to start at logon.
 
 A Windows service that needs no logged-on session is not coming: issue #3
 spiked it and the answer was no. WSL2 cannot start from session 0, so the
@@ -1117,8 +1117,9 @@ serve the pipe and keep the engine alive (the always-on layer)
 usage: skrog supervise [flags]
 
 The always-on layer: serves the docker pipe AND keeps the engine alive —
-crash restart with backoff, recovery from `wsl --shutdown` and sleep/resume,
-honoring `skrog stop` until `skrog start`. One instance per install.
+crash restart with backoff, honoring `skrog stop` until `skrog start`. One
+instance per install. A distro stopped from outside (`wsl --shutdown`, `wsl
+--terminate`) is left stopped, and the next docker command starts it again.
 
 Runs in the foreground; `skrog start` spawns it in the background, and the
 logon autostart (`skrog autostart`) runs it for you. Logs go to supervisor.log in the
