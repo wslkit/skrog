@@ -119,6 +119,30 @@ useful than saying where the real one is.
   costs one `wsl.exe` round trip, about 0.2 s. [docs/memory.md](docs/memory.md)
   has how to read it and how it differs from `docker stats`.
 
+### Changed
+
+- **`wsl --shutdown` sticks** ([#518](https://github.com/wslkit/skrog/issues/518)).
+  The supervisor used to treat any down engine as a crash, so a `wsl
+  --shutdown` was undone within seconds: it booted the engine, and with it the
+  whole WSL VM, straight back up. Now, when the engine's distro stops while the
+  supervisor was watching it run and nobody asked for a stop, the engine is
+  left down and marked **idle**. `skrog status` says `idle`, and the next
+  `docker` command wakes it through the same path an idle stop uses.
+  `wsl --terminate skrog-engine` behaves the same way.
+
+  A dockerd crash, where the distro keeps running, is still restarted. So is
+  every stop Skrog asks for itself: `skrog restart`, a daemon.json change, a
+  snapshot restore, `compact`, an engine upgrade. A supervisor that never saw
+  the engine run (after a reboot, `restart --supervisor`, the watchdog) starts
+  it as before. `snapshot save` now runs its export under a maintenance hold,
+  so the engine comes back afterwards as it did. When the distro's state
+  cannot be read, the supervisor restarts rather than guesses.
+
+  One consequence to know: containers with a restart policy used to come back
+  after a `wsl --shutdown` by themselves, and now wait for the next `docker`
+  command. Whether a sleep/resume ever stops the distro is not measured; if it
+  does, the same applies.
+
 ### Fixed
 
 - **`skrog doctor` says when Skrog will not start at logon**

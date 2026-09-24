@@ -81,6 +81,13 @@ func (e *engineAdapter) Stop(ctx context.Context) error {
 	return e.p.StopEngine(ctx, e.opts)
 }
 
+// DistroRunning lets the supervisor tell a stopped distro from a dead daemon
+// (#518): the first is someone's `wsl --shutdown`, left alone until the next
+// docker command; the second is a crash, restarted as before.
+func (e *engineAdapter) DistroRunning(ctx context.Context) (bool, error) {
+	return e.p.DistroRunning(ctx, e.opts)
+}
+
 // hostCAs returns the host root CA bundle to trust inside the engine, reading
 // the Windows store at most once per successful read.
 func (e *engineAdapter) hostCAs(ctx context.Context) []byte {
@@ -154,8 +161,8 @@ func runSupervise(args []string) int {
 		fmt.Fprintf(os.Stderr, `usage: skrog supervise [flags]
 
 The always-on layer: serves the docker pipe AND keeps the engine alive —
-crash restart with backoff, recovery from `+"`wsl --shutdown`"+` and sleep/resume,
-honoring `+"`skrog stop`"+` until `+"`skrog start`"+`. One instance per install.
+crash restart with backoff, honoring `+"`skrog stop`"+` until `+"`skrog start`"+`. One
+instance per install. A distro stopped from outside (`+"`wsl --shutdown`"+`, `+"`wsl\n--terminate`"+`) is left stopped, and the next docker command starts it again.
 
 Runs in the foreground; `+"`skrog start`"+` spawns it in the background, and the
 logon autostart (`+"`skrog autostart`"+`) runs it for you. Logs go to supervisor.log in the

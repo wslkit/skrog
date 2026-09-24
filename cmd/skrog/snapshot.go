@@ -124,8 +124,22 @@ func snapshotSave(mgr *snapshot.Manager, p *provision.Provisioner, opts provisio
 		fmt.Fprintf(os.Stderr, "skrog: %s; stop them or pass --force\n", why)
 		return exitError
 	}
-	// `wsl --export` terminates the distro for a consistent image; the
-	// supervisor brings the engine back afterward.
+	// `wsl --export` terminates the distro for a consistent image (per the
+	// snapshot package; not re-verified for #518), and the supervisor brings
+	// the engine back afterward. Under a maintenance hold, so that holds true
+	// now that the supervisor leaves an engine alone when its distro is
+	// stopped from outside (#518): a stop during a hold is not "from outside",
+	// and a down engine after it is restarted. The hold also keeps the
+	// supervisor from probing -- which execs into, and boots -- the distro
+	// mid-export. The expiry only bounds a save that crashed.
+	if release, herr := supervise.Hold(opts.StateDir, time.Now().Add(2*time.Hour)); herr != nil {
+		// Not fatal: without the hold a stopped engine may stay idle until
+		// the next docker command wakes it, which is strictly better than
+		// refusing to snapshot.
+		fmt.Fprintf(os.Stderr, "skrog: could not pause the supervisor: %v\n", herr)
+	} else {
+		defer release()
+	}
 	meta, err := mgr.Save(context.Background(), name, engineVersion)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "skrog: %v\n", err)
