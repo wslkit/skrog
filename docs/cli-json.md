@@ -42,7 +42,8 @@ Shapes are pinned by `cmd/skrog/jsonshapes_test.go`.
 
 - `supervisor`: `running` | `stopped`.
 - `engine`: `running` | `idle` | `stopped`. **`idle`** is the engine stopped by the
-  idle timeout — healthy, it wakes on the next `docker` call. Scripts can tell
+  idle timeout, or by a `wsl --shutdown` the supervisor saw happen (#518) —
+  healthy, it wakes on the next `docker` call. Scripts can tell
   it from broken.
 - `desired`: `running` | `stopped` (what `skrog start`/`stop` last asked for).
 - `profile`: omitted when no profile is active.

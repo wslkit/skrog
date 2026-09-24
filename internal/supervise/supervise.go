@@ -44,6 +44,26 @@ type Engine interface {
 	Stop(ctx context.Context) error
 }
 
+// DistroProber is implemented by an Engine that can tell whether its DISTRO is
+// running, apart from whether dockerd answers (#518).
+//
+// Running collapses the two: a stopped distro and a dead dockerd in a running
+// distro both read as (false, nil). They mean different things. A dead daemon
+// in a live distro is a crash, and restarting it is the repair. A distro that
+// stopped while the daemon was healthy was stopped from OUTSIDE -- `wsl
+// --shutdown`, `wsl --terminate skrog-engine` -- and restarting it undoes what
+// someone just did on purpose. An Engine without this method keeps the old
+// behaviour: every down engine is restarted.
+type DistroProber interface {
+	DistroRunning(ctx context.Context) (bool, error)
+}
+
+// distroProbeTimeout bounds the distro-state question, which is asked under mu.
+// It is a listing (the COM fast path, or `wsl --list`), not an exec, so it is
+// quick when WSL is healthy; the bound is for when it is not, and an answer
+// that does not come in time falls back to restarting, as before #518.
+const distroProbeTimeout = 10 * time.Second
+
 // Config tunes the loop. Zero values get defaults.
 type Config struct {
 	// StateDir is where the desired state is read from.
@@ -158,6 +178,16 @@ type Supervisor struct {
 	// without the log drowning in per-tick repeats.
 	lastVeto string
 
+	// sawUp is true while THIS process has watched the engine run with desired
+	// running, and nothing since has explained a stop (#518). It is what makes
+	// "the distro stopped under us" a judgement about a CHANGE, never about a
+	// state: a supervisor that just started (logon, `restart --supervisor`, the
+	// watchdog), one that honoured a stop request, one that was held, and one
+	// that has already decided a down engine was a crash all have it false --
+	// and so all of them restart a down engine, exactly as before. Guarded by
+	// mu.
+	sawUp bool
+
 	// failures counts consecutive start failures, for backoff.
 	failures int
 	// nextTry is the earliest moment another start attempt is allowed.
@@ -201,9 +231,12 @@ func (s *Supervisor) log() *slog.Logger {
 }
 
 // Run reconciles until the context ends. It never returns an error for the
-// engine being down — that is a condition to repair, not a reason to exit —
-// and it survives sleep/resume for free: a resumed machine simply fails the
-// next health check and gets repaired like any other crash.
+// engine being down — that is a condition to repair, not a reason to exit.
+// A dockerd crash is restarted; a distro stopped from outside is left down
+// until demand (#518). Whether a sleep/resume ever stops the distro is not
+// measured: if it does, the next docker command wakes the engine, and
+// containers with a restart policy wait for that rather than coming back on
+// their own.
 func (s *Supervisor) Run(ctx context.Context) {
 	s.mu.Lock()
 	s.startedAt = time.Now()
@@ -299,6 +332,12 @@ func (s *Supervisor) tick(ctx context.Context) {
 			s.heldLogged = true
 			s.log().Info("maintenance hold in place; pausing reconciliation")
 		}
+		// Whatever the holder does to the distro is its business, so an engine
+		// found down afterwards was not stopped from outside (#518): forget
+		// having seen it up, and a down engine after the hold is restarted.
+		s.mu.Lock()
+		s.sawUp = false
+		s.mu.Unlock()
 		return
 	}
 	if s.heldLogged {
@@ -394,6 +433,29 @@ func (s *Supervisor) reconcileLocked(ctx context.Context, up bool, probeErr erro
 			s.idleStopped = false
 		}
 
+		// Stopped from outside? Only asked about an engine this process saw
+		// running, and only once: the verdict is latched, so a crash that sits
+		// in backoff long enough for WSL to reap the idle distro is not later
+		// mistaken for someone's `wsl --shutdown`.
+		if s.sawUp {
+			s.sawUp = false
+			if s.distroStopped(ctx) {
+				// Treated as an idle stop, and written as one: the file is
+				// what keeps the next tick from starting it, what `skrog
+				// status` reports, and what Demand wakes from on the next
+				// docker command.
+				if err := WriteEngineState(s.Config.StateDir, EngineIdle); err != nil {
+					s.log().Error("could not record the engine as idle; restarting it instead", "error", err)
+				} else {
+					s.idleStopped = true
+					s.upSince = time.Time{}
+					s.log().Info("the engine's WSL distro was stopped outside Skrog (wsl --shutdown or --terminate); " +
+						"leaving it down until the next docker command")
+					return
+				}
+			}
+		}
+
 		if time.Now().Before(s.nextTry) {
 			return // still backing off
 		}
@@ -421,6 +483,7 @@ func (s *Supervisor) reconcileLocked(ctx context.Context, up bool, probeErr erro
 		s.fireHook(HookPostStart)
 
 	case desired == DesiredStopped && up:
+		s.sawUp = false // the stop that follows is asked for, not from outside
 		s.log().Info("desired state is stopped; stopping the engine")
 		s.fireHook(HookPreStop)
 		if err := s.Engine.Stop(ctx); err != nil {
@@ -430,6 +493,10 @@ func (s *Supervisor) reconcileLocked(ctx context.Context, up bool, probeErr erro
 		WriteEngineState(s.Config.StateDir, EngineActive)
 
 	case desired == DesiredStopped && !up:
+		// Whatever brings the engine back from here -- `skrog start`, the end
+		// of a restart, a daemon.json bounce, a snapshot restore -- is a start
+		// request, not the aftermath of an outside stop (#518).
+		s.sawUp = false
 		// Stopped and down is the state the user asked for — but the path
 		// into it may have gone through an idle stop, leaving the in-memory
 		// flag set (#80: `skrog stop` clears the FILE, not this process's
@@ -445,6 +512,7 @@ func (s *Supervisor) reconcileLocked(ctx context.Context, up bool, probeErr erro
 		// bad patch (a WSL update mid-flight, say) does not tax the next.
 		s.failures = 0
 		s.nextTry = time.Time{}
+		s.sawUp = true
 		if s.upSince.IsZero() {
 			// This supervisor did not start this engine -- it ADOPTED one that
 			// was already running (#501). The watchdog restarting after a
@@ -488,6 +556,26 @@ func (s *Supervisor) reconcileLocked(ctx context.Context, up bool, probeErr erro
 		s.maybeIdleStop(ctx)
 	}
 	return adopted
+}
+
+// distroStopped reports whether the engine's distro is definitely not running
+// (#518). Anything short of a definite answer -- no DistroProber, a probe
+// error, a timeout -- is false, which keeps the pre-#518 behaviour of
+// restarting: guessing "stopped on purpose" wrongly leaves a crashed engine
+// down, and that is the worse of the two mistakes. Caller holds s.mu.
+func (s *Supervisor) distroStopped(ctx context.Context) bool {
+	dp, ok := s.Engine.(DistroProber)
+	if !ok {
+		return false
+	}
+	pctx, cancel := context.WithTimeout(ctx, distroProbeTimeout)
+	defer cancel()
+	running, err := dp.DistroRunning(pctx)
+	if err != nil {
+		s.log().Warn("could not tell whether the engine's distro is running; treating the engine as crashed", "error", err)
+		return false
+	}
+	return !running
 }
 
 // maybeIdleStop stops a healthy engine that nothing is using, returning its
@@ -555,6 +643,7 @@ func (s *Supervisor) maybeIdleStop(ctx context.Context) {
 		return
 	}
 	s.idleStopped = true
+	s.sawUp = false // this stop was ours
 	s.lifecycle.IdleStops++
 	s.lifecycle.LastIdleStopAt = time.Now()
 	s.upSince = time.Time{}
@@ -616,8 +705,8 @@ func (s *Supervisor) Demand(ctx context.Context) error {
 }
 
 // backoff is exponential from 2s, capped: crash loops must not hammer WSL,
-// but a transient failure (sleep/resume races, `wsl --shutdown`) should be
-// repaired in seconds, not minutes.
+// but a transient failure (a sleep/resume race, a WSL update mid-flight) should
+// be repaired in seconds, not minutes.
 func (s *Supervisor) backoff() time.Duration {
 	d := 2 * time.Second
 	for i := 1; i < s.failures; i++ {

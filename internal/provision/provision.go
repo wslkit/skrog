@@ -1123,6 +1123,26 @@ func (p *Provisioner) ReadManifest(opts Options) (*Manifest, error) {
 	return &m, nil
 }
 
+// DistroRunning reports whether the engine's distro is running, apart from
+// whether dockerd answers in it (#518). A listing only -- never an exec, which
+// would boot the distro it asks about (#82). An error means "cannot tell", and
+// the supervisor treats that as a crash to repair rather than a stop to honour.
+func (p *Provisioner) DistroRunning(ctx context.Context, opts Options) (bool, error) {
+	opts = opts.withDefaults()
+	distros, err := p.wsl().List(ctx)
+	if err != nil {
+		return false, err
+	}
+	for _, d := range distros {
+		if d.Name == opts.Distro {
+			return strings.EqualFold(d.State, "Running"), nil
+		}
+	}
+	// Not listed at all is not "stopped on purpose": an unregistered distro is
+	// a broken install, and the start path is what says so loudly.
+	return false, fmt.Errorf("distro %q is not registered", opts.Distro)
+}
+
 // EngineRunning reports whether the engine socket answers inside the distro.
 func (p *Provisioner) EngineRunning(ctx context.Context, opts Options) bool {
 	opts = opts.withDefaults()
