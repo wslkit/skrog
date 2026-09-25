@@ -30,7 +30,9 @@ Profiles use the same YAML shape as [`skrog.yaml`](declarative-install.md), so
 ## Switching is exact, not additive
 
 `switch` makes the live config **match** the profile: any engine key, hook, or
-idle timeout the profile does not set is cleared. That is what makes "switch to
+idle timeout the profile does not set is cleared. A cleared idle timeout is the
+default, 5 minutes, not off; a profile that wants the engine always up says
+`idle-timeout: off`. That is what makes "switch to
 home" actually undo the work-network mirrors, rather than leaving them layered
 underneath. Engine changes are applied in one batch, so the engine bounces once
 per switch (and not at all if the config already matches).

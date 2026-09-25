@@ -119,6 +119,31 @@ useful than saying where the real one is.
   costs one `wsl.exe` round trip, about 0.2 s. [docs/memory.md](docs/memory.md)
   has how to read it and how it differs from `docker stats`.
 
+### Changed
+
+- **The engine now idle-stops after 5 minutes by default**
+  ([#520](https://github.com/wslkit/skrog/issues/520)), like Docker Desktop's
+  Resource Saver: measured on the reference host, Desktop logged its last
+  request at 00:38:23 and `idle: shutdown` at 00:43:24. The default was `off`,
+  so an engine nobody used held its RAM until someone stopped it. The next
+  `docker` command wakes it, with a cold start of 4–8 s. It still never stops
+  while containers run or a client is connected, and `skrog config set
+  idle-timeout off` keeps the old behaviour. An install that set a value keeps
+  it.
+
+  **`skrog serve` is now visible to the idle stop.** Its remote clients never
+  cross the supervisor's pipe, so with idle stops on, the engine could be
+  stopped under them, even mid-build: a BuildKit build runs no containers.
+  `serve` now publishes its own connections to the supervisor, and a remote
+  client connecting to an idle engine wakes it, as a local command does. Before
+  this, the docs told remote users to keep idle stops off; a 5-minute default
+  would have broken every one of them unasked.
+
+  The settings watcher also used a blank configuration for a missing settings
+  file, rather than the defaults `Load` uses. The two now share one
+  `config.Defaults()`, which is what makes "no file" mean 5 minutes
+  everywhere.
+
 ### Fixed
 
 - **`skrog doctor` says when Skrog will not start at logon**
