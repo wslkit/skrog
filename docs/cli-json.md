@@ -140,7 +140,7 @@ could be written, because the engine's state is *in* the metrics).
 
 ```json
 {
-  "settings": { "idle-timeout": "off", "audit": "on", "network.proxy": "", "gpu": "off", "...": "..." },
+  "settings": { "idle-timeout": "5m0s", "audit": "on", "network.proxy": "", "gpu": "off", "...": "..." },
   "engine":   { "engine.registry-mirrors": "https://mirror.corp", "...": "..." }
 }
 ```

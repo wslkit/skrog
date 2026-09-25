@@ -61,7 +61,7 @@ func (w *Watcher) refreshLocked() {
 	switch {
 	case os.IsNotExist(err):
 		// No file is the default configuration, exactly as Load treats it.
-		w.cfg, w.loaded, w.modTime, w.size = Config{}, true, time.Time{}, 0
+		w.cfg, w.loaded, w.modTime, w.size = Defaults(), true, time.Time{}, 0
 		w.lastErr = ""
 		return
 	case err != nil:

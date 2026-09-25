@@ -48,9 +48,22 @@ Runs in the foreground and relays to the engine through the same bind-path
 rewriting the local pipe uses, so remote `docker run -v` behaves as it does
 locally. Stop it with Ctrl-C.
 
-The engine must be running (`skrog start`). Because a remote client has no way
-to wake a stopped engine, pair remote serving with the idle timeout off (its
-default):
+The supervisor must be running (`skrog start`). The idle timeout (5 minutes by
+default) and remote serving work together
+([#520](https://github.com/wslkit/skrog/issues/520)):
+
+- **While a remote client is connected, the engine is never idle-stopped.**
+  `skrog serve` tells the supervisor about its own connections, because they
+  never cross the supervisor's pipe. That includes a remote `docker build`,
+  which runs no containers and so would not keep the engine up on its own.
+- **Once the last remote connection closes, the engine idles one full timeout
+  later**, as it does for local clients.
+- **A remote client connecting to an idle engine wakes it** and waits for it,
+  about the length of a cold start, 4–8 s.
+- **An engine stopped with `skrog stop` is not woken**: the client gets an error
+  saying so.
+
+If remote clients should never wait for a cold start, turn idle stops off:
 
 ```
 skrog config set idle-timeout off

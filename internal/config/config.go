@@ -24,7 +24,7 @@ import (
 
 // KeyIdleTimeout is how long the bridge must be quiet (no open connections,
 // no running containers) before the supervisor stops the engine to return
-// its RAM. "off" (the default) disables idle stops entirely.
+// its RAM. DefaultIdleTimeout when unset; "off" disables idle stops entirely.
 const KeyIdleTimeout = "idle-timeout"
 
 // Lifecycle hook keys (#70): each holds a path to an executable the supervisor
@@ -237,6 +237,29 @@ func (c Config) KeepSince() time.Duration {
 	return c.PruneKeepSince
 }
 
+// DefaultIdleTimeout is the idle-timeout an install gets without setting one:
+// five minutes, the same as Docker Desktop's Resource Saver, which stops its
+// engine after five minutes with no containers running -- measured on the
+// maintainer's machine, 2026-09-25, from Desktop's own log (last request
+// 00:38:23, "idle: shutdown" 00:43:24).
+//
+// It used to be off. An engine nobody is using then holds its RAM forever,
+// which is the opposite of what someone moving from Desktop expects. The cost
+// of it being on is one cold start (4-8 s measured) on the first docker
+// command after an idle stop; nothing running is ever stopped, because an
+// idle stop needs no running containers and no open connections.
+const DefaultIdleTimeout = 5 * time.Minute
+
+// Defaults is the configuration with nothing set: what Load starts from, and
+// what the watcher uses when there is no settings file at all. One place, so
+// the two cannot disagree about what "unset" means.
+func Defaults() Config {
+	return Config{
+		IdleTimeout:  DefaultIdleTimeout,
+		PublishScope: PublishScopeLoopback,
+	}
+}
+
 // Load parses the settings file. A missing file is the default configuration,
 // not an error; a corrupt one is an error, because silently reverting a
 // user's settings to defaults is worse than telling them.
@@ -245,7 +268,7 @@ func Load(stateDir string) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
-	var c Config
+	c := Defaults()
 	if v, ok := raw[KeyIdleTimeout]; ok {
 		d, err := parseIdleTimeout(v)
 		if err != nil {
@@ -488,8 +511,10 @@ func Get(stateDir, key string) (string, error) {
 
 func defaultFor(key string) string {
 	switch key {
-	case KeyIdleTimeout, KeyAudit, KeyImportHostCAs, KeyGPU, KeyVerifySignature:
+	case KeyAudit, KeyImportHostCAs, KeyGPU, KeyVerifySignature:
 		return "off"
+	case KeyIdleTimeout:
+		return DefaultIdleTimeout.String()
 	case KeyGPUVendor:
 		// Not an on/off key: unset means the default vendor, not disabled.
 		return string(gpu.DefaultVendor)
