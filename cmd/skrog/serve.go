@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"flag"
@@ -125,7 +126,16 @@ flags:
 	// must not stop at one listener. The store is the supervisor's -- same
 	// state dir -- so a remote client is judged against the record the machine
 	// already kept, and a pull through this listener joins it (#343).
-	dialer := engineDialer(targetDistro, "", opts.StateDir, log)
+	// Waking, not bare: a remote client reaching an idle-stopped engine wakes
+	// it through the supervisor, as a local docker command does (#520).
+	runOpts := opts
+	runOpts.Distro = targetDistro
+	dialer := &wakingDialer{
+		inner:    engineDialer(targetDistro, "", opts.StateDir, log),
+		stateDir: opts.StateDir,
+		running:  func(ctx context.Context) bool { return p.EngineRunning(ctx, runOpts) },
+		log:      log,
+	}
 	prov := &imageProvenance{stateDir: opts.StateDir, dialer: dialer, log: log}
 
 	// Seed here too: Seed is a no-op once the store exists, so whichever
@@ -139,6 +149,10 @@ flags:
 		Handler: pipeproxy.RewriteBindsProvenanced(auditor, watcher, prov),
 		Dialer:  dialer,
 	}
+	// And the supervisor has to be able to see these clients at all: they
+	// never cross its pipe, so without this record it idle-stopped the engine
+	// under them (#520).
+	go publishRemoteServe(ctx, opts.StateDir, srv, log)
 	if err := srv.Serve(ctx, ln); err != nil {
 		fmt.Fprintf(os.Stderr, "skrog: %v\n", err)
 		return exitError

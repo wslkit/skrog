@@ -499,10 +499,19 @@ func (s *Supervisor) maybeIdleStop(ctx context.Context) {
 	timeout := s.IdleTimeout()
 	if timeout <= 0 {
 		s.lastVeto = ""
-		return // idle stops are off (the default)
+		return // idle stops are off (`idle-timeout off`)
 	}
 	if n := s.Activity.ActiveConns(); n > 0 {
 		s.veto("open client connections", "conns", n)
+		return
+	}
+	// Remote clients of `skrog serve` never cross this pipe, so its own
+	// record is the only way to see them. Without it, an engine serving a
+	// remote `docker build` -- which runs no containers -- was idle-stopped
+	// mid-build.
+	remote, serving := ReadRemoteServe(s.Config.StateDir)
+	if serving && remote.ActiveConns > 0 {
+		s.veto("remote clients connected through skrog serve", "conns", remote.ActiveConns)
 		return
 	}
 	// An automatic prune runs off this goroutine and talks to the engine the
@@ -519,6 +528,11 @@ func (s *Supervisor) maybeIdleStop(ctx context.Context) {
 	quietSince := s.Activity.LastActivity()
 	if s.upSince.After(quietSince) {
 		quietSince = s.upSince
+	}
+	// A remote connection that just closed restarts the quiet window as a
+	// local one does.
+	if serving && remote.LastActivity.After(quietSince) {
+		quietSince = remote.LastActivity
 	}
 	if time.Since(quietSince) < timeout {
 		s.veto("waiting out the quiet window",

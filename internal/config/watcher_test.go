@@ -167,7 +167,9 @@ func TestWatcherDoesNotRereadAnUnchangedFile(t *testing.T) {
 
 func TestWatcherWithNoStateDirIsDefaults(t *testing.T) {
 	w := NewWatcher(filepath.Join(t.TempDir(), "does-not-exist"))
-	if c := w.Config(); c.Audit || c.IdleTimeout != 0 {
-		t.Errorf("Config() = %+v, want zero", c)
+	// The defaults, not a zero Config: a watcher over a missing file must
+	// agree with Load about what unset means -- idle-timeout included.
+	if c := w.Config(); c != Defaults() {
+		t.Errorf("Config() = %+v, want Defaults() %+v", c, Defaults())
 	}
 }
