@@ -164,6 +164,25 @@ useful than saying where the real one is.
   toolchain moves to Go 1.26.8, in step with the engine. Compose, buildx and
   the credential helper are unchanged.
 
+### Security
+
+- **The default engine is 29.8.2, with containerd, runc and BuildKit moved
+  to the versions moby 29.8.2 itself builds against.** Moby 29.8.2 fixes
+  CVE-2026-92543 (a malicious DNS response could make registry connections
+  skip TLS verification or fall back to HTTP) and CVE-2026-92542. The other
+  three components are pinned separately in Skrog, and bumping moby alone
+  would have left them behind:
+
+  | component | was | now | why |
+  |---|---|---|---|
+  | containerd | 2.1.4 | 2.3.6 | CVE-2026-53493 affects `>= 2.1.0, < 2.2.9`; the 2.1 line has no fix |
+  | runc | 1.3.0 | 1.5.2 | three high container-escape advisories (2025-11), fixed in 1.3.3 |
+  | buildkitd | 0.27.0 | 0.33.1 | the ten BuildKit CVEs listed in moby 29.8.2's notes |
+
+  The toolchain moves to Go 1.26.8, the floor moby, containerd and BuildKit
+  all now require. 29.8.1 stays in the manifest: `skrog engine rollback`
+  returns to it. Existing installs move with `skrog engine upgrade`.
+
 ### Fixed
 
 - **Three CodeQL log-injection alerts that a previous fix only claimed to

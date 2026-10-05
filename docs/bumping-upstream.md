@@ -84,10 +84,13 @@ and `"sha256": ""`. **Keep the previous engine listed** with its checksum
 intact: that is what `skrog engine list` offers and what `skrog engine
 rollback` returns to. Dropping it would strand anyone who needs to go back.
 
-The empty checksum is deliberate and temporary. While it is empty, `skrog
-install` refuses and tells the user to pass `--rootfs-url` / `--rootfs-sha256`
-rather than installing something unverified — there is no code path that
-installs an unverified rootfs.
+The empty checksum is deliberate and temporary, and it makes this commit
+**red**: `TestTheDefaultEngineShipsBothArchitectures` and
+`TestTheDefaultEngineResolvesOnThisHost` require the default engine to be
+installable on both architectures, and nothing with an empty checksum is.
+There is no green intermediate state, so do not look for one. The release is
+cut from this PR's commit (step 7) and its checksums land in the same PR, which
+then merges green -- `main` never carries a manifest it cannot install.
 
 ### 6. Open the PR and let CI build it
 
@@ -103,11 +106,14 @@ reference bundle on both. Read both jobs: an upstream tag that compiles on
 x86-64 and not on aarch64 is a real possibility, and `fail-fast: false` is set
 so the passing one still tells you which it is.
 
-### 7. Release, then fill in the checksum
+### 7. Release from the PR, then fill in the checksum in the same PR
 
-Follow [RELEASING.md](../RELEASING.md): tag `rootfs-v<engine>-<revision>` (here
-`rootfs-v29.8.0-1`), let the workflow publish, then copy the value from the
-published `.sha256` asset into `manifest.json` and merge that as a normal PR.
+Once `rootfs.yml` is green on both architectures, tag
+`rootfs-v<engine>-<revision>` (here `rootfs-v29.8.0-1`) **on the PR's head
+commit** and let the workflow publish (see [RELEASING.md](../RELEASING.md)).
+Download both tarballs, check them against the published `.sha256` assets,
+put the digests into `manifest.json` in a second commit on the same PR, and
+merge it once that is green.
 
 Finally, exercise `skrog engine upgrade` from the previous version and
 `skrog engine rollback` back to it, confirming data survives both.
@@ -154,8 +160,8 @@ letting the two drift silently.
 - [ ] containerd / runc / buildkit: moved with a stated reason, or deliberately left alone
 - [ ] `versions.env` updated, `ROOTFS_REVISION` reset to 1
 - [ ] `manifest.json`: new default entry with empty sha256, previous engine retained
-- [ ] `go test ./internal/release/` passes
-- [ ] PR green, including `rootfs.yml`'s boot test and reference diff
-- [ ] Rootfs release tagged and published
-- [ ] Published checksum copied into `manifest.json` and merged
+- [ ] `go test ./internal/release/` fails ONLY on the two default-engine checksum tests (expected until step 7)
+- [ ] `rootfs.yml` green on both architectures, including the boot test and reference diff
+- [ ] Rootfs release tagged on the PR head and published
+- [ ] Checksums verified against the downloaded bytes, committed to the same PR, PR green and merged
 - [ ] `engine upgrade` and `rollback` verified with real data
