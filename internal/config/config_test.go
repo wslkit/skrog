@@ -14,11 +14,19 @@ func TestDefaultsWhenNoFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load with no file: %v", err)
 	}
-	if c.IdleTimeout != 0 {
-		t.Errorf("default IdleTimeout = %v, want 0 (off)", c.IdleTimeout)
+	// 5m since #520, matching Docker Desktop's Resource Saver. It was off.
+	if c.IdleTimeout != DefaultIdleTimeout || DefaultIdleTimeout != 5*time.Minute {
+		t.Errorf("default IdleTimeout = %v, want 5m", c.IdleTimeout)
 	}
-	if v, err := Get(dir, KeyIdleTimeout); err != nil || v != "off" {
-		t.Errorf("Get default = %q, %v; want off", v, err)
+	if v, err := Get(dir, KeyIdleTimeout); err != nil || v != "5m0s" {
+		t.Errorf("Get default = %q, %v; want 5m0s", v, err)
+	}
+	// "off" still means off: the default changed, the opt-out did not.
+	if err := Set(dir, KeyIdleTimeout, "off"); err != nil {
+		t.Fatal(err)
+	}
+	if c, _ := Load(dir); c.IdleTimeout != 0 {
+		t.Errorf("idle-timeout off loads as %v, want 0", c.IdleTimeout)
 	}
 }
 

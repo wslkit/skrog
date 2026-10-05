@@ -130,8 +130,11 @@ docker context. Nothing else on the system is touched.
   hundreds. **Docker Desktop has not been benchmarked on this host**, so there is no
   parity claim; this line used to assert "~80 ms, at parity with Desktop" and neither
   half had a measurement behind it
-- **Idle RAM answer**: `skrog config set idle-timeout 30m` stops a quiet engine and wakes
-  it on your next `docker` command. **Measured**
+- **Idle RAM answer**: a quiet engine stops after **5 minutes** by default, like Docker
+  Desktop's Resource Saver, and wakes on your next `docker` command
+  (`skrog config set idle-timeout 30m` to wait longer, `off` to keep it running). It never
+  stops while containers run or a client, local or through `skrog serve`, is connected.
+  **Measured**
   ([#398](https://github.com/wslkit/skrog/issues/398)): the wake is **4.8–6.3 s** to an
   answered `docker ps`, against **5.0–8.4 s** for a full `skrog stop` then `start`. The
   wake is *not* meaningfully cheaper, and the reason this line used to give for expecting

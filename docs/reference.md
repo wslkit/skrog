@@ -269,7 +269,7 @@ itself land when the engine next starts, which `skrog restart` asks for.
   idle-timeout               how long the bridge must be quiet (no connections, no running
                              containers) before the engine is stopped to reclaim its RAM; the
                              next docker command starts it again. A duration like 20m or 1h,
-                             or "off" (the default).
+                             or "off". Defaults to 5m, like Docker Desktop's Resource Saver.
   audit                      record container-affecting API calls to audit.log in the state
                              dir; on/off ("off" by default). Takes effect on the next docker
                              call. See `skrog audit tail`.

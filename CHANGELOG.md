@@ -130,6 +130,34 @@ useful than saying where the real one is.
 
 ### Changed
 
+- **The engine now idle-stops after 5 minutes by default**
+  ([#520](https://github.com/wslkit/skrog/issues/520)), like Docker Desktop's
+  Resource Saver: measured on the reference host, Desktop logged its last
+  request at 00:38:23 and `idle: shutdown` at 00:43:24. The default was `off`,
+  so an engine nobody used held its RAM until someone stopped it. The next
+  `docker` command wakes it, with a cold start of 4–8 s. It still never stops
+  while containers run or a client is connected, and `skrog config set
+  idle-timeout off` keeps the old behaviour. An install that set a value keeps
+  it.
+
+  **`skrog serve` is now visible to the idle stop.** Its remote clients never
+  cross the supervisor's pipe, so with idle stops on, the engine could be
+  stopped under them, even mid-build: a BuildKit build runs no containers.
+  `serve` now publishes its own connections to the supervisor, and a remote
+  client connecting to an idle engine wakes it, as a local command does. Before
+  this, the docs told remote users to keep idle stops off; a 5-minute default
+  would have broken every one of them unasked.
+
+  The settings watcher also used a blank configuration for a missing settings
+  file, rather than the defaults `Load` uses. The two now share one
+  `config.Defaults()`, which is what makes "no file" mean 5 minutes
+  everywhere.
+
+  Driven live on WSL 3.0.1 with a 1-minute timeout: a remote `docker events`
+  over `skrog serve` held the engine up for 3 minutes; once it closed, the
+  engine idle-stopped 61-71 s later; a remote `docker run` then woke it and
+  answered in 5.8 s.
+
 - **The bundled docker CLI is 29.8.2**, from 29.8.1. amd64 is Docker's own
   zip, checksum computed from the official download as before; the arm64
   `docker.exe` is built from docker/cli at commit `7fc2dff`, pinned. Its

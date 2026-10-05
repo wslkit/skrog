@@ -383,9 +383,10 @@ flags:
 		Activity: srv,
 		// Read per tick, so `skrog config set idle-timeout` applies live. A
 		// settings file that will not parse keeps the timeout already in
-		// force rather than reverting to a default nobody chose; with no
-		// readable file at all the zero value is off, so the supervisor still
-		// never idle-stops on a guess.
+		// force rather than reverting to a default nobody chose. No file at
+		// all is the defaults (5m, config.DefaultIdleTimeout); a file that
+		// cannot be read before any read has succeeded leaves the zero value,
+		// off, so the supervisor still never idle-stops on a guess.
 		IdleTimeout: func() time.Duration { return cfg.Config().IdleTimeout },
 		// Must be non-nil: supervise.maybeIdleStop vetoes every idle stop when
 		// Busy is nil, which silently disables the reclaim it is meant to
