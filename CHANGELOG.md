@@ -197,6 +197,17 @@ useful than saying where the real one is.
   toolchain moves to Go 1.26.8, in step with the engine. Compose, buildx and
   the credential helper are unchanged.
 
+- **virtiofs is on stable WSL now, and `install` says so**
+  ([#523](https://github.com/wslkit/skrog/issues/523)). WSL 3.0 (2026-09-29)
+  is the first stable release that honours `wsl.virtiofs`; until then it was
+  2.9 pre-releases only. When the engine `install` just started mounts Windows
+  folders over 9p on a WSL that supports virtiofs, `install` now prints the same
+  three commands doctor gives. It is a hint, never a prompt or a write:
+  `~/.wslconfig` is shared by every distro and the switch needs a
+  `wsl --shutdown`. Doctor, `skrog wsl-config --help` and
+  [docs/vm-sizing.md](docs/vm-sizing.md) name WSL 3.0. The speed table there is
+  still the 2.9.11 measurement and says so.
+
 ### Security
 
 - **The default engine is 29.8.2, with containerd, runc and BuildKit moved

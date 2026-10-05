@@ -48,7 +48,7 @@ for and writes it only when you say so:
 
   skrog config set wsl.memory 4GB
   skrog config set wsl.processors 2
-  skrog config set wsl.virtiofs true   # faster /mnt/c; needs WSL 2.9+
+  skrog config set wsl.virtiofs true   # faster /mnt/c; needs WSL 2.9+ (stable: 3.0)
   skrog wsl-config apply            # shows the diff, asks, then writes
 
   show     the effective limits and any pending changes (default)

@@ -37,7 +37,8 @@ the network.
 ## `wsl.virtiofs`: a faster `/mnt/c`, and the one key here that is not about size
 
 WSL2 has historically mounted Windows drives into distros over **9p**. WSL 2.9
-can use **virtiofs** instead, and for a source tree on `C:` that is the single
+can use **virtiofs** instead -- a pre-release feature until WSL 3.0 made it
+stable (2026-09-29) -- and for a source tree on `C:` that is the single
 largest performance difference available to the distro backend.
 
 ```powershell
@@ -55,7 +56,8 @@ look like success in `~/.wslconfig`.
 ### Measured
 
 A Windows folder bind-mounted into a container through Skrog, timed inside the
-container, on WSL 2.9.11 / Windows 10 22H2. First write after a VM boot
+container, on WSL 2.9.11 / Windows 10 22H2 (not yet re-measured on 3.0, which
+changed virtiofs internals: #523). First write after a VM boot
 discarded and the write repeated three times, because a cold VM's first write
 is not representative — it came in at 34 MB/s and the next three at 103, 239
 and 155.
@@ -89,8 +91,8 @@ distro mount path passes the `metadata` option, so `chmod` sticks.
 
 ### Caveats
 
-- **WSL 2.9 or newer.** On older WSL the key is ignored silently and you stay
-  on 9p. Check with `wsl --version`.
+- **WSL 2.9 or newer**, which means WSL 3.0 on the stable channel. On older WSL
+  the key is ignored silently and you stay on 9p. Check with `wsl --version`.
 - **Machine-wide**, like every key on this page. Every distro's `/mnt/*`
   changes, Docker Desktop's included.
 - **Needs `wsl --shutdown`** to take effect, which stops everything.

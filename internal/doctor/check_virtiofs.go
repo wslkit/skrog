@@ -58,7 +58,7 @@ func checkVirtiofs() Check {
 			"",
 			"  chmod, symlinks and inotify all keep working; that was checked, not assumed.",
 		}
-		r.Remedy = "needs WSL 2.9 or newer, and it is a machine-wide change:\n" +
+		r.Remedy = "needs WSL 2.9 or newer (stable from WSL 3.0), and it is a machine-wide change:\n" +
 			"        skrog config set wsl.virtiofs true\n" +
 			"        skrog wsl-config apply\n" +
 			"        wsl --shutdown\n" +

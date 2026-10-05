@@ -71,6 +71,29 @@ func resolveDistroFor(p *provision.Provisioner, opts provision.Options) (distro,
 
 // printCLIHintIfMissing says where the docker CLI comes from, for someone who
 // just installed the engine and has nothing to drive it with.
+// virtiofsHint is what install says when the engine it just started mounts
+// Windows drives over 9p on a WSL that could use virtiofs (#523). Empty when
+// there is nothing to offer: already on virtiofs, the live mount unread, or a
+// WSL too old (or unparseable) to honour the key.
+//
+// A hint and never a prompt or a write: ~/.wslconfig is shared by every WSL2
+// distro and the switch needs a `wsl --shutdown`, so install offers the same
+// three commands doctor's virtiofs check gives and leaves the decision there.
+func virtiofsHint(transport, wslVersion string) string {
+	if transport != "9p" || !provision.WSLSupportsVirtiofs(wslVersion) {
+		return ""
+	}
+	return `Windows folders are mounted over 9p. This WSL supports virtiofs, which reads
+about 4x faster (docs/vm-sizing.md). It is a machine-wide change, so it is
+yours to make:
+
+  skrog config set wsl.virtiofs true
+  skrog wsl-config apply
+  wsl --shutdown
+
+`
+}
+
 func printCLIHintIfMissing() {
 	// selfexe, not os.Executable: a winget portable install runs through a
 	// symlink, and the bundled CLI sits beside the real binary (#360).
