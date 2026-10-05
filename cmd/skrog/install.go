@@ -347,6 +347,10 @@ Or make it the default for every shell:
 		fmt.Println("`skrog autostart disable` turns that off.")
 	}
 	fmt.Println()
+	// The live mount, read the way doctor reads it: the engine is running
+	// here, and ~/.wslconfig is the guess that is wrong in the cases that
+	// matter (see provision.MountTransport).
+	fmt.Print(virtiofsHint(p.MountTransport(ctx, opts), manifest.WSLVersion))
 	printCLIHintIfMissing()
 	return exitOK
 }

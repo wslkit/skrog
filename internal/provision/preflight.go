@@ -129,6 +129,19 @@ func WSLTooOld(version string) bool {
 	return err == nil && older
 }
 
+// MinVirtiofsWSLVersion is the first WSL release that honours `virtiofs=true`
+// in ~/.wslconfig. Older releases ignore the key silently. It reached a
+// stable WSL in 3.0 (#523); 2.9 was pre-release only.
+const MinVirtiofsWSLVersion = "2.9.0"
+
+// WSLSupportsVirtiofs reports whether a WSL version honours the virtiofs key.
+// Unparseable or empty input is false, so a caller offering the switch stays
+// quiet rather than offering something that might be ignored.
+func WSLSupportsVirtiofs(version string) bool {
+	older, err := versionOlder(version, MinVirtiofsWSLVersion)
+	return err == nil && !older
+}
+
 // versionOlder compares dotted numeric versions. Returns an error for input it
 // cannot parse, so callers can skip the check instead of guessing.
 func versionOlder(got, min string) (bool, error) {
