@@ -12,6 +12,15 @@ useful than saying where the real one is.
 
 ## [Unreleased]
 
+## [0.9.0] — 2026-10-05
+
+The engine moves to 29.8.2 and takes containerd, runc and BuildKit with it,
+for the security fixes moby itself already builds against. The engine now
+gives its memory back after five idle minutes, as Docker Desktop does, and a
+`wsl --shutdown` finally sticks. WSL 3.0 shipped while this was being cut: its
+per-distro cgroup namespaces broke `skrog top` before it reached a release,
+and its stable virtiofs is now worth pointing at.
+
 ### Added
 
 - **Published ports can reach further than `localhost`**
@@ -1319,7 +1328,8 @@ Below are not ours, but you will hit them.
   both preserved. If you use the wslc backend with non-root containers, this
   is a reason to update WSL. The distro backend was never affected.
 
-[Unreleased]: https://github.com/wslkit/skrog/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/wslkit/skrog/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/wslkit/skrog/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/wslkit/skrog/compare/v0.7.1...v0.8.0
 [0.7.1]: https://github.com/wslkit/skrog/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/wslkit/skrog/compare/v0.6.0...v0.7.0
