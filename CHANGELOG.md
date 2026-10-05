@@ -128,6 +128,14 @@ useful than saying where the real one is.
   distro group. Driven on WSL 3.0.1 with Ubuntu running: one other distro,
   445.9 MiB, and both test containers with their limit.
 
+### Changed
+
+- **The bundled docker CLI is 29.8.2**, from 29.8.1. amd64 is Docker's own
+  zip, checksum computed from the official download as before; the arm64
+  `docker.exe` is built from docker/cli at commit `7fc2dff`, pinned. Its
+  toolchain moves to Go 1.26.8, in step with the engine. Compose, buildx and
+  the credential helper are unchanged.
+
 ### Fixed
 
 - **Three CodeQL log-injection alerts that a previous fix only claimed to
