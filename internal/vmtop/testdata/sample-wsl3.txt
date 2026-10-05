@@ -1,0 +1,191 @@
+==meminfo
+MemTotal:        7980292 kB
+MemFree:         6643132 kB
+MemAvailable:    7222780 kB
+Buffers:           59364 kB
+Cached:           675840 kB
+SwapCached:            0 kB
+Active:           196072 kB
+Inactive:         661756 kB
+Active(anon):       3512 kB
+Inactive(anon):   147452 kB
+Active(file):     192560 kB
+Inactive(file):   514304 kB
+Unevictable:         100 kB
+Mlocked:             100 kB
+SwapTotal:       2097152 kB
+SwapFree:        2097152 kB
+Dirty:               188 kB
+Writeback:           148 kB
+AnonPages:        122652 kB
+Mapped:           151188 kB
+Shmem:             28448 kB
+KReclaimable:      24720 kB
+Slab:              69440 kB
+SReclaimable:      24720 kB
+SUnreclaim:        44720 kB
+KernelStack:        3376 kB
+PageTables:         3632 kB
+SecPageTables:         0 kB
+NFS_Unstable:          0 kB
+Bounce:                0 kB
+WritebackTmp:          0 kB
+CommitLimit:     6087296 kB
+Committed_AS:     702064 kB
+VmallocTotal:   34359738367 kB
+VmallocUsed:       29128 kB
+VmallocChunk:          0 kB
+Percpu:             2016 kB
+HardwareCorrupted:     0 kB
+AnonHugePages:         0 kB
+ShmemHugePages:        0 kB
+ShmemPmdMapped:        0 kB
+FileHugePages:         0 kB
+FilePmdMapped:         0 kB
+Balloon:               0 kB
+HugePages_Total:       0
+HugePages_Free:        0
+HugePages_Rsvd:        0
+HugePages_Surp:        0
+Hugepagesize:       2048 kB
+Hugetlb:               0 kB
+DirectMap4k:       68608 kB
+DirectMap2M:    16549888 kB
+==stat
+cpu  30285 0 8356 2474486 15873 0 2461 0 0 0
+==nproc
+4
+==self
+0::/non-systemd
+==psi cpu
+some avg10=0.59 avg60=1.04 avg300=0.59 total=10108886
+full avg10=0.00 avg60=0.00 avg300=0.00 total=0
+==psi memory
+some avg10=0.00 avg60=0.00 avg300=0.00 total=0
+full avg10=0.00 avg60=0.00 avg300=0.00 total=0
+==psi io
+some avg10=17.56 avg60=7.73 avg300=2.73 total=68944298
+full avg10=17.27 avg60=7.18 avg300=2.44 total=64819104
+==selfvm
+0::/wsl-user/distro-141/non-systemd
+==cg wsl-user/
+memory.current 698552320
+memory.max 8138264576
+pids.current 91
+anon 124342272
+file 551927808
+kernel 19746816
+usage_usec 390515140
+io 8:32 rbytes=1343488 wbytes=0 rios=86 wios=0 dbytes=0 dios=0
+io 8:16 rbytes=3567616 wbytes=0 rios=211 wios=0 dbytes=0 dios=0
+io 8:64 rbytes=1541558272 wbytes=44994560 rios=34175 wios=3079 dbytes=0 dios=0
+io (unknown) rbytes=447251456 wbytes=168886272 rios=3338 wios=7200 dbytes=1079337082880 dios=8056
+io 7:1 rbytes=796889088 wbytes=0 rios=2824 wios=0 dbytes=0 dios=0
+io 7:0 rbytes=49152 wbytes=0 rios=24 wios=0 dbytes=0 dios=0
+io 8:80 rbytes=326885376 wbytes=12599296 rios=7847 wios=3222 dbytes=0 dios=0
+io 8:48 rbytes=110015488 wbytes=10240 rios=2178 wios=23 dbytes=0 dios=0
+io 8:0 rbytes=61120512 wbytes=0 rios=1968 wios=0 dbytes=0 dios=0
+psi.cpu avg10=0.50 avg60=0.93 avg300=0.51 total=7791703
+psi.memory avg10=0.00 avg60=0.00 avg300=0.00 total=0
+psi.io avg10=6.01 avg60=3.75 avg300=1.52 total=44409160
+==cg wsl-user/distro-141/
+memory.current 283918336
+memory.max max
+pids.current 87
+anon 124223488
+file 150179840
+kernel 9392128
+usage_usec 281941066
+io (unknown) rbytes=18829312 wbytes=0 rios=97 wios=0 dbytes=0 dios=0
+io 7:1 rbytes=16338944 wbytes=0 rios=275 wios=0 dbytes=0 dios=0
+io 8:0 rbytes=5091328 wbytes=0 rios=365 wios=0 dbytes=0 dios=0
+io 8:80 rbytes=326320128 wbytes=12599296 rios=7797 wios=3220 dbytes=0 dios=0
+psi.cpu avg10=0.01 avg60=0.03 avg300=0.00 total=1553407
+psi.memory avg10=0.00 avg60=0.00 avg300=0.00 total=0
+psi.io avg10=0.04 avg60=0.09 avg300=0.02 total=11400171
+==cg wsl-user/distro-16802/
+memory.current 208896000
+memory.max max
+pids.current 3
+anon 0
+file 182128640
+kernel 7036928
+usage_usec 9805598
+io 8:48 rbytes=684032 wbytes=0 rios=40 wios=0 dbytes=0 dios=0
+io 7:0 rbytes=4096 wbytes=0 rios=2 wios=0 dbytes=0 dios=0
+io 8:0 rbytes=8192 wbytes=0 rios=1 wios=0 dbytes=0 dios=0
+io 8:64 rbytes=299319296 wbytes=6885376 rios=6648 wios=625 dbytes=0 dios=0
+psi.cpu avg10=0.54 avg60=0.76 avg300=0.22 total=786509
+psi.memory avg10=0.00 avg60=0.00 avg300=0.00 total=0
+psi.io avg10=5.09 avg60=2.86 avg300=0.76 total=2451639
+==cg wsl-user/non-distro/
+memory.current 737280
+memory.max max
+pids.current 1
+anon 114688
+file 0
+kernel 110592
+usage_usec 1805659
+psi.cpu avg10=0.03 avg60=0.05 avg300=0.01 total=426034
+psi.memory avg10=0.00 avg60=0.00 avg300=0.00 total=0
+psi.io avg10=0.00 avg60=0.00 avg300=0.00 total=0
+==cg wsl-user/distro-141/docker/
+memory.current 55156736
+memory.max max
+pids.current 2
+anon 45600768
+file 8634368
+kernel 921600
+usage_usec 741498
+io 8:80 rbytes=25968640 wbytes=61440 rios=465 wios=9 dbytes=0 dios=0
+psi.cpu avg10=0.00 avg60=0.00 avg300=0.00 total=15096
+psi.memory avg10=0.00 avg60=0.00 avg300=0.00 total=0
+psi.io avg10=0.01 avg60=0.03 avg300=0.01 total=104680
+==cg wsl-user/distro-141/non-systemd/
+memory.current 68308992
+memory.max max
+pids.current 87
+anon 21970944
+file 41463808
+kernel 4571136
+usage_usec 281272596
+io 8:0 rbytes=147456 wbytes=0 rios=36 wios=0 dbytes=0 dios=0
+io 8:80 rbytes=51359744 wbytes=1150976 rios=2012 wios=747 dbytes=0 dios=0
+psi.cpu avg10=0.01 avg60=0.03 avg300=0.00 total=1551254
+psi.memory avg10=0.00 avg60=0.00 avg300=0.00 total=0
+psi.io avg10=0.03 avg60=0.07 avg300=0.02 total=11315454
+==cg wsl-user/distro-141/docker/495a4bdad4ae3051f56dfc791b2b93f25c28a2d6e6e3dd8a2d5a782f1acfe4fb/
+memory.current 2039808
+memory.max max
+pids.current 1
+anon 49152
+file 1646592
+kernel 344064
+usage_usec 52003
+io 8:80 rbytes=1646592 wbytes=0 rios=21 wios=0 dbytes=0 dios=0
+psi.cpu avg10=0.00 avg60=0.00 avg300=0.00 total=2833
+psi.memory avg10=0.00 avg60=0.00 avg300=0.00 total=0
+psi.io avg10=0.00 avg60=0.00 avg300=0.00 total=14220
+==cg wsl-user/distro-141/docker/7c2b7e096aa0facd6c079ecc98430b56fc6ec13e41df036d4cd841291b371843/
+memory.current 53084160
+memory.max 268435456
+pids.current 1
+anon 45551616
+file 6987776
+kernel 544768
+usage_usec 185010
+io 8:80 rbytes=6897664 wbytes=40960 rios=168 wios=4 dbytes=0 dios=0
+psi.cpu avg10=0.00 avg60=0.00 avg300=0.00 total=713
+psi.memory avg10=0.00 avg60=0.00 avg300=0.00 total=0
+psi.io avg10=0.03 avg60=0.06 avg300=0.01 total=66367
+==api
+HTTP/1.0 200 OK
+Api-Version: 1.56
+Content-Type: application/json
+Docker-Experimental: false
+Ostype: linux
+Server: Docker/29.8.1 (linux)
+Date: Mon, 05 Oct 2026 13:22:14 GMT
+Content-Length: 1708
+
+[{"Id":"7c2b7e096aa0facd6c079ecc98430b56fc6ec13e41df036d4cd841291b371843","Names":["/skrog-t-b"],"Image":"python:3-alpine","ImageID":"sha256:9e9fde4d32eedce0b661d9ab91e826b62dddf28e928c230ec55f1866cac66b01","Command":"python -c 'b=bytearray(40*1024*1024); import time; time.sleep(600)'","Created":1791206503,"Ports":[],"Labels":{},"State":"running","Status":"Up 31 seconds","HostConfig":{"NetworkMode":"bridge"},"NetworkSettings":{"Networks":{"bridge":{"IPAMConfig":null,"Links":null,"Aliases":null,"DriverOpts":null,"GwPriority":0,"NetworkID":"1e471b26a2c2b4f879481ef4fd2f2c7d7ac4b3241da1fb0ace458e56d97acfb7","EndpointID":"a3b9dd46e3e8a6e7acacd4e7438aa69ea2b0ee18ca4f00d069b46014d20adb2f","Gateway":"172.17.0.1","IPAddress":"172.17.0.3","MacAddress":"32:bb:eb:0a:bf:04","IPPrefixLen":16,"IPv6Gateway":"","GlobalIPv6Address":"","GlobalIPv6PrefixLen":0,"DNSNames":null}}},"Mounts":[]},{"Id":"495a4bdad4ae3051f56dfc791b2b93f25c28a2d6e6e3dd8a2d5a782f1acfe4fb","Names":["/skrog-t-a"],"Image":"alpine:3.24","ImageID":"sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6","Command":"sleep 600","Created":1791206502,"Ports":[],"Labels":{},"State":"running","Status":"Up 32 seconds","HostConfig":{"NetworkMode":"bridge"},"NetworkSettings":{"Networks":{"bridge":{"IPAMConfig":null,"Links":null,"Aliases":null,"DriverOpts":null,"GwPriority":0,"NetworkID":"1e471b26a2c2b4f879481ef4fd2f2c7d7ac4b3241da1fb0ace458e56d97acfb7","EndpointID":"ea3e9695b5a69e8151e0482fc049e3ef3d6377bc16d9573ecf88691417b87add","Gateway":"172.17.0.1","IPAddress":"172.17.0.2","MacAddress":"da:0f:5b:9d:d4:37","IPPrefixLen":16,"IPv6Gateway":"","GlobalIPv6Address":"","GlobalIPv6PrefixLen":0,"DNSNames":null}}},"Mounts":[]}]

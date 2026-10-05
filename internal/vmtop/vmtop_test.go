@@ -90,6 +90,60 @@ func TestComputeAttributesTheVMFromARealSample(t *testing.T) {
 	}
 }
 
+// testdata/sample-wsl3.txt is the script's real output on WSL 3.0.1,
+// 2026-10-05, where every distro has its own cgroup namespace (#522): Ubuntu
+// running beside skrog-engine, and two running containers, skrog-t-b with a
+// 256m limit. The groups were read from the VM-wide mount, so they sit under
+// wsl-user/distro-141/ rather than at the top.
+func TestComputeAttributesTheVMUnderPerDistroCgroupNamespaces(t *testing.T) {
+	b, err := os.ReadFile("testdata/sample-wsl3.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := ParseSample(strings.ReplaceAll(string(b), "\r\n", "\n"))
+	if len(s.errors) != 0 {
+		t.Fatalf("parse errors: %v", s.errors)
+	}
+	snap := Compute(s, s)
+
+	// The two lines #522 found reading zero with Ubuntu running.
+	if snap.OtherDistroCount != 1 || snap.OtherDistros.MemoryBytes != 208896000 {
+		t.Errorf("other distros = %d / %d bytes, want Ubuntu: 1 / 208896000",
+			snap.OtherDistroCount, snap.OtherDistros.MemoryBytes)
+	}
+	if snap.WSL.MemoryBytes != 737280 {
+		t.Errorf("wsl = %d, want wsl-user/non-distro = 737280", snap.WSL.MemoryBytes)
+	}
+
+	// The engine row is the engine's processes, by selfvm, not the namespaced
+	// self (non-systemd) and not its whole distro group (which holds the
+	// containers too).
+	if snap.Engine.MemoryBytes != 68308992 {
+		t.Errorf("engine = %d, want wsl-user/distro-141/non-systemd = 68308992", snap.Engine.MemoryBytes)
+	}
+
+	byName := map[string]Group{}
+	for _, c := range snap.Containers {
+		byName[c.Name] = c
+	}
+	if len(snap.Containers) != 2 {
+		t.Fatalf("containers = %+v, want skrog-t-a and skrog-t-b", snap.Containers)
+	}
+	if g := byName["skrog-t-b"]; g.MemoryBytes != 53084160 || g.LimitBytes != 256*1024*1024 {
+		t.Errorf("skrog-t-b = %+v, want 53084160 bytes under a 256m limit", g)
+	}
+	if g := byName["skrog-t-a"]; g.MemoryBytes != 2039808 {
+		t.Errorf("skrog-t-a = %+v", g)
+	}
+
+	// Only wsl-user/ is top level now; the engine's docker/ is inside it, and
+	// counting it again would charge every container twice.
+	used := uint64(7980292-6643132) * 1024
+	if want := used - 698552320; snap.UnchargedBytes != want {
+		t.Errorf("uncharged = %d, want %d", snap.UnchargedBytes, want)
+	}
+}
+
 // CPU is the usage delta over the wall-clock delta, in percent of one CPU,
 // the way `docker stats` reports it.
 func TestComputeCPUIsTheDeltaOverTheWindow(t *testing.T) {

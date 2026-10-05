@@ -119,7 +119,24 @@ useful than saying where the real one is.
   costs one `wsl.exe` round trip, about 0.2 s. [docs/memory.md](docs/memory.md)
   has how to read it and how it differs from `docker stats`.
 
+  Works on WSL 3.0 too ([#522](https://github.com/wslkit/skrog/issues/522)).
+  From WSL 2.9.13 each distro gets its own cgroup namespace, which hides every
+  other distro from inside the engine's, and the first build of `top` read
+  "other WSL distros (0)" and "WSL itself 0 B" with Ubuntu running. It now
+  mounts the VM-wide hierarchy from PID 1's namespace (once per distro boot,
+  under `/run/skrog/vmcgroup`) and finds the containers under the engine's own
+  distro group. Driven on WSL 3.0.1 with Ubuntu running: one other distro,
+  445.9 MiB, and both test containers with their limit.
+
 ### Fixed
+
+- **Three CodeQL log-injection alerts that a previous fix only claimed to
+  close.** `logSafe` already made image references safe to log, but
+  go/log-injection does not recognise a hand-written rune loop as a
+  sanitizer, and the reordering in #504 left alerts 13–15 open. It now ends
+  with the `strings.ReplaceAll` of `\n` and `\r` that the query does
+  recognise. That changes nothing at runtime; it lets the checker see the
+  sanitizer.
 
 - **`skrog doctor` says when Skrog will not start at logon**
   ([#515](https://github.com/wslkit/skrog/issues/515)). An install with no

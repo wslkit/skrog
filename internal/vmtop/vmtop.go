@@ -7,10 +7,18 @@
 // from one place -- cgroup v2 and procfs inside the engine distro -- and puts
 // them next to what Windows says Vmmem holds.
 //
-// The cgroup hierarchy the engine distro sees is the VM's: /sys/fs/cgroup has
-// docker/ (every container, as its own group) and wsl-user/ (one group per
-// running distro, plus non-distro for WSL's own processes). That is what makes
-// "other distros" a measurement here rather than a subtraction.
+// It reads the VM's whole cgroup hierarchy: wsl-user/ (one group per running
+// distro, plus non-distro for WSL's own processes) and the engine's docker/
+// (every container, as its own group). That is what makes "other distros" a
+// measurement here rather than a subtraction.
+//
+// Up to WSL 2.9.12 /sys/fs/cgroup in the engine distro WAS that hierarchy,
+// with docker/ at its top. From 2.9.13 (microsoft/WSL#41512) every distro has
+// its own cgroup namespace rooted at wsl-user/distro-<pid>, so /sys/fs/cgroup
+// shows only the engine's own subtree and every other distro is invisible
+// there (#522). PID 1 still holds the VM's namespace, so script mounts the
+// whole hierarchy from that namespace and reads it, and then finds the
+// containers under the engine's own distro group instead of at the top.
 //
 // Two rules this package inherits and keeps:
 //
@@ -189,14 +197,35 @@ func (r *Reader) sample(ctx context.Context, distro string) (*Sample, error) {
 //
 // Trailing slashes on the globs match directories only; the memory.current
 // test skips a glob that matched nothing.
+//
+// When this shell's cgroup namespace is not PID 1's (WSL 2.9.13+, #522), the
+// VM-wide hierarchy is mounted at /run/skrog/vmcgroup from PID 1's namespace,
+// once per distro boot (/run is tmpfs), and read instead of /sys/fs/cgroup.
+// `selfvm` is then this shell's group as the VM sees it, and the engine
+// distro's own subgroups and containers are added to the walk. If the mount
+// fails, the reading falls back to the namespaced view: partial, not broken.
 const script = `echo '==meminfo'; cat /proc/meminfo
 echo '==stat'; head -n1 /proc/stat
 echo '==nproc'; nproc
 echo '==self'; cat /proc/self/cgroup
 for r in cpu memory io; do echo "==psi $r"; cat "/proc/pressure/$r" 2>/dev/null; done
-for d in /sys/fs/cgroup/*/ /sys/fs/cgroup/docker/*/ /sys/fs/cgroup/wsl-user/*/; do
+# eng starts as a name no group has, so its two globs match nothing.
+cg=/sys/fs/cgroup; eng=.none
+if [ "$(readlink /proc/1/ns/cgroup)" != "$(readlink /proc/self/ns/cgroup)" ]; then
+  vm=/run/skrog/vmcgroup
+  grep -q " $vm cgroup2 " /proc/mounts ||
+    { mkdir -p "$vm" && nsenter --cgroup=/proc/1/ns/cgroup -- mount -t cgroup2 none "$vm"; } 2>/dev/null
+  if grep -q " $vm cgroup2 " /proc/mounts; then
+    cg=$vm
+    self=$(nsenter --cgroup=/proc/1/ns/cgroup -- cat /proc/self/cgroup)
+    echo '==selfvm'; echo "$self"
+    eng=$(echo "$self" | sed -n 's|^0::/||p' | cut -d/ -f1,2)
+    eng=${eng:-.none}
+  fi
+fi
+for d in "$cg"/*/ "$cg"/docker/*/ "$cg"/wsl-user/*/ "$cg/$eng"/*/ "$cg/$eng"/docker/*/; do
   [ -f "${d}memory.current" ] || continue
-  echo "==cg ${d#/sys/fs/cgroup/}"
+  echo "==cg ${d#"$cg"/}"
   echo "memory.current $(cat "${d}memory.current")"
   echo "memory.max $(cat "${d}memory.max" 2>/dev/null)"
   echo "pids.current $(cat "${d}pids.current" 2>/dev/null)"
@@ -216,7 +245,7 @@ type Sample struct {
 	cpuBusy  uint64            // jiffies
 	cpuTotal uint64            // jiffies
 	ncpu     int
-	self     string // this distro's group, e.g. wsl-user/distro-3271
+	self     string // this distro's group, e.g. wsl-user/distro-3271 (wsl-user/distro-3271/non-systemd from 2.9.13)
 	psi      Pressure
 	groups   map[string]*rawGroup
 	running  map[string]string // container ID -> name
@@ -270,9 +299,14 @@ func ParseSample(out string) *Sample {
 	}
 	s.ncpu, _ = strconv.Atoi(strings.TrimSpace(sections["nproc"]))
 
-	for _, line := range strings.Split(sections["self"], "\n") {
-		if rest, ok := strings.CutPrefix(strings.TrimSpace(line), "0::/"); ok {
-			s.self = rest
+	// selfvm, when present, is the same line read from the VM's namespace
+	// (#522); the groups were read from there too, so it is the one that
+	// matches their paths.
+	for _, sec := range []string{"self", "selfvm"} {
+		for _, line := range strings.Split(sections[sec], "\n") {
+			if rest, ok := strings.CutPrefix(strings.TrimSpace(line), "0::/"); ok {
+				s.self = rest
+			}
 		}
 	}
 
@@ -479,13 +513,21 @@ func Compute(a, b *Sample) Snapshot {
 	snap.OtherDistros.Name = "other distros"
 	snap.OtherContainers.Name = "other containers"
 
+	// The engine's containers are docker/<id> at the top up to WSL 2.9.12, and
+	// under the engine's own distro group from 2.9.13, where dockerd's
+	// cgroupfs driver sees that group as its root (#522).
+	engineDocker := "docker"
+	if parts := strings.SplitN(b.self, "/", 3); len(parts) == 3 && parts[0] == "wsl-user" {
+		engineDocker = parts[0] + "/" + parts[1] + "/docker"
+	}
+
 	var topLevel uint64
 	for path := range b.groups {
-		parent, child, nested := strings.Cut(path, "/")
+		dir, child := cutLast(path)
 		switch {
-		case !nested:
+		case !strings.Contains(path, "/"):
 			topLevel += b.groups[path].mem
-		case parent == "docker":
+		case dir == "docker" || dir == engineDocker:
 			if name, ok := b.running[child]; ok {
 				snap.Containers = append(snap.Containers, group(path, child, name))
 			} else if b.groups[path].mem > 0 {
@@ -493,7 +535,9 @@ func Compute(a, b *Sample) Snapshot {
 				// that still holds memory belongs to something else.
 				add(&snap.OtherContainers, group(path, child, ""))
 			}
-		case parent == "wsl-user" && path != b.self && child != "non-distro":
+		case dir == "wsl-user" && child != "non-distro" && !strings.HasPrefix(b.self+"/", path+"/"):
+			// A distro group that is not the engine's own, nor the one the
+			// engine's group sits inside.
 			snap.OtherDistroCount++
 			add(&snap.OtherDistros, group(path, "", ""))
 		}
@@ -511,3 +555,12 @@ func Compute(a, b *Sample) Snapshot {
 }
 
 func round1(f float64) float64 { return float64(int64(f*10+0.5)) / 10 }
+
+// cutLast splits a group path at its last slash: "a/b/c" is "a/b" and "c".
+func cutLast(path string) (dir, name string) {
+	i := strings.LastIndex(path, "/")
+	if i < 0 {
+		return "", path
+	}
+	return path[:i], path[i+1:]
+}
