@@ -282,13 +282,15 @@ func (p *imageProvenance) localImageIDs(ctx context.Context) []string {
 // the bound, because U+FFFD is three bytes and the character it replaces is
 // one.
 //
-// The shape matters as much as the behaviour: the untrusted rune is written
-// ONLY inside the else-branch of the unicode.IsControl guard. An earlier
-// version computed `rep := string(r)` before the guard and overwrote it
-// inside, which is identical at runtime and invisible to taint analysis --
-// CodeQL stopped recognising this function as a barrier and re-raised
-// go/log-injection on all three call sites. A sanitizer a checker cannot see
-// is one that stops being checked the next time someone edits it.
+// The loop does the work, and CodeQL cannot see it: go/log-injection does
+// not model a rune loop as a sanitizer, whatever its shape. #504 reordered the
+// loop on the theory that it would, and alerts 13-15 stayed open on main
+// through 477ed6e. What the query does model is its own documented fix --
+// strings.Replace of "\n" and "\r" -- so the result goes through exactly
+// that on the way out. At runtime it removes nothing (the loop has already
+// replaced every control character); it is there so the checker keeps
+// checking. A sanitizer a checker cannot see is one that stops being checked
+// the next time someone edits it.
 func logSafe(s string) string {
 	const max = 256
 	const replacement = "�"
@@ -314,7 +316,8 @@ func logSafe(s string) string {
 	if truncated || b.Len() < len(s) {
 		b.WriteString("...")
 	}
-	return b.String()
+	out := strings.ReplaceAll(b.String(), "\n", "")
+	return strings.ReplaceAll(out, "\r", "")
 }
 
 // installedIDs is the set of image IDs the engine still holds, for compaction.
