@@ -46,6 +46,20 @@ gh api "repos/moby/moby/contents/go.mod?ref=docker-v29.8.0" --jq .content | base
 `GO_VERSION` in `versions.env` must be at or above that. It is pinned because
 the toolchain changes the output bytes, so raise it deliberately, not reflexively.
 
+**The floor is not the target.** `go.mod` says what moby *needs*; its
+`Dockerfile` (`ARG GO_VERSION`) says what moby *ships with*, and the release
+notes list the stdlib CVEs that Go version fixes in `dockerd`:
+
+```sh
+gh api "repos/moby/moby/contents/Dockerfile?ref=docker-v29.9.0" --jq .content | base64 -d | grep '^ARG GO_VERSION'
+```
+
+29.9.0 was bumped to the floor (1.26.8) while moby built with 1.26.9, which
+shipped `rootfs-v29.9.0-1` without five Go security fixes. Match moby's Go
+version unless there is a stated reason not to, and after building, confirm it
+rather than trusting the pin: `go version` on the extracted `dockerd` prints
+the toolchain that actually built it.
+
 ### 3. Decide about containerd, runc and buildkit — deliberately
 
 moby's own `Dockerfile` carries `ARG CONTAINERD_VERSION` / `ARG RUNC_VERSION`.
@@ -161,7 +175,7 @@ letting the two drift silently.
 ## Checklist
 
 - [ ] Tag and commit SHA resolved, and the method verified against the existing pin
-- [ ] Go floor checked against moby's `go.mod`
+- [ ] Go floor checked against moby's `go.mod`, and `GO_VERSION` matched to moby's `Dockerfile` (the floor is not the target)
 - [ ] containerd / runc / buildkit: moved with a stated reason, or deliberately left alone
 - [ ] `versions.env` updated, `ROOTFS_REVISION` reset to 1
 - [ ] `manifest.json`: new default entry with empty sha256, previous engine retained
