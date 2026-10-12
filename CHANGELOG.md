@@ -12,6 +12,31 @@ useful than saying where the real one is.
 
 ## [Unreleased]
 
+## [0.10.0] — 2026-10-12
+
+The engine moves to 29.9.0, built with the Go release that fixes five
+standard-library vulnerabilities in `dockerd`. Two bugs that kept the engine
+from idling or from starting cleanly are fixed.
+
+### Security
+
+- **The default engine is 29.9.0, built with Go 1.26.9.** Moby 29.9.0 ships on
+  Go 1.26.9, which fixes CVE-2026-97032, CVE-2026-78659, CVE-2026-78663 and
+  CVE-2026-78669 (an HTTP/2 client could crash the daemon, exhaust its memory,
+  bypass its flow control or burn its CPU) and CVE-2026-56857 (on Windows, a
+  directory created outside the data root through a junction). containerd,
+  runc and BuildKit stay at 2.3.6, 1.5.2 and 0.33.1: moby's own Dockerfile
+  names newer ones, but those values describe its dev container and are not
+  a reason to move ours. Existing installs move with `skrog engine upgrade`;
+  29.8.2 stays in the manifest, so `skrog engine rollback` returns to it.
+
+  **Use `rootfs-v29.9.0-2`, not `-1`.** The first rootfs for 29.9.0 was built
+  with Go 1.26.8, the floor in moby's `go.mod`, and so does not have those
+  five fixes. It was superseded within the day; the manifest in this release
+  points at `-2`, and the bump procedure in
+  [docs/bumping-upstream.md](docs/bumping-upstream.md) now says to match
+  moby's own Go version rather than its floor.
+
 ### Fixed
 
 - **A short `prune.every` no longer stops the engine idling**
@@ -30,6 +55,13 @@ useful than saying where the real one is.
   `skrog start` now leaves a start-request token the supervisor always sees,
   and a start always wins over that verdict. Found by the nightly e2e, which
   failed this way on roughly one run in three.
+
+### Removed
+
+- **The `prune-idle` check in `skrog doctor`.** It warned when `prune.every`
+  was at or below `idle-timeout`, because the scheduled prune used to keep the
+  engine awake. That is fixed above, so the warning would now describe
+  something that no longer happens.
 
 ## [0.9.0] — 2026-10-05
 
@@ -1347,7 +1379,8 @@ Below are not ours, but you will hit them.
   both preserved. If you use the wslc backend with non-root containers, this
   is a reason to update WSL. The distro backend was never affected.
 
-[Unreleased]: https://github.com/wslkit/skrog/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/wslkit/skrog/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/wslkit/skrog/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/wslkit/skrog/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/wslkit/skrog/compare/v0.7.1...v0.8.0
 [0.7.1]: https://github.com/wslkit/skrog/compare/v0.7.0...v0.7.1
