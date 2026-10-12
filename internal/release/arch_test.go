@@ -32,11 +32,24 @@ func TestTheDefaultEngineShipsBothArchitectures(t *testing.T) {
 	if err != nil {
 		t.Fatalf("default: %v", err)
 	}
+	var pending error
+	failed := false
 	for _, arch := range []string{"amd64", "arm64"} {
 		if _, err := def.RootfsFor(arch); err != nil {
+			if isPending(err) {
+				pending = err
+				continue
+			}
+			failed = true
 			t.Errorf("default engine %s cannot be installed on %s: %v",
 				def.Version, arch, err)
 		}
+	}
+	// Skip only when pending is ALL that is wrong: a missing arm64 entry next to
+	// a pending amd64 one must still fail.
+	if !failed && pending != nil {
+		skipWhilePending(t, pending) // does not return when it skips
+		t.Errorf("default engine %s is not released yet: %v", def.Version, pending)
 	}
 }
 
@@ -141,6 +154,7 @@ func TestTheDefaultEngineResolvesOnThisHost(t *testing.T) {
 	}
 	r, err := def.HostRootfs()
 	if err != nil {
+		skipWhilePending(t, err)
 		t.Fatalf("the default engine has no rootfs for %s: %v", runtime.GOARCH, err)
 	}
 	// The URL must actually name this architecture. Selecting the wrong entry

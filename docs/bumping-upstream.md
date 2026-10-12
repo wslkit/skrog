@@ -84,13 +84,18 @@ and `"sha256": ""`. **Keep the previous engine listed** with its checksum
 intact: that is what `skrog engine list` offers and what `skrog engine
 rollback` returns to. Dropping it would strand anyone who needs to go back.
 
-The empty checksum is deliberate and temporary, and it makes this commit
-**red**: `TestTheDefaultEngineShipsBothArchitectures` and
-`TestTheDefaultEngineResolvesOnThisHost` require the default engine to be
-installable on both architectures, and nothing with an empty checksum is.
-There is no green intermediate state, so do not look for one. The release is
-cut from this PR's commit (step 7) and its checksums land in the same PR, which
-then merges green -- `main` never carries a manifest it cannot install.
+The empty checksum is deliberate and temporary. `TestTheDefaultEngineShipsBothArchitectures`
+and `TestTheDefaultEngineResolvesOnThisHost` require the default engine to be
+installable on both architectures, and nothing with an empty checksum is. On a
+**pull request** they skip, with a `::warning::` annotation saying the rootfs is
+pending, rather than fail: a red the author expects is a red reviewers learn to
+scroll past. They skip only when the sole problem is an empty checksum -- a
+missing architecture or a bad URL still fails -- and only when
+`GITHUB_EVENT_NAME` is `pull_request`, so a push to `main` and a local
+`go test` still fail. The release is cut from this PR's commit (step 7) and its
+checksums land in the same PR, which then merges with the tests running for
+real -- `main` never carries a manifest it cannot install. **Do not merge
+while those two tests show as skipped.**
 
 ### 6. Open the PR and let CI build it
 
@@ -160,7 +165,7 @@ letting the two drift silently.
 - [ ] containerd / runc / buildkit: moved with a stated reason, or deliberately left alone
 - [ ] `versions.env` updated, `ROOTFS_REVISION` reset to 1
 - [ ] `manifest.json`: new default entry with empty sha256, previous engine retained
-- [ ] `go test ./internal/release/` fails ONLY on the two default-engine checksum tests (expected until step 7)
+- [ ] `go test ./internal/release/` fails ONLY on the two default-engine checksum tests (expected until step 7; they skip on a PR, so check that they are NOT skipped before merging)
 - [ ] `rootfs.yml` green on both architectures, including the boot test and reference diff
 - [ ] Rootfs release tagged on the PR head and published
 - [ ] Checksums verified against the downloaded bytes, committed to the same PR, PR green and merged
