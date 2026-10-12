@@ -188,6 +188,12 @@ type Supervisor struct {
 	// mu.
 	sawUp bool
 
+	// startReq is the last start-request token this process has acted on. A
+	// different one on disk is a `skrog start` it has not seen yet, and that
+	// overrides any outside-stop verdict: the user asked for the engine to run
+	// after whatever stopped it. Guarded by mu.
+	startReq string
+
 	// failures counts consecutive start failures, for backoff.
 	failures int
 	// nextTry is the earliest moment another start attempt is allowed.
@@ -240,6 +246,10 @@ func (s *Supervisor) log() *slog.Logger {
 func (s *Supervisor) Run(ctx context.Context) {
 	s.mu.Lock()
 	s.startedAt = time.Now()
+	// A request left from before this process has nothing to override: a
+	// fresh supervisor never saw the engine run, so it starts a down one
+	// anyway.
+	s.startReq = readStartRequest(s.Config.StateDir)
 	s.mu.Unlock()
 
 	t := time.NewTicker(s.Config.interval())
@@ -296,16 +306,33 @@ const pokeInterval = 250 * time.Millisecond
 // changed it) and instead deletes the engine-state marker. Watching desired
 // alone would therefore see no change and make exactly the case that most
 // needs waking wait out the full interval.
+//
+// The start-request token is the third, for the case where `skrog start`
+// changes neither of the others: right after `wsl --shutdown`, before any tick
+// has written the idle marker.
 type intent struct {
-	desired Desired
-	engine  EngineState
+	desired  Desired
+	engine   EngineState
+	startReq string
 }
 
 func (s *Supervisor) readIntent() intent {
 	return intent{
-		desired: ReadDesired(s.Config.StateDir),
-		engine:  ReadEngineState(s.Config.StateDir),
+		desired:  ReadDesired(s.Config.StateDir),
+		engine:   ReadEngineState(s.Config.StateDir),
+		startReq: readStartRequest(s.Config.StateDir),
 	}
+}
+
+// consumeStartRequest reports whether a `skrog start` has happened since the
+// last call, and marks it seen. Caller holds s.mu.
+func (s *Supervisor) consumeStartRequest() bool {
+	now := readStartRequest(s.Config.StateDir)
+	if now == s.startReq {
+		return false
+	}
+	s.startReq = now
+	return true
 }
 
 // probeTimeout bounds one health probe. Generous: a cold `wsl.exe --list` on a
@@ -415,6 +442,9 @@ func (s *Supervisor) reconcileLocked(ctx context.Context, up bool, probeErr erro
 
 	desired := ReadDesired(s.Config.StateDir)
 	s.lastUp.Store(up)
+	// Consumed on every reconcile, whatever the engine is doing, so a start
+	// asked of a running engine is not saved up to wake a later idle stop.
+	asked := s.consumeStartRequest()
 
 	switch {
 	case desired == DesiredRunning && !up:
@@ -424,6 +454,17 @@ func (s *Supervisor) reconcileLocked(ctx context.Context, up bool, probeErr erro
 		// until demand. Deleting the file is the wake-up poke (`skrog start`
 		// does it), so a set flag with no file means someone asked.
 		fileIdle := ReadEngineState(s.Config.StateDir) == EngineIdle
+		if asked {
+			// A `skrog start` is never an outside stop. And if it landed
+			// while the verdict below was being reached, the idle marker was
+			// written AFTER start cleared it, so clear it again here.
+			s.sawUp = false
+			if fileIdle {
+				if err := WriteEngineState(s.Config.StateDir, EngineActive); err == nil {
+					fileIdle = false
+				}
+			}
+		}
 		if fileIdle {
 			s.idleStopped = true
 			return // idle by design; Demand or a poke wakes it
@@ -439,7 +480,9 @@ func (s *Supervisor) reconcileLocked(ctx context.Context, up bool, probeErr erro
 		// mistaken for someone's `wsl --shutdown`.
 		if s.sawUp {
 			s.sawUp = false
-			if s.distroStopped(ctx) {
+			// The probe can take seconds; a `skrog start` arriving during it
+			// wins.
+			if s.distroStopped(ctx) && !s.consumeStartRequest() {
 				// Treated as an idle stop, and written as one: the file is
 				// what keeps the next tick from starting it, what `skrog
 				// status` reports, and what Demand wakes from on the next

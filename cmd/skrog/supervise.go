@@ -483,14 +483,12 @@ running, and waits for the engine to answer.
 	}
 
 	opts := optsWithResolvedStateDir(provision.Options{StateDir: *stateDir})
-	if err := supervise.WriteDesired(opts.StateDir, supervise.DesiredRunning); err != nil {
-		fmt.Fprintf(os.Stderr, "skrog: %v\n", err)
-		return exitError
-	}
 	// Removing the idle marker is the wake-up poke: an idle-stopped engine is
 	// down on purpose, and the supervisor will not restart it while the marker
-	// stands — but `skrog start` is the user saying now.
-	if err := supervise.WriteEngineState(opts.StateDir, supervise.EngineActive); err != nil {
+	// stands — but `skrog start` is the user saying now. The start-request
+	// token covers the case where nothing else changes on disk: straight
+	// after `wsl --shutdown`, before the supervisor has written the marker.
+	if err := supervise.RequestStart(opts.StateDir); err != nil {
 		fmt.Fprintf(os.Stderr, "skrog: %v\n", err)
 		return exitError
 	}

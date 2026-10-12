@@ -12,6 +12,17 @@ useful than saying where the real one is.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`skrog start` right after `wsl --shutdown` could time out.** Since 0.9.0
+  a `wsl --shutdown` is left alone until the next docker command. If `skrog
+  start` ran before the supervisor's next health check, it wrote nothing the
+  supervisor could see as new, and that check then filed the engine as stopped
+  from outside and left it down: start waited its two minutes and failed.
+  `skrog start` now leaves a start-request token the supervisor always sees,
+  and a start always wins over that verdict. Found by the nightly e2e, which
+  failed this way on roughly one run in three.
+
 ## [0.9.0] — 2026-10-05
 
 The engine moves to 29.8.2 and takes containerd, runc and BuildKit with it,

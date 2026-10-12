@@ -20,6 +20,9 @@ type distroEngine struct {
 	distroUp bool
 	probeErr error
 	probes   int
+	// onProbe runs inside DistroRunning, for something that happens while
+	// the supervisor is waiting on the answer.
+	onProbe func()
 }
 
 func newDistroEngine(running bool) *distroEngine {
@@ -30,6 +33,9 @@ func (d *distroEngine) DistroRunning(context.Context) (bool, error) {
 	d.dmu.Lock()
 	defer d.dmu.Unlock()
 	d.probes++
+	if d.onProbe != nil {
+		d.onProbe()
+	}
 	return d.distroUp, d.probeErr
 }
 
@@ -229,5 +235,76 @@ func TestEngineWithoutDistroProbeStillRestarts(t *testing.T) {
 
 	if starts, _ := e.counts(); starts != 1 {
 		t.Errorf("started %d times, want 1", starts)
+	}
+}
+
+// `wsl --shutdown` and then `skrog start`, faster than the supervisor's next
+// health tick. Desired is already running and no idle marker has been written
+// yet, so start's writes to those two change nothing; the start-request token
+// is what tells the tick that follows not to read the down engine as an
+// outside stop. This is the nightly e2e's EmulationSurvivesAShutdown failure.
+func TestStartRightAfterAnOutsideShutdownIsAStart(t *testing.T) {
+	e := newDistroEngine(true)
+	s, dir := newSup(t, e, time.Hour)
+
+	s.TickForTest(context.Background()) // watches it run
+	e.shutdownVM()
+	if err := supervise.RequestStart(dir); err != nil { // `skrog start`
+		t.Fatal(err)
+	}
+	s.TickForTest(context.Background())
+
+	if starts, _ := e.counts(); starts != 1 {
+		t.Errorf("started %d times after wsl --shutdown then skrog start, want 1", starts)
+	}
+	if got := supervise.ReadEngineState(dir); got == supervise.EngineIdle {
+		t.Errorf("engine recorded as idle: the start was swallowed")
+	}
+}
+
+// The same, with `skrog start` landing while the supervisor is waiting on the
+// distro probe -- after it read the start-request token, before it wrote the
+// idle marker. Neither that tick nor the next may leave the engine down.
+func TestStartDuringTheDistroProbeIsAStart(t *testing.T) {
+	e := newDistroEngine(true)
+	s, dir := newSup(t, e, time.Hour)
+
+	s.TickForTest(context.Background())
+	e.shutdownVM()
+	e.onProbe = func() {
+		e.onProbe = nil
+		if err := supervise.RequestStart(dir); err != nil {
+			t.Error(err)
+		}
+	}
+	tickN(s, 2)
+
+	if starts, _ := e.counts(); starts != 1 {
+		t.Errorf("started %d times after a start during the probe, want 1", starts)
+	}
+	if got := supervise.ReadEngineState(dir); got == supervise.EngineIdle {
+		t.Errorf("engine recorded as idle: the start was swallowed")
+	}
+}
+
+// A start asked of an engine that is already running has nothing to override,
+// and must not be saved up: a `wsl --shutdown` after it still sticks.
+func TestStartWhileRunningDoesNotOverrideALaterShutdown(t *testing.T) {
+	e := newDistroEngine(true)
+	s, dir := newSup(t, e, time.Hour)
+
+	s.TickForTest(context.Background())
+	if err := supervise.RequestStart(dir); err != nil {
+		t.Fatal(err)
+	}
+	s.TickForTest(context.Background()) // running: the request is spent here
+	e.shutdownVM()
+	tickN(s, 3)
+
+	if starts, _ := e.counts(); starts != 0 {
+		t.Errorf("started %d times after wsl --shutdown, want 0", starts)
+	}
+	if got := supervise.ReadEngineState(dir); got != supervise.EngineIdle {
+		t.Errorf("engine state = %q, want idle", got)
 	}
 }

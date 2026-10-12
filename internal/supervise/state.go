@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // Desired is what the user last asked for.
@@ -103,4 +104,40 @@ func WriteEngineState(stateDir string, st EngineState) error {
 		return fmt.Errorf("committing engine state: %w", err)
 	}
 	return nil
+}
+
+func startRequestPath(stateDir string) string {
+	return filepath.Join(stateDir, "start-request")
+}
+
+// RequestStart is `skrog start`: desired running, the idle marker cleared, and
+// a fresh start-request token.
+//
+// The token is the part that cannot be left out. Right after `wsl --shutdown`
+// the first two are already true on disk, so writing them again is no change
+// the supervisor can see -- and its next tick, having watched the engine run,
+// reads the down engine as an outside stop and leaves it down (#518), while
+// `skrog start` waits for an engine nobody will start. A new token on every
+// call is a change no matter what the other two files already say.
+func RequestStart(stateDir string) error {
+	if err := WriteDesired(stateDir, DesiredRunning); err != nil {
+		return err
+	}
+	if err := WriteEngineState(stateDir, EngineActive); err != nil {
+		return err
+	}
+	token := fmt.Sprintf("%d\n", time.Now().UnixNano())
+	if err := commit(startRequestPath(stateDir), []byte(token)); err != nil {
+		return fmt.Errorf("committing start request: %w", err)
+	}
+	return nil
+}
+
+// readStartRequest returns the latest start-request token; empty when none.
+func readStartRequest(stateDir string) string {
+	b, err := os.ReadFile(startRequestPath(stateDir))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(b))
 }
