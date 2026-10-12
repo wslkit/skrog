@@ -9,6 +9,7 @@ import (
 	"os"
 
 	"github.com/wslkit/skrog/internal/dockerctx"
+	"github.com/wslkit/skrog/internal/pipeproxy"
 	"github.com/wslkit/skrog/internal/prune"
 	"github.com/wslkit/skrog/internal/supervise"
 )
@@ -105,9 +106,9 @@ flags:
 // All is on: an automatic sweep that only removed dangling layers would leave
 // the tagged images that actually fill a disk, and the age guard is what keeps
 // that honest rather than the dangling-only filter.
-func autoPrune(log *slog.Logger) func(context.Context, supervise.PrunePolicy) (uint64, error) {
+func autoPrune(dialer pipeproxy.Dialer, log *slog.Logger) func(context.Context, supervise.PrunePolicy) (uint64, error) {
 	return func(ctx context.Context, p supervise.PrunePolicy) (uint64, error) {
-		res := prune.Run(ctx, prune.DockerRunner{}, prune.Options{
+		res := prune.RunAPI(ctx, engineClient(dialer), prune.Options{
 			All:        true,
 			Until:      p.KeepSince,
 			BuildCache: p.BuildCache,

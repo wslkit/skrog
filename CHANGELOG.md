@@ -14,6 +14,14 @@ useful than saying where the real one is.
 
 ### Fixed
 
+- **A short `prune.every` no longer stops the engine idling**
+  ([#496](https://github.com/wslkit/skrog/issues/496)). The scheduled prune ran
+  `docker` through Skrog's own pipe, so every sweep counted as client activity
+  and reset the idle clock; with `prune.every` at or below `idle-timeout` the
+  engine never idle-stopped. The supervisor now talks to the engine API
+  directly, which the idle clock does not see. `skrog doctor` no longer warns
+  about the combination, because it is no longer a problem. `skrog prune` run
+  by hand is unchanged.
 - **`skrog start` right after `wsl --shutdown` could time out.** Since 0.9.0
   a `wsl --shutdown` is left alone until the next docker command. If `skrog
   start` ran before the supervisor's next health check, it wrote nothing the

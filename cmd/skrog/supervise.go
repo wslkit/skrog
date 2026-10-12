@@ -412,7 +412,7 @@ flags:
 				BuildCache: c.PruneBuildCache,
 			}
 		},
-		Prune: autoPrune(log),
+		Prune: autoPrune(dialer, log),
 	}
 	srv.Dialer = &demandDialer{sup: sup, inner: dialer}
 	go sup.Run(ctx)

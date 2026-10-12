@@ -79,20 +79,7 @@ func (rwcConn) SetWriteDeadline(time.Time) error { return nil }
 // transport the bridge uses. The idle stop needs a definite "no": any error
 // here vetoes it (supervise.Supervisor.Busy's contract).
 func busyProbe(dialer pipeproxy.Dialer, busyLog *slog.Logger) func(ctx context.Context) (bool, error) {
-	client := &http.Client{
-		Transport: &http.Transport{
-			DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-				rwc, err := dialer.Dial(ctx)
-				if err != nil {
-					return nil, err
-				}
-				return rwcConn{rwc}, nil
-			},
-			// One probe, one connection: the engine socket is not a place to
-			// pool idle keep-alives that would themselves look like activity.
-			DisableKeepAlives: true,
-		},
-	}
+	client := engineClient(dialer)
 	return func(ctx context.Context) (bool, error) {
 		ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		defer cancel()
@@ -156,5 +143,26 @@ func engineBusy(dialer pipeproxy.Dialer, p *provision.Provisioner, opts provisio
 			return false, nil // no shared socket to worry about
 		}
 		return p.SocketBusy(ctx, opts)
+	}
+}
+
+// engineClient is an http.Client that reaches the engine over the bridge's own
+// transport rather than through the pipe server, so what it sends is never
+// client activity. The busy probe and the scheduled prune (#496) both need
+// exactly that.
+func engineClient(dialer pipeproxy.Dialer) *http.Client {
+	return &http.Client{
+		Transport: &http.Transport{
+			DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+				rwc, err := dialer.Dial(ctx)
+				if err != nil {
+					return nil, err
+				}
+				return rwcConn{rwc}, nil
+			},
+			// One request, one connection: the engine socket is not a place to
+			// pool idle keep-alives that would themselves look like activity.
+			DisableKeepAlives: true,
+		},
 	}
 }

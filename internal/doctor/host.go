@@ -8,7 +8,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/wslkit/skrog/internal/config"
 	"github.com/wslkit/skrog/internal/dockercli"
@@ -97,13 +96,6 @@ type Facts struct {
 	// Registration can fail after a successful-looking `config set` (#480), and
 	// only the second question catches that.
 	EmulationPlatforms string
-
-	// IdleTimeout and PruneEvery are the two settings that can cancel each
-	// other out (#496): a prune interval at or below the idle timeout resets
-	// the idle window before it can expire. Zero means off, which is the
-	// default for both.
-	IdleTimeout time.Duration
-	PruneEvery  time.Duration
 
 	// PublishedPorts is what running containers publish on the host side, and
 	// WSLNetworkingMode is the `networkingMode` from ~/.wslconfig ("" means the
@@ -347,8 +339,6 @@ func Gather(ctx context.Context, opts GatherOptions) Facts {
 		pOpts.GPUVendor = c.GPUVendor
 		f.DiskWarnBelow = c.DiskWarnBelow
 		f.EmulationPlatforms = c.EmulationPlatforms
-		f.IdleTimeout = c.IdleTimeout
-		f.PruneEvery = c.PruneEvery
 		f.PublishScopeLAN = c.PublishScope == config.PublishScopeLAN
 	}
 
