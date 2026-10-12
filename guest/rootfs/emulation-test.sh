@@ -86,7 +86,11 @@ echo "==> host is $ROOTFS_ARCH; this rootfs should be able to emulate $ARCH_EMUL
 docker import "$tarball" "$image" >/dev/null
 
 echo "==> the emulator ships and runs"
-docker run --rm "$image" "$QEMU_BIN" -version | head -1 | sed 's/^/  /'
+# Capture first, then trim. `| head -1` closes the pipe while the docker CLI is
+# still writing the second line of `qemu -version`; under pipefail that is a
+# broken-pipe failure on some runs and not others.
+qemu_version=$(docker run --rm "$image" "$QEMU_BIN" -version)
+echo "$qemu_version" | sed -n '1s/^/  /p'
 
 echo "==> and nothing is registered out of the box"
 # Emulation is opt-in. A rootfs that registered an interpreter by itself would
