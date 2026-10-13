@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -146,4 +148,31 @@ func TestPollPublishedRefusesWhatItCannotTrust(t *testing.T) {
 			t.Error("a stale reading must fall back to the CLI")
 		}
 	})
+}
+
+// With several engines the dot follows the one docker is on, so the tooltip
+// names a named engine and the default engine's tooltip is exactly what it was
+// (#539).
+func TestTooltipNamesTheTarget(t *testing.T) {
+	if got, want := TooltipFor(StateRunning, ""), Tooltip(StateRunning); got != want {
+		t.Errorf("the default engine's tooltip changed: %q", got)
+	}
+	if got := TooltipFor(StateRunning, "proj-a"); !strings.Contains(got, "proj-a") || !strings.Contains(got, "running") {
+		t.Errorf("tooltip = %q, want the state and the engine's name", got)
+	}
+}
+
+// A lifecycle click must act on the engine the dot is showing, not the default.
+func TestActionArgsAimAtTheShownEngine(t *testing.T) {
+	a := Action{Label: "Stop engine", Args: []string{"stop"}}
+	if got := ActionArgs(a, ""); !reflect.DeepEqual(got, []string{"stop"}) {
+		t.Errorf("no engine named: args = %v", got)
+	}
+	got := ActionArgs(a, `C:\s\engines\proj-a`)
+	if want := []string{"stop", "--state-dir", `C:\s\engines\proj-a`}; !reflect.DeepEqual(got, want) {
+		t.Errorf("args = %v, want %v", got, want)
+	}
+	if len(a.Args) != 1 {
+		t.Errorf("ActionArgs mutated the shared action table: %v", a.Args)
+	}
 }

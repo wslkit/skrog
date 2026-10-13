@@ -77,6 +77,12 @@ type Facts struct {
 
 	// Disk describes free space on the volume holding the engine's data.
 	Disk DiskInfo
+	// OtherEngines are the local engines besides the one being examined (#539):
+	// the default engine when this is a named one, and every named engine. Each
+	// is a VHDX that grows on its own, so the free-space floor has to be judged
+	// against all of them -- a drive that is fine for one engine can be full
+	// with five.
+	OtherEngines []EngineDisk
 	// DiskWarnBelow is the configured free-space floor (`disk.warn-below`,
 	// #145) in bytes; 0 means checkDisk's built-in default.
 	DiskWarnBelow uint64
@@ -223,6 +229,14 @@ type DiskInfo struct {
 	Err        string `json:"err,omitempty"`
 }
 
+// EngineDisk is one local engine's disk use and the volume it grows on.
+type EngineDisk struct {
+	Name string `json:"name"`
+	// UsedBytes is what the engine's data holds today.
+	UsedBytes uint64   `json:"usedBytes"`
+	Disk      DiskInfo `json:"disk"`
+}
+
 // SSHAgentInfo is how `docker build --ssh default` would find an SSH agent.
 // Err is set when the question could not be asked (a non-Windows host).
 type SSHAgentInfo struct {
@@ -329,6 +343,7 @@ func Gather(ctx context.Context, opts GatherOptions) Facts {
 
 	f.CredHelpers = discoverCredHelpers(dockerConfigPath(), execLookPath)
 	f.Disk = diskInfo(engineDataDir(stateDir))
+	f.OtherEngines = otherEngineDisks(stateDir)
 	f.SSHAgent = sshAgentInfo()
 
 	if c, err := config.Load(stateDir); err == nil {

@@ -40,7 +40,9 @@ Run `skrog <command> --help` for the same text in your terminal.
 - [`stop`](#stop) — stop the engine; it stays stopped until start
 - [`supervise`](#supervise) — serve the pipe and keep the engine alive (the always-on layer)
 - [`top`](#top) — where the WSL VM's memory and CPU go: containers, engine, page cache, Vmmem
+- [`target`](#target) — per-workspace engines: create, list, remove isolated engines (and remotes) to switch between
 - [`uninstall`](#uninstall) — remove the engine distro and Skrog's state
+- [`use`](#use) — point docker at a target: the shared engine, a named engine, or a remote
 - [`upgrade`](#upgrade) — am I current? app, engine and bundled CLI in one answer
 - [`wsl-integrate`](#wsl-integrate) — point docker inside your own WSL distros at the engine
 - [`wsl-config`](#wsl-config) — right-size the WSL2 VM: show and apply ~/.wslconfig sizing, with consent
@@ -105,7 +107,7 @@ flags:
 start the supervisor at logon: enable, disable, status
 
 ```
-usage: skrog autostart enable|disable|status
+usage: skrog autostart [--engine <name>] enable|disable|status
 
 Controls whether the supervisor starts at logon, via a per-user Run entry
 (visible and switchable in Task Manager's Startup tab; no admin needed). The
@@ -116,6 +118,11 @@ install registers this by default; uninstall removes it.
 enable and disable also record the choice, exactly as `skrog config set
 autostart on|off` does, so `skrog doctor` can tell an entry turned off on
 purpose from one that went missing, and put a missing one back with --fix.
+
+--engine <name> acts on a named engine's own logon entry (skrog target create
+--autostart does the same at creation) and leaves the default engine's alone.
+A named engine starts at logon only when you ask: by default it starts when you
+`skrog use` it, and stops itself when idle.
 ```
 
 ## bundle
@@ -1180,6 +1187,60 @@ Exit codes: 0 engine running or idle, 1 engine stopped or unreadable, 2 usage,
     	with --json, keep printing: one JSON object per line, every --interval
 ```
 
+## target
+
+per-workspace engines: create, list, remove isolated engines (and remotes) to switch between
+
+```
+usage: skrog target                          list targets
+       skrog target create <name> [flags]    a new, isolated engine
+       skrog target remove <name> [--yes]    delete an engine and everything in it
+
+A target is which engine docker talks to: the default shared engine (`local`),
+a named local engine, or a remote from `skrog remote`. Switch with `skrog use`.
+
+A named engine is a complete, independent install: its own WSL distro and virtual
+disk, its own supervisor and pipe, its own docker context (skrog-<name>), its own
+images, containers, volumes, settings and snapshots. A poisoned image pulled in one
+cannot be run from another, and each can pin its own dockerd version.
+
+create installs the engine and leaves it stopped: it starts when you `skrog use`
+it and stops itself when idle, so many engines cost memory only while one is in
+use. They do cost disk (hundreds of MB each before any image is pulled); `list`
+shows each engine's disk and the total.
+
+Names: lowercase letters, digits, - and _ (1 to 32). "local" and "engine" are reserved,
+and a name may not be one of your remotes.
+
+remove DELETES the engine's distro and with it every image, container and volume
+in it. The default engine and remotes are never touched.
+
+Flags come before the verb. Exit codes: 0 ok, 1 error, 2 usage, 3 no such target,
+4 unsupported platform.
+
+flags:
+  -autostart
+    	create: also start this engine's supervisor at logon
+  -engine-version string
+    	dockerd version for create (default: this build's default)
+  -headless
+    	never prompt; for unattended use
+  -json
+    	emit machine-readable JSON (list, create)
+  -locked string
+    	create from the exact engine pinned in a skrog.lock
+  -offline string
+    	create entirely from an air-gap bundle .zip
+  -rootfs-sha256 string
+    	expected rootfs SHA-256; required with --rootfs-url
+  -rootfs-url string
+    	override the rootfs URL (development)
+  -state-dir string
+    	override Skrog's state directory
+  -yes
+    	skip the confirmation prompt (remove)
+```
+
 ## uninstall
 
 remove the engine distro and Skrog's state
@@ -1193,6 +1254,10 @@ state. Nothing else on the system is touched.
 This DELETES the distro, and with it every image, container and volume it
 holds. Export anything you want to keep first.
 
+Named engines (`skrog target create`) under the same state directory are
+removed too, and the prompt lists them. To remove just one, use
+`skrog target remove <name>`.
+
 Exit codes: 0 ok, 1 error.
 
 flags:
@@ -1202,6 +1267,29 @@ flags:
     	override Skrog's state directory
   -yes
     	skip the confirmation prompt
+```
+
+## use
+
+point docker at a target: the shared engine, a named engine, or a remote
+
+```
+usage: skrog use <name>|local
+
+Points docker at a target: the default shared engine (local), a named engine from
+`skrog target create`, or a remote from `skrog remote add`. Switching to a local
+engine starts it first, so the next docker command finds it ready.
+
+It switches the docker CONTEXT and nothing else. It does not export DOCKER_HOST
+(a process cannot set a variable in its parent shell, and DOCKER_HOST overrides the
+context, which would leave the CLI and your editor on different engines); use
+DOCKER_CONTEXT for a script that must name one explicitly.
+
+Exit codes: 0 ok, 1 error, 2 usage, 3 no such target.
+
+flags:
+  -state-dir string
+    	override Skrog's state directory
 ```
 
 ## upgrade

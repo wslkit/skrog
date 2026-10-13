@@ -9,18 +9,17 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 
 	"github.com/wslkit/skrog/internal/autostart"
-	"github.com/wslkit/skrog/internal/bundle"
 	"github.com/wslkit/skrog/internal/config"
 	"github.com/wslkit/skrog/internal/dockerctx"
 	"github.com/wslkit/skrog/internal/integrate"
-	"github.com/wslkit/skrog/internal/lockfile"
 	"github.com/wslkit/skrog/internal/logging"
 	"github.com/wslkit/skrog/internal/pipeproxy"
 	"github.com/wslkit/skrog/internal/provision"
-	"github.com/wslkit/skrog/internal/release"
 	"github.com/wslkit/skrog/internal/supervise"
+	tgt "github.com/wslkit/skrog/internal/target"
 	"github.com/wslkit/skrog/internal/wsl"
 )
 
@@ -96,88 +95,16 @@ flags:
 		Headless: *headless,
 	}
 
-	if n := boolCount(*locked != "", *rootfsURL != "", *offline != ""); n > 1 {
-		fmt.Fprintln(os.Stderr, "skrog: choose at most one of --locked, --offline, --rootfs-url")
-		return exitUsage
-	}
-
-	// An explicit URL bypasses the manifest, so it must carry its own digest:
-	// there is no code path that imports an unverified rootfs.
-	switch {
-	case *offline != "":
-		b, err := bundle.Open(*offline)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "skrog: %v\n", err)
-			return exitError
-		}
-		defer b.Close()
-		l := b.Lock()
-		// Extract the bundled rootfs beside the state dir; the install below then
-		// copies it into the cache and verifies its SHA-256 — the same verified
-		// path a networked install uses, so "offline" adds no unchecked import.
-		sd := optsWithResolvedStateDir(opts).StateDir
-		extracted := filepath.Join(sd, "offline", bundle.ExtractedRootfsName)
-		if err := b.ExtractRootfs(extracted); err != nil {
-			fmt.Fprintf(os.Stderr, "skrog: %v\n", err)
-			return exitError
-		}
-		defer os.RemoveAll(filepath.Dir(extracted))
-		opts.RootfsURL = extracted
-		opts.RootfsSHA256 = l.Rootfs.SHA256
-		opts.EngineVersion = l.EngineVersion
-		log.Info("installing offline from bundle", "path", *offline, "engine", l.EngineVersion)
-	case *locked != "":
-		l, err := lockfile.Load(*locked)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "skrog: %v\n", err)
-			return exitError
-		}
-		// The lock's rootfs URL + SHA-256 pin the artifact; the existing verified
-		// download refuses on any mismatch, so a tampered lock cannot install
-		// something else.
-		opts.RootfsURL = l.Rootfs.URL
-		opts.RootfsSHA256 = l.Rootfs.SHA256
-		opts.EngineVersion = l.EngineVersion
-		log.Info("installing from lockfile", "path", *locked, "engine", l.EngineVersion)
-	case *rootfsURL != "" && *rootfsSHA == "":
-		fmt.Fprintln(os.Stderr, "skrog: --rootfs-url requires --rootfs-sha256")
-		return exitUsage
-	case *rootfsURL != "":
-		opts.RootfsURL = *rootfsURL
-		opts.RootfsSHA256 = *rootfsSHA
-		opts.EngineVersion = *engineVersion
-		log.Warn("using an overridden rootfs; this is a development path, not a release install",
-			"url", *rootfsURL)
-	default:
-		m, err := release.Load()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "skrog: %v\n", err)
-			return exitError
-		}
-		engine, err := m.Engine(*engineVersion)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "skrog: %v\n", err)
-			return exitUsage
-		}
-		// Pick the rootfs for this host's architecture, and refuse HERE rather
-		// than after a 200 MB download, a passing SHA-256 and a successful
-		// `wsl --import` that leaves the user with a distro whose every binary
-		// is the wrong ISA (#388).
-		//
-		// Only this branch selects: --rootfs-url, --offline and --locked all
-		// carry bytes the caller chose, and skrog does not second-guess those.
-		rootfs, err := engine.HostRootfs()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "skrog: %v\n", err)
-			var unsupported *release.ErrUnsupportedHostArch
-			if errors.As(err, &unsupported) {
-				return exitUnsupported
-			}
-			return exitError
-		}
-		opts.RootfsURL = rootfs.URL
-		opts.RootfsSHA256 = rootfs.SHA256
-		opts.EngineVersion = engine.Version
+	opts, cleanup, code := applyInstallSource(opts, installSource{
+		engineVersion: *engineVersion,
+		locked:        *locked,
+		offline:       *offline,
+		rootfsURL:     *rootfsURL,
+		rootfsSHA:     *rootfsSHA,
+	}, log)
+	defer cleanup()
+	if code != exitOK {
+		return code
 	}
 
 	// Signature verification is opt-in (#147) and lives in config so a fleet
@@ -382,6 +309,10 @@ state. Nothing else on the system is touched.
 This DELETES the distro, and with it every image, container and volume it
 holds. Export anything you want to keep first.
 
+Named engines (`+"`skrog target create`"+`) under the same state directory are
+removed too, and the prompt lists them. To remove just one, use
+`+"`skrog target remove <name>`"+`.
+
 Exit codes: 0 ok, %d error.
 
 flags:
@@ -396,6 +327,19 @@ flags:
 	log := cliLogger(false)
 	p := &provision.Provisioner{Logger: log}
 
+	// A named engine is removed with `skrog target remove`; uninstalling one as
+	// if it were an install would leave its context and logon entry behind.
+	baseDir := optsWithResolvedStateDir(opts).StateDir
+	if name, ok := tgt.NameOf(baseDir); ok {
+		fmt.Fprintf(os.Stderr, "skrog: %s is the state of the engine %q; remove it with `skrog target remove %s`\n",
+			baseDir, name, name)
+		return exitUsage
+	}
+	// The default engine's uninstall promises to remove everything Skrog created,
+	// and the named engines under this state dir are Skrog's. They go too, and the
+	// prompt says so.
+	namedEngines, _ := tgt.List(baseDir)
+
 	// Say what will actually be destroyed, using the recorded manifest rather
 	// than a guess, before asking.
 	ownManifest, _ := p.ReadManifest(opts)
@@ -408,7 +352,12 @@ flags:
 
 	if !*yes {
 		fmt.Printf("This will unregister the WSL distro %q and delete all images, "+
-			"containers and volumes in it.\nThis cannot be undone. Continue? [y/N] ", target)
+			"containers and volumes in it.\n", target)
+		if len(namedEngines) > 0 {
+			fmt.Printf("It will also remove the %d named engine(s) %s, with everything in them.\n",
+				len(namedEngines), strings.Join(namedEngines, ", "))
+		}
+		fmt.Print("This cannot be undone. Continue? [y/N] ")
 		var answer string
 		fmt.Scanln(&answer)
 		if answer != "y" && answer != "Y" {
@@ -419,6 +368,13 @@ flags:
 
 	ctx, stop := interruptible()
 	defer stop()
+
+	for _, name := range namedEngines {
+		if code := targetRemove(ctx, baseDir, name, true); code != exitOK {
+			fmt.Fprintf(os.Stderr, "skrog: could not remove engine %q; the default engine was not uninstalled\n", name)
+			return code
+		}
+	}
 
 	// Autostart goes first: a Run entry pointing at a binary that is about to
 	// stop having anything to supervise would relaunch a supervisor into an

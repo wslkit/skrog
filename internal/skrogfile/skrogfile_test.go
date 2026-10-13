@@ -110,3 +110,33 @@ func TestMarshalOmitsEmpty(t *testing.T) {
 		t.Fatalf("empty fields should be omitted:\n%s", s)
 	}
 }
+
+func TestTargetKey(t *testing.T) {
+	f, err := Parse([]byte("target: proj-a\nengine-version: 29.7.2\nengine:\n  registry-mirrors: https://m.example\n"))
+	if err != nil {
+		t.Fatalf("a target beside the engine: settings map: %v", err)
+	}
+	if f.Target != "proj-a" || f.Engine["registry-mirrors"] == "" {
+		t.Errorf("parsed %+v", f)
+	}
+
+	for name, doc := range map[string]string{
+		"reserved":         "target: local\n",
+		"bad characters":   "target: Proj A\n",
+		"distro conflicts": "target: proj-a\ndistro: skrog-other\n",
+		"data-dir clashes": "target: proj-a\ndata-dir: D:/x\n",
+	} {
+		if _, err := Parse([]byte(doc)); err == nil {
+			t.Errorf("%s: %q was accepted", name, doc)
+		}
+	}
+
+	// No target: nothing changes for a file that never had one.
+	b, err := File{Distro: "d"}.Marshal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(b), "target") {
+		t.Errorf("an unset target leaked into the YAML: %s", b)
+	}
+}

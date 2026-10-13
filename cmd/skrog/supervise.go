@@ -24,6 +24,7 @@ import (
 	"github.com/wslkit/skrog/internal/provision"
 	"github.com/wslkit/skrog/internal/selfexe"
 	"github.com/wslkit/skrog/internal/supervise"
+	tgt "github.com/wslkit/skrog/internal/target"
 )
 
 // engineAdapter satisfies supervise.Engine with the provisioner's primitives.
@@ -240,6 +241,15 @@ flags:
 			"error", err)
 	}
 
+	// A named engine (#539) serves its own pipe and owns its own docker
+	// context. Both are derived from the state dir, so every way a supervisor
+	// gets started -- `skrog start`, the logon entry, the watchdog -- agrees
+	// without each having to be told. An explicit --pipe still wins.
+	engineName, wiring, named := engineWiring(opts.StateDir)
+	if named && *pipeName == "" {
+		*pipeName = wiring.Pipe
+	}
+
 	selected, reason := pipeproxy.SelectPipeName(*pipeName)
 	listener, err := pipeproxy.Listen(selected, "")
 	if err != nil {
@@ -268,8 +278,18 @@ flags:
 	}()
 
 	if !*noContext {
-		if err := (&dockerctx.Manager{}).Ensure(context.Background(),
-			pipeproxy.DockerHostFor(selected)); err != nil {
+		mgr := &dockerctx.Manager{}
+		host := pipeproxy.DockerHostFor(selected)
+		var err error
+		if named {
+			// Never the shared `skrog` context: that one belongs to the
+			// default engine, and repointing it from here is the collision
+			// #217 was about.
+			err = mgr.EnsureNamed(context.Background(), wiring.Context, "Skrog engine "+engineName, host)
+		} else {
+			err = mgr.Ensure(context.Background(), host)
+		}
+		if err != nil {
 			log.Warn("docker context not wired", "reason", err)
 		}
 	}
@@ -849,7 +869,7 @@ discard exactly the reading worth having.
 		*withStats = true
 	}
 
-	opts := optsWithResolvedStateDir(provision.Options{StateDir: *stateDir})
+	opts := optsWithResolvedStateDir(provision.Options{StateDir: scopedStateDir(*stateDir)})
 	p := &provision.Provisioner{Logger: cliLogger(true)}
 
 	st := statusJSON{
@@ -858,6 +878,9 @@ discard exactly the reading worth having.
 		Engine:     "stopped",
 		Desired:    string(supervise.ReadDesired(opts.StateDir)),
 		Profile:    (&profile.Manager{StateDir: opts.StateDir}).Active(),
+	}
+	if name, ok := tgt.NameOf(opts.StateDir); ok {
+		st.Target = name
 	}
 	if c, err := config.Load(opts.StateDir); err == nil {
 		st.GPU.Enabled = c.GPU

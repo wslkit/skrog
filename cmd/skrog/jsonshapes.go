@@ -4,6 +4,7 @@ import (
 	"github.com/wslkit/skrog/internal/policy"
 	"github.com/wslkit/skrog/internal/remote"
 	"github.com/wslkit/skrog/internal/runner"
+	tgt "github.com/wslkit/skrog/internal/target"
 	"github.com/wslkit/skrog/internal/vmtop"
 )
 
@@ -21,14 +22,19 @@ type statusJSON struct {
 	// session backend was removed (#451), and still always present once
 	// installed: dropping a key from a pinned contract (#179) breaks a
 	// consumer that switches on it, where an unchanging value does not.
-	Backend    string  `json:"backend,omitempty"`
-	Distro     string  `json:"distro,omitempty"`
-	StateDir   string  `json:"stateDir"`
-	Supervisor string  `json:"supervisor"` // running | stopped
-	Engine     string  `json:"engine"`     // running | idle | stopped
-	Desired    string  `json:"desired"`    // running | stopped
-	Profile    string  `json:"profile,omitempty"`
-	GPU        gpuJSON `json:"gpu"`
+	Backend    string `json:"backend,omitempty"`
+	Distro     string `json:"distro,omitempty"`
+	StateDir   string `json:"stateDir"`
+	Supervisor string `json:"supervisor"` // running | stopped
+	Engine     string `json:"engine"`     // running | idle | stopped
+	Desired    string `json:"desired"`    // running | stopped
+	Profile    string `json:"profile,omitempty"`
+	// Target is the named engine this status describes (#539), absent for the
+	// default shared engine. Without --state-dir, status describes the engine
+	// docker is currently on, so a consumer that follows the docker context
+	// (the tray) reads the engine it is actually talking to.
+	Target string  `json:"target,omitempty"`
+	GPU    gpuJSON `json:"gpu"`
 	// Endpoint is where the engine is answering (#273). Absent when no
 	// supervisor is running: nothing is being served then, and naming a pipe
 	// would be a guess rather than a report.
@@ -436,4 +442,44 @@ type topJSON struct {
 	// Error is set on a --stream line whose reading failed while the engine
 	// was running; the stream carries on rather than ending on one bad read.
 	Error string `json:"error,omitempty"`
+}
+
+// targetListJSON is `skrog target list --json` (#539). current is the target
+// docker is on now: "local", a named engine, or a remote's name, and "" when
+// docker is on some context that is none of them.
+type targetListJSON struct {
+	Current string            `json:"current"`
+	Targets []targetEntryJSON `json:"targets"`
+	// TotalDiskBytes is the disk the local engines hold together; the figure
+	// the free-space floor has to be compared against once there are several.
+	TotalDiskBytes int64 `json:"totalDiskBytes"`
+}
+
+// targetEntryJSON is one target. kind is "local" (the default shared engine),
+// "engine" (a named local engine) or "remote". state is running | stopped |
+// incomplete | not-installed, and absent for a remote.
+type targetEntryJSON struct {
+	Name          string `json:"name"`
+	Kind          string `json:"kind"`
+	Current       bool   `json:"current"`
+	State         string `json:"state,omitempty"`
+	Context       string `json:"context"`
+	Distro        string `json:"distro,omitempty"`
+	StateDir      string `json:"stateDir,omitempty"`
+	Pipe          string `json:"pipe,omitempty"`
+	Host          string `json:"host,omitempty"`
+	EngineVersion string `json:"engineVersion,omitempty"`
+	DiskBytes     int64  `json:"diskBytes,omitempty"`
+	// Autostart is present for named engines only: whether this engine's
+	// supervisor starts at logon.
+	Autostart *bool `json:"autostart,omitempty"`
+}
+
+// targetCreateJSON is `skrog target create --json`.
+type targetCreateJSON struct {
+	tgt.Layout
+	EngineVersion string `json:"engineVersion"`
+	// DockerContext reports whether the skrog-<name> context was created; false
+	// on a machine with no docker CLI to hold it.
+	DockerContext bool `json:"dockerContext"`
 }

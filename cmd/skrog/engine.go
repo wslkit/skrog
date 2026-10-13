@@ -105,7 +105,7 @@ func runEngineList(args []string) int {
 		fmt.Fprintf(os.Stderr, "skrog: %v\n", err)
 		return exitError
 	}
-	opts := optsWithResolvedStateDir(provision.Options{StateDir: *stateDir})
+	opts := optsWithResolvedStateDir(provision.Options{StateDir: scopedStateDir(*stateDir)})
 	p := &provision.Provisioner{Logger: cliLogger(false)}
 	installed, previous := "", ""
 	if im, err := p.ReadManifest(opts); err == nil {
@@ -238,7 +238,7 @@ flags:
 	ctx, stop := interruptible()
 	defer stop()
 
-	opts := optsWithResolvedStateDir(provision.Options{StateDir: *stateDir})
+	opts := optsWithResolvedStateDir(provision.Options{StateDir: scopedStateDir(*stateDir)})
 	p := &provision.Provisioner{Logger: cliLogger(false)}
 	distro, ok := requireDistroInstall(p, opts)
 	if !ok {

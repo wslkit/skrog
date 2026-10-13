@@ -82,6 +82,7 @@ skrog remote --host tcp://my-desktop.corp:2376 --certs C:\path\to\certs add desk
 skrog remote test desktop          # engine version + round-trip time
 skrog remote use desktop           # plain `docker` now targets the remote
 skrog remote use local             # ...and back to the local engine
+skrog use desktop                  # the same, spelled like any other target
 ```
 
 `add` validates the certificates (a wrong file fails here, not on first
@@ -93,6 +94,10 @@ Container" builds and runs on the remote engine. `skrog remote` lists remotes
 and which one docker is on; `skrog doctor` reports `remote:desktop` and warns
 two weeks before the client certificate expires. `skrog remote remove desktop`
 removes the context and the copied material.
+
+A remote is one kind of **target**, beside the shared engine and any per-project engines
+you create with `skrog target create`; they share one namespace and one switch,
+`skrog use`, and `skrog target` lists all three. See [targets.md](targets.md).
 
 Both certificate layouts are accepted: what `skrog serve cert` writes
 (`ca.pem`, `client.pem`, `client-key.pem`) and docker's own

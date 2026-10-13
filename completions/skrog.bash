@@ -15,7 +15,7 @@ _skrog() {
     cur="${COMP_WORDS[COMP_CWORD]}"
 
     local commands subs flags
-    commands="audit autostart bundle cache cli compact config doctor enable-gpu engine healthcheck install lock logs migrate prewarm policy profile proxy prune relocate remote reset restart runner serve snapshot start status stop supervise top uninstall upgrade wsl-integrate wsl-config version"
+    commands="audit autostart bundle cache cli compact config doctor enable-gpu engine healthcheck install lock logs migrate prewarm policy profile proxy prune relocate remote reset restart runner serve snapshot start status stop supervise top target uninstall use upgrade wsl-integrate wsl-config version"
 
     # First positional is the command; the second, if any, the subcommand.
     local command="" sub="" i seen=0
@@ -66,7 +66,9 @@ _skrog() {
             stop) flags="--state-dir --supervisor --timeout" ;;
             supervise) flags="--distro --no-context --pipe --state-dir" ;;
             top) flags="--interval --json --no-stream --once --state-dir --stream" ;;
+            target) flags="--autostart --engine-version --headless --json --locked --offline --rootfs-sha256 --rootfs-url --state-dir --yes" ;;
             uninstall) flags="--distro --state-dir --yes" ;;
+            use) flags="--state-dir" ;;
             upgrade) flags="--apply --check --dry-run --force --json --offline --state-dir --timeout --yes" ;;
             wsl-integrate) flags="--remove --state-dir" ;;
             version) flags="--json --state-dir" ;;
@@ -118,6 +120,7 @@ _skrog() {
             runner) subs="check" ;;
             serve) subs="cert" ;;
             snapshot) subs="list save restore delete" ;;
+            target) subs="list create remove" ;;
             wsl-config) subs="show apply" ;;
             *) subs="" ;;
         esac

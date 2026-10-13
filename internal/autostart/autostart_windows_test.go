@@ -276,3 +276,54 @@ func TestDisableWithNoRunKeyIsSuccess(t *testing.T) {
 		t.Errorf("Disable with no Run key: %v", err)
 	}
 }
+
+// A named engine's logon entry (#539) is its own Run value: enabling it
+// leaves the default engine's entry alone, it carries the state dir the
+// supervisor must serve, and removing it takes only itself.
+func TestEngineEntryIsIndependentOfTheDefaultEntry(t *testing.T) {
+	useScratchKey(t)
+	exe := fakeInstall(t, true)
+	stateDir := `C:\Users\x\AppData\Local\Skrog\engines\proj-a`
+
+	if err := Enable(exe); err != nil {
+		t.Fatalf("Enable: %v", err)
+	}
+	if err := EnableEngine(exe, "proj-a", stateDir); err != nil {
+		t.Fatalf("EnableEngine: %v", err)
+	}
+
+	enabled, cmd, err := EngineStatus("proj-a")
+	if err != nil || !enabled {
+		t.Fatalf("EngineStatus = %v, %v, %v", enabled, cmd, err)
+	}
+	if !strings.Contains(cmd, "skrogw.exe") || !strings.Contains(cmd, `--state-dir "`+stateDir+`"`) {
+		t.Errorf("Run entry = %q, want the launcher told which state dir to serve", cmd)
+	}
+	if on, _, _ := EngineStatus("proj-b"); on {
+		t.Error("an engine that was never enabled reports an entry")
+	}
+
+	if err := DisableEngine("proj-a"); err != nil {
+		t.Fatalf("DisableEngine: %v", err)
+	}
+	if on, _, _ := EngineStatus("proj-a"); on {
+		t.Error("the engine entry survived DisableEngine")
+	}
+	if on, _, _ := Status(); !on {
+		t.Error("disabling an engine's entry removed the default engine's")
+	}
+	if err := DisableEngine("proj-a"); err != nil {
+		t.Errorf("disabling an absent entry must be success: %v", err)
+	}
+}
+
+func TestEnableEngineRefusesWithoutLauncher(t *testing.T) {
+	useScratchKey(t)
+	exe := fakeInstall(t, false)
+	if err := EnableEngine(exe, "proj-a", `C:\s`); err == nil {
+		t.Fatal("registered a logon entry with no skrogw.exe beside skrog.exe")
+	}
+	if on, _, _ := EngineStatus("proj-a"); on {
+		t.Error("a refused EnableEngine left an entry behind")
+	}
+}

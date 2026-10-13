@@ -8,7 +8,7 @@
 # would link to it.
 sections:
   - section: Start
-    pages: [install, docker-cli, ports, devcontainers]
+    pages: [install, docker-cli, ports, devcontainers, targets]
   - section: Keep it healthy
     pages: [housekeeping, memory, snapshots, upgrading, engine-upgrade, vm-sizing]
   - section: At work
@@ -30,4 +30,5 @@ short:
   security: Security model
   bumping-upstream: Bumping the engine
   declarative-install: Declarative install
+  targets: Per-workspace engines
   memory: skrog top

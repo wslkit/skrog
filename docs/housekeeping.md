@@ -117,6 +117,11 @@ Raise it on a runner with a small disk so a filling volume is flagged — with
 `skrog prune` named as the remedy — before pulls start failing deep inside
 dockerd.
 
+With [named engines](targets.md) each one is its own virtual disk, so the floor is judged
+against the fullest volume **any** engine lives on, and the report lists what each engine
+holds. `skrog target list` shows every engine's disk and the total, and
+`skrog target remove` frees an unused engine's whole disk.
+
 ## Giving space back to the host: `skrog compact`
 
 `skrog prune` frees space *inside* the engine. It does not shrink the file on

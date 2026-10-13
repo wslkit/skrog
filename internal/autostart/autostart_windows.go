@@ -152,3 +152,68 @@ func resolvePath(p string) string {
 	}
 	return p
 }
+
+// EngineValueName is the Run-key entry name of a named engine's supervisor
+// (#539). One entry per autostarted engine, beside the default engine's
+// "Skrog": each is independent, so enabling or removing one never touches
+// another, and Task Manager's Startup tab lists them by name.
+func EngineValueName(engine string) string { return ValueName + "-" + engine }
+
+// EnableEngine registers the supervisor of a named engine to start at logon.
+// The entry is the same windowless launcher as Enable's, told which state dir
+// to serve; the supervisor derives the engine's pipe and docker context from
+// that directory.
+func EnableEngine(skrogExe, engine, stateDir string) error {
+	skrogExe = resolvePath(skrogExe)
+	launcher := filepath.Join(filepath.Dir(skrogExe), "skrogw.exe")
+	if _, err := os.Stat(launcher); err != nil {
+		return fmt.Errorf("autostart needs the skrogw.exe launcher next to skrog.exe "+
+			"(a console binary at logon would flash a console window): %w", err)
+	}
+	k, _, err := registry.CreateKey(registry.CURRENT_USER, runKeyPath, registry.SET_VALUE)
+	if err != nil {
+		return fmt.Errorf("opening the Run key: %w", err)
+	}
+	defer k.Close()
+	cmd := `"` + launcher + `" --state-dir "` + stateDir + `"`
+	if err := k.SetStringValue(EngineValueName(engine), cmd); err != nil {
+		return fmt.Errorf("writing the Run entry: %w", err)
+	}
+	return nil
+}
+
+// DisableEngine removes a named engine's logon entry; absent is success.
+func DisableEngine(engine string) error {
+	k, err := registry.OpenKey(registry.CURRENT_USER, runKeyPath, registry.SET_VALUE)
+	if errors.Is(err, registry.ErrNotExist) || errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("opening the Run key: %w", err)
+	}
+	defer k.Close()
+	if err := k.DeleteValue(EngineValueName(engine)); err != nil && err != registry.ErrNotExist {
+		return fmt.Errorf("removing the Run entry: %w", err)
+	}
+	return nil
+}
+
+// EngineStatus reports whether a named engine's logon entry exists.
+func EngineStatus(engine string) (enabled bool, command string, err error) {
+	k, err := registry.OpenKey(registry.CURRENT_USER, runKeyPath, registry.QUERY_VALUE)
+	if errors.Is(err, registry.ErrNotExist) || errors.Is(err, fs.ErrNotExist) {
+		return false, "", nil
+	}
+	if err != nil {
+		return false, "", fmt.Errorf("opening the Run key: %w", err)
+	}
+	defer k.Close()
+	v, _, err := k.GetStringValue(EngineValueName(engine))
+	if err == registry.ErrNotExist {
+		return false, "", nil
+	}
+	if err != nil {
+		return false, "", fmt.Errorf("reading the Run entry: %w", err)
+	}
+	return true, v, nil
+}

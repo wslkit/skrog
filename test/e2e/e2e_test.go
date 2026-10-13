@@ -127,6 +127,7 @@ func TestAcceptance(t *testing.T) {
 		{"RemoteEngineOverMutualTLS", stageServeMTLS},
 		{"EngineSnapshotSaveAndList", stageSnapshot},
 		{"UpgradeReportsCurrentAfterInstall", stageUpgradeCheck},
+		{"PerWorkspaceEngineIsIsolated", stageTargets},
 		// Late on purpose: it runs `wsl --shutdown`, which takes every distro
 		// on the machine down, so everything that wants a warm one has gone
 		// first (#465).
@@ -2125,6 +2126,12 @@ func forceCleanup(s *state) {
 		exec.Command(s.skrog, "uninstall", "--state-dir", s.stateDir, "--yes").Run()
 	}
 	exec.Command("wsl.exe", "--unregister", distro).Run()
+	// The per-workspace engine stageTargets creates (#539), should that stage
+	// have died before removing it.
+	if s.skrog != "" && s.stateDir != "" {
+		exec.Command(s.skrog, "target", "remove", targetName, "--state-dir", s.stateDir, "--yes").Run()
+	}
+	exec.Command("wsl.exe", "--unregister", "skrog-"+targetName).Run()
 }
 
 // findDocker resolves the docker CLI: PATH first, then where Docker Desktop
@@ -2592,4 +2599,114 @@ func emulationHandlerPresent(t *testing.T, handler string) bool {
 		return false
 	}
 	return strings.Contains(strings.ReplaceAll(out, "\x00", ""), handler)
+}
+
+// targetName is the per-workspace engine stageTargets creates. Its distro is
+// skrog-<name>, its pipe \.\pipe\skrog-<name>, its context skrog-<name>.
+const targetName = "e2e-two"
+
+// stageTargets is #539 end to end, against a real second engine: create it,
+// switch to it, prove it is ISOLATED from the engine beside it, and remove it
+// without leaving anything behind. The suite's own engine and the machine's
+// docker context are put back exactly as they were found.
+func stageTargets(t *testing.T, s *state) {
+	ctxName := "skrog-" + targetName
+
+	// docker against a named context, with nothing in the environment that would
+	// override it (DOCKER_HOST and DOCKER_CONTEXT beat --context).
+	dockerCtx := func(timeout time.Duration, args ...string) (string, error) {
+		var env []string
+		for _, kv := range os.Environ() {
+			switch strings.ToUpper(strings.SplitN(kv, "=", 2)[0]) {
+			case "DOCKER_HOST", "DOCKER_CONTEXT":
+				continue
+			}
+			env = append(env, kv)
+		}
+		env = append(env, "PATH="+os.Getenv("PATH")+string(os.PathListSeparator)+filepath.Dir(s.docker))
+		return runEnv(t, env, timeout, s.docker, append([]string{"--context", ctxName}, args...)...)
+	}
+
+	// Put the machine's current docker context back afterwards, whatever
+	// happens: `skrog use` changes it, and a test must not.
+	before, _ := runEnv(t, os.Environ(), 30*time.Second, s.docker, "context", "show")
+	t.Cleanup(func() {
+		if before != "" {
+			runEnv(t, os.Environ(), 30*time.Second, s.docker, "context", "use", before)
+		}
+	})
+
+	out, err := run(t, 15*time.Minute, s.skrog, "target", "--state-dir", s.stateDir, "--headless", "create", targetName)
+	must(t, out, err, "skrog target create")
+
+	// Listed, stopped (a created engine costs nothing until it is used), and
+	// holding disk.
+	out, err = run(t, time.Minute, s.skrog, "target", "--state-dir", s.stateDir, "--json", "list")
+	must(t, out, err, "skrog target list --json")
+	var list struct {
+		Targets []struct {
+			Name      string `json:"name"`
+			Kind      string `json:"kind"`
+			State     string `json:"state"`
+			DiskBytes int64  `json:"diskBytes"`
+		} `json:"targets"`
+		TotalDiskBytes int64 `json:"totalDiskBytes"`
+	}
+	if err := json.Unmarshal([]byte(out), &list); err != nil {
+		t.Fatalf("target list --json is not JSON: %v\n%s", err, out)
+	}
+	found := false
+	for _, e := range list.Targets {
+		if e.Name == targetName {
+			found = true
+			if e.Kind != "engine" || e.State != "stopped" || e.DiskBytes <= 0 {
+				t.Errorf("new engine listed as %+v, want kind engine, stopped, with disk", e)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("target list does not show %q:\n%s", targetName, out)
+	}
+	if list.TotalDiskBytes <= 0 {
+		t.Errorf("totalDiskBytes = %d", list.TotalDiskBytes)
+	}
+
+	// Switching starts it, and docker through its context reaches ITS dockerd.
+	out, err = run(t, 5*time.Minute, s.skrog, "use", "--state-dir", s.stateDir, targetName)
+	must(t, out, err, "skrog use")
+	if v, err := dockerCtx(time.Minute, "version", "--format", "{{.Server.Version}}"); err != nil || v == "" {
+		t.Fatalf("docker through %s did not reach the new engine: %v\n%s", ctxName, err, v)
+	}
+	if cur, _ := runEnv(t, os.Environ(), 30*time.Second, s.docker, "context", "show"); cur != ctxName {
+		t.Errorf("docker context after `skrog use` = %q, want %q", cur, ctxName)
+	}
+
+	// The point of the feature: what the suite's own engine pulled is not here.
+	// HelloWorld ran earlier, so hello-world is an image there and must not be one here.
+	if img, err := dockerE(t, s, time.Minute, "image", "ls", "-q", "hello-world"); err != nil || img == "" {
+		t.Fatalf("the suite's own engine lost hello-world: %v %q", err, img)
+	}
+	if img, err := dockerCtx(time.Minute, "image", "ls", "-q", "hello-world"); err != nil || img != "" {
+		t.Errorf("the new engine can see the other engine's image: %v %q", err, img)
+	}
+
+	// And the suite's own engine is untouched by all of it.
+	if v, err := dockerE(t, s, 30*time.Second, "version", "--format", "{{.Server.Version}}"); err != nil || v == "" {
+		t.Errorf("the suite's engine stopped answering: %v %s", err, v)
+	}
+
+	out, err = run(t, 5*time.Minute, s.skrog, "target", "--state-dir", s.stateDir, "--yes", "remove", targetName)
+	must(t, out, err, "skrog target remove")
+
+	// Nothing left behind: no distro, no context, no directory, no listing.
+	list2, _ := run(t, 30*time.Second, "wsl.exe", "--list", "--quiet")
+	if strings.Contains(strings.ReplaceAll(list2, "\x00", ""), "skrog-"+targetName) {
+		t.Errorf("distro skrog-%s still registered after remove:\n%s", targetName, list2)
+	}
+	if ctxs, _ := runEnv(t, os.Environ(), 30*time.Second, s.docker, "context", "ls", "--format", "{{.Name}}"); strings.Contains(ctxs, ctxName) {
+		t.Errorf("docker context %s survived remove:\n%s", ctxName, ctxs)
+	}
+	if _, err := os.Stat(filepath.Join(s.stateDir, "engines", targetName)); err == nil {
+		t.Errorf("engine directory survived remove")
+	}
 }

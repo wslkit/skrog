@@ -15,10 +15,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"fyne.io/systray"
 	"github.com/wslkit/skrog/internal/selfexe"
+	tgt "github.com/wslkit/skrog/internal/target"
 	"github.com/wslkit/skrog/internal/tray"
 )
 
@@ -40,6 +42,19 @@ func skrogExe() string {
 
 func onReady() {
 	cli := tray.CLI{Exe: skrogExe()}
+
+	// The engine the dot describes (#539): the one docker is on. Menu clicks act
+	// on it, so they read it from here rather than assuming the default.
+	var (
+		shownMu       sync.Mutex
+		shownStateDir string
+		shownTarget   string
+	)
+	shown := func() (string, string) {
+		shownMu.Lock()
+		defer shownMu.Unlock()
+		return shownStateDir, shownTarget
+	}
 
 	systray.SetTitle("Skrog")
 	systray.SetIcon(iconGrey)
@@ -67,13 +82,15 @@ func onReady() {
 	for i, item := range lifecycle {
 		go func(item *systray.MenuItem, a tray.Action) {
 			for range item.ClickedCh {
-				go cli.Run(context.Background(), a)
+				dir, _ := shown()
+				go cli.RunOn(context.Background(), a, dir)
 			}
 		}(item, tray.Actions[i])
 	}
 	go func() {
 		for range openLogs.ClickedCh {
-			go openLog(cli)
+			dir, _ := shown()
+			go openLog(cli, dir)
 		}
 	}()
 	go func() {
@@ -117,12 +134,16 @@ func onReady() {
 			if st.StateDir != "" {
 				stateDir = st.StateDir
 			}
+			shownMu.Lock()
+			shownStateDir, shownTarget = st.StateDir, st.Target
+			shownMu.Unlock()
 			return st.State()
 		}
 
 		paint := func(s tray.State) {
 			header.SetTitle("Engine: " + label(s))
-			systray.SetTooltip(tray.Tooltip(s))
+			_, target := shown()
+			systray.SetTooltip(tray.TooltipFor(s, target))
 			systray.SetIcon(iconFor(s))
 		}
 		paint(fallback())
@@ -130,6 +151,15 @@ func onReady() {
 		t := time.NewTicker(paintInterval)
 		defer t.Stop()
 		for range t.C {
+			// With named engines the dot follows whichever one docker is on, and
+			// that changes without the tray being told (`skrog use`, an editor
+			// switching context). The published reading belongs to one engine, so
+			// ask the CLI which is current now and then. A machine with no named
+			// engines never pays for this: there is nothing to switch between.
+			if hasNamedEngines(stateDir) && time.Since(lastFallback) >= fallbackInterval {
+				paint(fallback())
+				continue
+			}
 			if s, ok := tray.PollPublished(stateDir); ok {
 				paint(s)
 				continue
@@ -141,6 +171,16 @@ func onReady() {
 			}
 		}
 	}()
+}
+
+// hasNamedEngines reports whether the install the state dir belongs to has any
+// named engine, which is the only time the dot can change engine under us.
+func hasNamedEngines(stateDir string) bool {
+	if stateDir == "" {
+		return false
+	}
+	names, _ := tgt.List(tgt.BaseOf(stateDir))
+	return len(names) > 0
 }
 
 func iconFor(s tray.State) []byte {
@@ -169,8 +209,13 @@ func label(s tray.State) string {
 	}
 }
 
-func openLog(cli tray.CLI) {
-	// The supervisor writes supervisor.log under the default state dir.
+func openLog(cli tray.CLI, stateDir string) {
+	// The supervisor writes supervisor.log into its own state dir: the shown
+	// engine's, which is the default one unless docker is on a named engine.
+	if stateDir != "" {
+		browse(filepath.Join(stateDir, "supervisor.log"))
+		return
+	}
 	base := os.Getenv("LOCALAPPDATA")
 	if base == "" {
 		return

@@ -1,6 +1,9 @@
 package doctor
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestCheckDisk(t *testing.T) {
 	c := checkDisk()
@@ -34,5 +37,30 @@ func TestHumanBytes(t *testing.T) {
 		if got := humanBytes(in); got != want {
 			t.Errorf("humanBytes(%d) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+// With several local engines the floor is judged against the fullest volume any
+// of them lives on (#539): the engine being examined has room, another engine
+// is on a nearly full drive, and the answer is still a warning that names it.
+func TestCheckDiskJudgesEveryEnginesVolume(t *testing.T) {
+	c := checkDisk()
+	roomy := DiskInfo{Path: `C:\a\distro`, FreeBytes: 50 << 30, TotalBytes: 100 << 30}
+	tight := DiskInfo{Path: `D:\b\distro`, FreeBytes: 3 << 30, TotalBytes: 100 << 30}
+
+	r := c.Run(Facts{Disk: roomy, OtherEngines: []EngineDisk{{Name: "proj-a", UsedBytes: 8 << 30, Disk: tight}}})
+	if r.Status != Warn {
+		t.Fatalf("status = %v, want Warn: another engine's drive is below the floor", r.Status)
+	}
+	if !strings.Contains(strings.Join(r.Detail, "\n"), "proj-a") || !strings.Contains(r.Remedy, "skrog target remove") {
+		t.Errorf("the warning must name the engine and the way out:\n%v\n%s", r.Detail, r.Remedy)
+	}
+
+	// Plenty everywhere is still fine, and a machine with one engine reads as before.
+	if got := c.Run(Facts{Disk: roomy, OtherEngines: []EngineDisk{{Name: "x", Disk: roomy}}}).Status; got != OK {
+		t.Errorf("roomy engines: status = %v, want OK", got)
+	}
+	if r := c.Run(Facts{Disk: roomy}); r.Status != OK || len(r.Detail) != 0 {
+		t.Errorf("a single engine's report changed: %v %v", r.Status, r.Detail)
 	}
 }

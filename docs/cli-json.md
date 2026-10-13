@@ -47,6 +47,10 @@ Shapes are pinned by `cmd/skrog/jsonshapes_test.go`.
   it from broken.
 - `desired`: `running` | `stopped` (what `skrog start`/`stop` last asked for).
 - `profile`: omitted when no profile is active.
+- `target`: the named engine this status describes ([targets.md](targets.md)); omitted
+  for the default shared engine. Without `--state-dir`, status describes the engine
+  docker is on now, so a consumer that follows the docker context reads the engine it is
+  talking to.
 - `gpu`: `visible` and `specInstalled` are **only probed while the engine is
   running and `enabled` is true** — status never boots a stopped distro (#82).
   `probed: false` means they are not authoritative.
@@ -219,6 +223,43 @@ from the request line only, never the body.
 
 The resulting install manifest: `{ "distro", "dataDir", "rootfsUrl",
 "rootfsSha256", "engineVersion", "installedAt", "wslVersion" }`.
+
+## `skrog target … --json`
+
+- `target --json` (list) →
+
+  ```json
+  {
+    "current": "proj-a",
+    "targets": [
+      { "name": "local", "kind": "local", "current": false, "state": "running",
+        "context": "skrog", "distro": "skrog-engine", "stateDir": "C:\\...\\Skrog",
+        "engineVersion": "29.9.0", "diskBytes": 1395864371 },
+      { "name": "proj-a", "kind": "engine", "current": true, "state": "running",
+        "context": "skrog-proj-a", "distro": "skrog-proj-a",
+        "stateDir": "C:\\...\\Skrog\\engines\\proj-a", "pipe": "\\\\.\\pipe\\skrog-proj-a",
+        "engineVersion": "29.9.0", "diskBytes": 641728512, "autostart": false },
+      { "name": "desk", "kind": "remote", "current": false, "context": "skrog-desk",
+        "host": "tcp://desk.corp:2376" }
+    ],
+    "totalDiskBytes": 2037592883
+  }
+  ```
+
+  `current` is `"local"` when docker is on the `skrog` context, a named engine's or
+  remote's name when on `skrog-<name>`, and `""` when docker is on some other context
+  entirely. `kind` is `local` (the default shared engine, always listed), `engine` or
+  `remote`. `state` is `running` | `stopped` | `incomplete` (no install recorded, or
+  its distro is gone) | `not-installed`, and is absent for a remote. `diskBytes`,
+  `engineVersion`, `distro`, `stateDir` and `pipe` are absent for a remote;
+  `autostart` is present for named engines only. `targets` is always an array, and
+  `totalDiskBytes` is what the local engines hold together.
+- `target create <name> --json` → `{ "name", "stateDir", "distro", "pipe",
+  "context", "engineVersion", "dockerContext" }`. `dockerContext` is `false` on a
+  machine with no docker CLI to hold the context. Exits `2` for a bad or reserved
+  name, `1` when the name is taken (by an engine or a remote).
+- `target remove`, `use` and `autostart --engine` have no JSON; they exit `0` on
+  success and `3` when there is no such target.
 
 ## `skrog remote … --json`
 

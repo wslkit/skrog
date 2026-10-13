@@ -14,6 +14,7 @@ import (
 
 	"github.com/wslkit/skrog/internal/config"
 	"github.com/wslkit/skrog/internal/engineconfig"
+	"github.com/wslkit/skrog/internal/target"
 	"gopkg.in/yaml.v3"
 )
 
@@ -24,6 +25,11 @@ import (
 // JSON tags mirror the YAML keys, so `profile show --json` and `config export
 // --json` emit the same document a skrog.yaml holds (#137).
 type File struct {
+	// Target names the local engine this workspace uses (#539): `skrog install
+	// --config` creates it when missing, converges its settings, and points
+	// docker at it. Absent means the default shared engine. It is `target`, not
+	// `engine`, because `engine:` below already holds daemon.json settings.
+	Target string `yaml:"target,omitempty" json:"target,omitempty"`
 	// Distro is the WSL distro name (install --distro).
 	Distro string `yaml:"distro,omitempty" json:"distro,omitempty"`
 	// DataDir is where the distro's VHDX lives (install --data-dir).
@@ -77,6 +83,15 @@ func Parse(b []byte) (File, error) {
 // hooks.<event> must name real settings, so a misspelled key is rejected at load
 // rather than silently dropped at apply.
 func (f File) Validate() error {
+	if f.Target != "" {
+		if err := target.ValidName(f.Target); err != nil {
+			return fmt.Errorf("target: %w", err)
+		}
+		if f.Distro != "" || f.DataDir != "" {
+			return fmt.Errorf("target: a named engine's distro and data dir are derived from its name; " +
+				"remove distro: and data-dir: from a file that sets target:")
+		}
+	}
 	engineKeys := toSet(engineconfig.Keys())
 	for k := range f.Engine {
 		if !engineKeys[k] {

@@ -12,8 +12,8 @@ import (
 	"time"
 
 	"github.com/wslkit/skrog/internal/dockerctx"
-	"github.com/wslkit/skrog/internal/provision"
 	"github.com/wslkit/skrog/internal/remote"
+	tgt "github.com/wslkit/skrog/internal/target"
 )
 
 // runRemote is `skrog remote`: the client side of `skrog serve` (#138).
@@ -50,8 +50,8 @@ flags:
 		return exitUsage
 	}
 
-	opts := optsWithResolvedStateDir(provision.Options{StateDir: *stateDir})
-	rm := &remote.Manager{StateDir: opts.StateDir}
+	base := targetBase(*stateDir)
+	rm := &remote.Manager{StateDir: base}
 	dc := &dockerctx.Manager{}
 	ctx := context.Background()
 	rest := fs.Args()
@@ -60,9 +60,9 @@ flags:
 	case len(rest) == 0 || (rest[0] == "list" && len(rest) == 1):
 		return remoteList(ctx, rm, dc, *asJSON)
 	case rest[0] == "add" && len(rest) == 2:
-		return remoteAdd(ctx, rm, dc, rest[1], *host, *certs)
+		return remoteAdd(ctx, rm, dc, base, rest[1], *host, *certs)
 	case rest[0] == "use" && len(rest) == 2:
-		return remoteUse(ctx, rm, dc, rest[1])
+		return useTarget(ctx, base, rest[1])
 	case rest[0] == "test" && len(rest) == 2:
 		return remoteTest(ctx, rm, rest[1], *asJSON)
 	case rest[0] == "remove" && len(rest) == 2:
@@ -73,7 +73,11 @@ flags:
 	}
 }
 
-func remoteAdd(ctx context.Context, rm *remote.Manager, dc *dockerctx.Manager, name, host, certs string) int {
+func remoteAdd(ctx context.Context, rm *remote.Manager, dc *dockerctx.Manager, base, name, host, certs string) int {
+	if tgt.ValidName(name) == nil && tgt.Exists(base, name) {
+		fmt.Fprintf(os.Stderr, "skrog: %q is already a local engine; targets share one namespace, pick another name\n", name)
+		return exitError
+	}
 	if host == "" || certs == "" {
 		fmt.Fprintln(os.Stderr, "skrog: remote add needs --host tcp://<host>:<port> and --certs <dir>")
 		return exitUsage

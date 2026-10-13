@@ -16,6 +16,7 @@ import (
 	"github.com/wslkit/skrog/internal/provision"
 	"github.com/wslkit/skrog/internal/release"
 	"github.com/wslkit/skrog/internal/skrogfile"
+	tgt "github.com/wslkit/skrog/internal/target"
 	"github.com/wslkit/skrog/internal/wsl"
 )
 
@@ -144,6 +145,20 @@ func applySkrogFile(ctx context.Context, f skrogfile.File, opts provision.Option
 			}
 			log.Info("wired integration", "distro", d)
 		}
+	}
+
+	// A named engine (#539) is never autostarted by default: it starts when
+	// you `skrog use` it and stops when idle, so ten engines do not become ten
+	// logon entries. Only an explicit autostart: true gives it one, and the
+	// default engine's entry is not this file's to touch.
+	if name, ok := tgt.NameOf(sd); ok {
+		if f.Autostart == nil {
+			return nil
+		}
+		if err := applyEngineAutostart(name, sd, *f.Autostart && !noAutostart); err != nil {
+			log.Warn("autostart not applied", "reason", err)
+		}
+		return nil
 	}
 
 	// Autostart: enabled by default (matching plain install), overridden by the

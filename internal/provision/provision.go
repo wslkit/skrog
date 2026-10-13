@@ -70,6 +70,13 @@ type Options struct {
 	// StateDir holds the manifest and the rootfs cache.
 	// Defaults to %LOCALAPPDATA%\Skrog.
 	StateDir string
+	// CacheDir is where the verified rootfs download is kept, shared by every
+	// engine of one machine (#539): a second engine imports the tarball the
+	// first one already fetched and checked, instead of downloading 200 MB
+	// again. Empty means StateDir, which is the layout every existing install
+	// has. The checksum is verified on every use, so a shared cache is only
+	// ever a place bytes are kept, never a thing trusted.
+	CacheDir string
 	// DataDir is where the distro's VHDX lives. Defaults to StateDir\distro.
 	// Exposed because "move it off C:" is a perennial request (PLAN §03).
 	DataDir string
@@ -278,7 +285,7 @@ func (p *Provisioner) Install(ctx context.Context, opts Options) (*Manifest, err
 		return nil, &PreflightError{Report: report}
 	}
 
-	rootfs := filepath.Join(opts.StateDir, "rootfs", filepath.Base(opts.RootfsURL))
+	rootfs := filepath.Join(opts.rootfsCacheDir(), filepath.Base(opts.RootfsURL))
 	if err := p.fetchRootfs(ctx, opts.RootfsURL, opts.RootfsSHA256, rootfs); err != nil {
 		return nil, err
 	}
@@ -1211,7 +1218,7 @@ func (p *Provisioner) verifyRootfsSignature(ctx context.Context, opts Options, t
 	v := &rootfsverify.Verifier{
 		Fetch:   p.fetcher(),
 		Repo:    signingRepo,
-		TempDir: filepath.Join(opts.StateDir, "rootfs"),
+		TempDir: opts.rootfsCacheDir(),
 	}
 	res, err := v.Verify(ctx, opts.RootfsURL, tarball)
 	switch {
@@ -1310,4 +1317,13 @@ func (p *Provisioner) DistroAddress(ctx context.Context, opts Options) (string, 
 		return "", errors.New("the engine distro reported no IPv4 address on eth0")
 	}
 	return addr, nil
+}
+
+// rootfsCacheDir is the directory the rootfs download is cached in.
+func (o Options) rootfsCacheDir() string {
+	base := o.CacheDir
+	if base == "" {
+		base = o.StateDir
+	}
+	return filepath.Join(base, "rootfs")
 }

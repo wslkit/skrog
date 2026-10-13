@@ -41,7 +41,9 @@ $script:SkrogCommands = @(
     'stop'
     'supervise'
     'top'
+    'target'
     'uninstall'
+    'use'
     'upgrade'
     'wsl-integrate'
     'wsl-config'
@@ -61,6 +63,7 @@ $script:SkrogSubcommands = @{
     'runner' = @('check')
     'serve' = @('cert')
     'snapshot' = @('list', 'save', 'restore', 'delete')
+    'target' = @('list', 'create', 'remove')
     'wsl-config' = @('show', 'apply')
 }
 
@@ -93,7 +96,9 @@ $script:SkrogFlags = @{
     'stop' = @('--state-dir', '--supervisor', '--timeout')
     'supervise' = @('--distro', '--no-context', '--pipe', '--state-dir')
     'top' = @('--interval', '--json', '--no-stream', '--once', '--state-dir', '--stream')
+    'target' = @('--autostart', '--engine-version', '--headless', '--json', '--locked', '--offline', '--rootfs-sha256', '--rootfs-url', '--state-dir', '--yes')
     'uninstall' = @('--distro', '--state-dir', '--yes')
+    'use' = @('--state-dir')
     'upgrade' = @('--apply', '--check', '--dry-run', '--force', '--json', '--offline', '--state-dir', '--timeout', '--yes')
     'wsl-integrate' = @('--remove', '--state-dir')
     'version' = @('--json', '--state-dir')

@@ -124,7 +124,7 @@ so they live under `+"`skrog wsl-config --help`"+` with the diff and the caveats
 		return exitUsage
 	}
 
-	opts := optsWithResolvedStateDir(provision.Options{StateDir: *stateDir})
+	opts := optsWithResolvedStateDir(provision.Options{StateDir: scopedStateDir(*stateDir)})
 	rest := fs.Args()
 
 	switch {

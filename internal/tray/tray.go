@@ -36,6 +36,10 @@ type Status struct {
 	// StateDir is where the supervisor publishes its stats. Learning it once
 	// is what lets the tray stop shelling out for every refresh (#192).
 	StateDir string `json:"stateDir"`
+	// Target is the named engine the dot describes (#539); empty for the default
+	// shared engine. The dot follows the engine docker is on, so the tooltip
+	// has to say which one that is.
+	Target string `json:"target"`
 }
 
 // State collapses a Status into the dot's State.
@@ -69,6 +73,28 @@ func Tooltip(st State) string {
 	default:
 		return "Skrog — engine state unknown"
 	}
+}
+
+// TooltipFor is Tooltip naming the engine when it is a named one, so with
+// several engines the dot never leaves you guessing which it describes.
+func TooltipFor(st State, target string) string {
+	t := Tooltip(st)
+	if target == "" {
+		return t
+	}
+	return t + " (" + target + ")"
+}
+
+// ActionArgs are the CLI arguments for an action aimed at the engine whose
+// state dir is stateDir. The lifecycle verbs act on the default engine when not
+// told otherwise, and the dot may be describing a named one: a menu that shows
+// engine B's state and acts on engine A would be the worst kind of wrong.
+func ActionArgs(a Action, stateDir string) []string {
+	args := append([]string(nil), a.Args...)
+	if stateDir != "" {
+		args = append(args, "--state-dir", stateDir)
+	}
+	return args
 }
 
 // Healthy reports whether the state should read as green: running or idle are
@@ -121,9 +147,14 @@ var Actions = []Action{
 // Run executes an action through the CLI and returns its combined output. The
 // tray shows failures as a notification rather than swallowing them.
 func (c CLI) Run(ctx context.Context, a Action) (string, error) {
+	return c.RunOn(ctx, a, "")
+}
+
+// RunOn is Run against a specific engine's state dir; empty is the default.
+func (c CLI) RunOn(ctx context.Context, a Action, stateDir string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Minute)
 	defer cancel()
-	out, err := hideWindow(exec.CommandContext(ctx, c.Exe, a.Args...)).CombinedOutput()
+	out, err := hideWindow(exec.CommandContext(ctx, c.Exe, ActionArgs(a, stateDir)...)).CombinedOutput()
 	return strings.TrimSpace(string(out)), err
 }
 

@@ -1,13 +1,15 @@
 # Design: per-workspace engines
 
-Status: **approved, not scheduled**. The shape and trade-offs for
-[#140](https://github.com/wslkit/skrog/issues/140); every open question is
-settled below.
+Status: **implemented** ([#539](https://github.com/wslkit/skrog/issues/539)),
+following the design settled for
+[#140](https://github.com/wslkit/skrog/issues/140). The user guide is
+[docs/targets.md](../targets.md); this page keeps the reasoning, and the
+[implementation notes](#implementation-notes) at the end record where the
+shipped version differs from the draft.
 
 The `target` namespace below is **approved and binding** — settled early
 because a rename is cheap before `engine` and `target` appear in anyone's
-scripts and expensive after. The implementation is deliberately deferred; see
-Sequencing.
+scripts and expensive after.
 
 ## The capability
 
@@ -118,9 +120,11 @@ are thin: the work is in `provision`, which already takes these as options.
 `skrog.yaml` (declarative install, #69) gains one key:
 
 ```yaml
-engine: proj-a          # this workspace uses the engine named proj-a
+target: proj-a          # this workspace uses the engine named proj-a
 engine-version: 29.7.2  # …pinned, as today
 ```
+
+(Drafted as `engine:`; shipped as `target:`, see the implementation notes.)
 
 `skrog install --config skrog.yaml` in that directory creates the engine if
 missing and switches to it; the VS Code extension (skrog-vscode #8) reads the
@@ -209,10 +213,11 @@ rather than one. A cap would be an arbitrary number a fleet eventually needs
 to exceed; sprawl you can see is a problem you can act on. Both conditions are
 in the phasing below.
 
-## Sequencing: why this is designed, not built
+## Sequencing: why it waited
 
-The design is ready. Building it should wait, for two reasons that are about
-the rest of the project rather than this feature.
+*Historical: this is the reasoning that held the build back until #539.* The
+design was ready, and building it was held for two reasons that were about the
+rest of the project rather than this feature.
 
 **The CLI surface is not settled yet.** This adds a second top-level noun
 (`target`, plus `use`). The naming collisions found in a single day of work —
@@ -247,3 +252,51 @@ clears, is `target list` on its own: read-only, showing remotes, local engines
 and `local` with disk and the current target marked. It makes Decision 2
 visible, breaks nothing, and would show whether the `target` vocabulary reads
 well before anything depends on it.
+
+## Implementation notes
+
+What shipped in [#539](https://github.com/wslkit/skrog/issues/539), and the few
+places it differs from the draft above.
+
+- **The workspace key is `target:`, not `engine:`.** `skrog.yaml` already uses
+  `engine:` for a map of `daemon.json` settings, so `engine: proj-a` would have
+  been a string and a map under one key. `target:` is also the noun the CLI settled
+  on. `distro:` and `data-dir:` are rejected beside it, since an engine's locations
+  derive from its name.
+- **Names are lowercase only**: letters, digits, `-` and `_`, 1 to 32 characters,
+  starting and ending with a letter or digit. The name is a
+  directory, a distro, a docker context and a pipe, and Windows is case-insensitive
+  for three of those. `local` and `engine` are reserved (`skrog-engine` is the
+  default engine's distro).
+- **The supervisor derives its pipe and context from its state dir**
+  (`<base>\engines\<name>` means pipe `\.\pipe\skrog-<name>` and context
+  `skrog-<name>`, via `internal/target`), rather than being told. `skrog start`, the
+  logon entry and the watchdog's restart all launch it with only `--state-dir`, so
+  nothing else has to carry the pipe and nothing can disagree after a crash. An
+  explicit `--pipe` still wins. A named engine's supervisor never touches the shared
+  `skrog` context (#217).
+- **"Current target" is the docker context**, per "contexts are the contract".
+  `engine`, `config` and `status` resolve a missing `--state-dir` to the current
+  target; the lookup is skipped entirely on a machine with no named engines, so the
+  common case pays nothing. The design scoped only `engine` and `config`; `status` was
+  added because the tray reads it to learn which engine the dot describes.
+- **The rootfs download cache is shared** (`provision.Options.CacheDir`), which the
+  design listed as the one thing engines share. `engine upgrade` still caches under the
+  engine's own directory.
+- **Created stopped.** `target create` stops the engine it just installed: with no
+  supervisor yet, nothing would ever idle-stop it. `skrog use` starts it.
+- **Per-engine logon entries** are separate Run-key values (`Skrog-<name>`, opt-in), so
+  the default engine's single `Skrog` entry keeps its meaning.
+- **Disk accounting** is `target list`'s per-engine and total columns and doctor's
+  free-space check across every engine's volume, as the design required in place of a
+  cap.
+- **Known limit, not fixed:** emulation (`binfmt_misc`) is kernel state shared by every
+  WSL2 distro, and stopping or removing any engine deregisters the handlers for all of
+  them. With several engines running at once, an idle-stop of one can take foreign
+  architecture support away from another until an engine next starts.
+
+### Sequencing
+
+The draft held this back until the CLI vocabulary settled (#77 package IDs, #1 the
+product name). It was built with the `target` namespace as approved; those two remain
+open and do not touch it.

@@ -13,6 +13,11 @@ skrog engine rollback             # back to the engine installed before the last
 Every step is checksum-mandatory and reversible, and none of it touches your
 data.
 
+With [named engines](targets.md), `skrog engine` acts on the **current target**, the engine
+docker is on: `skrog use proj-a` then `skrog engine upgrade --to 29.8.0` upgrades `proj-a`
+and leaves the others alone. Pass `--state-dir` to act on a specific engine. This is how
+two projects run two dockerd versions at once.
+
 ## What an upgrade actually does
 
 It replaces the **engine binaries** — `dockerd`, `containerd`,
@@ -142,6 +147,7 @@ would move the engine from 29.8.1-3 to 29.8.0-2:
 
 ## See also
 
+- [targets.md](targets.md) — a dockerd version per project, with one engine each
 - [snapshots.md](snapshots.md) — engine *state* save/restore, which is a
   different axis from the engine *version*
 - [housekeeping.md](housekeeping.md) — `skrog prune` and `skrog compact`

@@ -198,6 +198,14 @@ docker context. Nothing else on the system is touched.
   teammate or CI runner, reachable only by holders of a client cert this machine's CA
   signed — off by default; on the client, `skrog remote add/use` makes it docker's default
   in one command ([docs/remote-engine.md](docs/remote-engine.md))
+- **An engine per project**: `skrog target create proj-a` makes a second, fully isolated
+  engine — its own distro, disk, supervisor, pipe, docker context, images and volumes —
+  and `skrog use proj-a` points docker, and anything following the context, at it. A
+  poisoned image in one cannot be run from another, and each can pin its own dockerd
+  version. Created stopped, started on demand, idle-stopped like any engine, so the cost
+  is disk rather than memory, and `skrog target list` shows it per engine and in total.
+  `target: proj-a` in a `skrog.yaml` selects it per workspace. Docker Desktop is one
+  global engine ([docs/targets.md](docs/targets.md))
 - **`skrog status --stats`**: container/image/volume counts and reclaimable space, the
   VHDX footprint, VM memory and CPUs (configured versus actual), engine and supervisor
   uptime with idle-stop history, and bridge counters including **which transport is live**
@@ -327,6 +335,13 @@ it: Compose, Testcontainers, Dev Containers, buildx, `act`, `gitlab-ci-local`, D
 Skrog serves that endpoint — the real `docker` API on `\\.\pipe\docker_engine` — which is
 why that list works here without any of those tools knowing Skrog exists.
 
+**Per-project engines** are something Docker Desktop structurally cannot do: it is one
+global engine, with one pool of images and containers for every project. Rancher Desktop
+runs one engine as well. `skrog target create` makes an isolated engine per project, and
+`skrog use` moves docker between them; [docs/targets.md](docs/targets.md) says what that
+costs. Podman can create several machines of its own, and this comparison has not tried
+to weigh that against it.
+
 **What none of them do** is let you pin the engine. `skrog lock` writes the exact dockerd,
 containerd, runc and BuildKit commits; `setup-skrog` installs that same file on the runner.
 Docker Desktop ships whatever version it ships, and updates it on its own schedule.
@@ -408,6 +423,7 @@ page is reachable from here.
 [CI runners](docs/ci-runners.md) ·
 [Unattended / auto-logon runners](docs/auto-logon-runner.md) ·
 [Declarative install](docs/declarative-install.md) ·
+[Per-workspace engines](docs/targets.md) ·
 [Profiles](docs/profiles.md) ·
 [Remote engine over mTLS](docs/remote-engine.md) ·
 [Local CI](docs/local-ci.md) ·
@@ -426,7 +442,7 @@ page is reachable from here.
 [Releasing](RELEASING.md) ·
 [Bumping the engine and docker CLI](docs/bumping-upstream.md) ·
 [Design notes](docs/design/) ·
-[Per-workspace engines](docs/design/per-workspace-engine.md)
+[Design: per-workspace engines](docs/design/per-workspace-engine.md)
 
 Editing the docs edits the site: `pwsh -File scripts/build-docs.ps1 -Serve`
 previews it locally, and merging to `main` publishes it. Nothing in `site/` is

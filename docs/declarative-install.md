@@ -35,6 +35,9 @@ Every field maps to an existing flag or config key; nothing new is invented, and
 unknown fields fail loudly rather than being silently ignored.
 
 ```yaml
+# Which engine (omit for the default shared engine; see targets.md):
+target: proj-a                 # a named engine, created if missing and selected
+
 # Install-time (used only on a fresh install):
 distro: skrog-engine          # --distro
 data-dir: D:\skrog            # --data-dir
@@ -58,6 +61,25 @@ integrations:                  # distros to wsl-integrate
 
 All fields are optional: an absent field is left at its default or untouched, so
 a partial file is valid.
+
+### `target:`, a named engine per workspace
+
+With `target: <name>`, the file describes **that engine** rather than the default one
+([targets.md](targets.md)). `skrog install --config` creates the engine if it does not
+exist, converges every setting below onto it (its own `idle-timeout`, `engine.*` keys,
+hooks, integrations), and switches docker to it. Re-running converges.
+
+- `engine-version:` pins the engine's dockerd when it is created; an existing engine is
+  not re-created.
+- `distro:` and `data-dir:` are rejected beside `target:`: a named engine's locations
+  come from its name.
+- `--distro`, `--data-dir` and `--state-dir` do not apply to such a file, for the same
+  reason.
+- `autostart:` is not defaulted on for a named engine, as it is for the default one: an
+  engine starts at logon only with an explicit `autostart: true`, and `--no-autostart`
+  still wins.
+- The key is `target:` and not `engine:` because `engine:` already holds `daemon.json`
+  settings.
 
 ## CI / fleet example
 

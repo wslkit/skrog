@@ -12,6 +12,57 @@ useful than saying where the real one is.
 
 ## [Unreleased]
 
+### Added
+
+- **An engine per project** ([#539](https://github.com/wslkit/skrog/issues/539)).
+  `skrog target create <name>` installs a second, fully independent engine: its own WSL
+  distro and virtual disk, supervisor, pipe (`\\.\pipe\skrog-<name>`), docker context
+  (`skrog-<name>`), images, containers, volumes, settings and snapshots. A poisoned
+  image in one cannot be run from another, and each can pin its own dockerd version.
+  `skrog use <name>|local` switches docker (and everything that follows the docker
+  context) between the shared engine, a named engine and a remote; `skrog target list`
+  shows all three with state, dockerd version and disk, per engine and in total;
+  `skrog target remove` deletes one, and nothing else. An engine is created stopped,
+  started by `skrog use`, and idle-stopped like any other, so the cost is disk rather
+  than memory. `skrog remote use` still works and is the same command. Names are
+  lowercase letters, digits, `-` and `_`; `local` and `engine` are reserved, and a name
+  cannot be both an engine and a remote. See [docs/targets.md](docs/targets.md).
+- **`target:` in `skrog.yaml`.** `skrog install --config` creates the named engine when
+  it is missing, converges the file's settings onto it, and selects it. It is `target:`
+  rather than the `engine:` the design drafted, because `engine:` already holds
+  `daemon.json` settings.
+- **`skrog autostart --engine <name>`** (and `skrog target create --autostart`) gives one
+  named engine its own logon entry, a separate Run-key value, leaving the default
+  engine's alone. Named engines do not start at logon unless asked.
+- **`skrog engine`, `skrog config` and `skrog status` act on the current target** when
+  `--state-dir` is not given, so `skrog engine upgrade` changes the engine docker is
+  talking to. Nothing changes, and nothing extra is run, on a machine with no named
+  engines. `skrog status --json` gains `target`, additively.
+- **The tray follows the current target.** The dot describes the engine docker is on, the
+  tooltip names it when it is a named engine, and Start, Stop, Restart and Open logs act
+  on it. The menu is still the same seven items.
+- **`skrog doctor` judges the disk floor against every engine.** The free-space check
+  uses the fullest volume any engine lives on, lists what each holds, and names
+  `skrog target remove` as the way out.
+
+### Known limits
+
+- Emulation (`emulation.platforms`) registers `binfmt_misc` handlers, which are kernel
+  state shared by every WSL2 distro. Stopping or removing any engine deregisters them
+  for all, so with several engines running an idle-stop of one can take foreign
+  architecture support away from another until an engine next starts.
+
+### Changed
+
+- `skrog uninstall` also removes the named engines under the same state directory, and its
+  prompt lists them; running it against a named engine's own state directory is refused in
+  favour of `skrog target remove`.
+- The install flags that choose which engine to install and from where (`--locked`,
+  `--offline`, `--rootfs-url`, `--engine-version`) are now one shared code path used by
+  `skrog install` and `skrog target create`. Behaviour is unchanged.
+- The verified rootfs download is cached in the base state directory when installing a
+  named engine, so a second engine does not download it again.
+
 ## [0.10.0] — 2026-10-12
 
 The engine moves to 29.9.0, built with the Go release that fixes five
