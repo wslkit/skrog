@@ -12,8 +12,8 @@
 <p align="center">
   <a href="https://wslkit.github.io/skrog/"><img alt="Docs" src="https://img.shields.io/badge/docs-wslkit.github.io%2Fskrog-0a7d84"></a>
   <a href="https://github.com/wslkit/skrog/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/wslkit/skrog/actions/workflows/ci.yml/badge.svg?branch=main"></a>
-  <a href="https://github.com/wslkit/skrog/releases"><img alt="Latest release" src="https://img.shields.io/github/v/release/wslkit/skrog?include_prereleases&sort=semver&label=release&color=0a7d84"></a>
-  <a href="LICENSE"><img alt="License: Apache-2.0" src="https://img.shields.io/github/license/wslkit/skrog?color=2F3B45"></a>
+  <a href="https://github.com/wslkit/skrog/releases"><img alt="Latest release" src="https://img.shields.io/github/v/release/wslkit/skrog?filter=v*&sort=semver&label=release&color=0a7d84"></a>
+  <a href="LICENSE"><img alt="License: Apache-2.0" src="https://img.shields.io/badge/license-Apache--2.0-2F3B45"></a>
   <img alt="Go" src="https://img.shields.io/github/go-mod/go-version/wslkit/skrog?color=00ADD8">
   <img alt="Platform: Windows 10/11 + WSL2" src="https://img.shields.io/badge/platform-Windows%2010%2F11%20%2B%20WSL2-2F3B45">
 </p>
