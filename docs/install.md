@@ -83,6 +83,22 @@ counts pre-releases too, so it can tell you a preview exists on a machine this
 script put on the stable build — first contact should be stable, an explicit
 "what is new?" should be complete.
 
+### Or with winget
+
+```powershell
+winget install wslkit.skrog
+```
+
+It installs per-user with no elevation, and puts a `skrog` alias in
+`%LOCALAPPDATA%\Microsoft\WinGet\Links`. Open a new shell afterwards — winget
+adds that folder to PATH, and a shell that was already open does not see it.
+Then `winget upgrade wslkit.skrog` keeps it current.
+
+A new release reaches winget only after its manifest passes review in
+[microsoft/winget-pkgs](https://github.com/microsoft/winget-pkgs), so winget
+can trail the [latest release](https://github.com/wslkit/skrog/releases) by
+days. `winget show wslkit.skrog` says which version it has.
+
 ### Or with scoop
 
 ```powershell
@@ -90,13 +106,23 @@ scoop bucket add skrog https://github.com/wslkit/scoop-skrog
 scoop install skrog
 ```
 
-Then `scoop update skrog` keeps it current. Skrog notices it is managed —
-`skrog upgrade --apply` refuses inside a package-manager directory and tells
-you to use scoop instead, rather than fighting it for the same files.
+Then `scoop update skrog` keeps it current.
 
-A winget package is [#412](https://github.com/wslkit/skrog/issues/412). Neither
-is blocked on code signing, which this project believed for longer than it
-should have; only the MSI is.
+Skrog notices when winget or scoop manages it — `skrog upgrade --apply`
+refuses inside a package-manager directory and names the manager's own upgrade
+command, rather than fighting it for the same files. Neither package is
+blocked on code signing, which this project believed for longer than it should
+have; only the MSI is.
+
+### Pick one way to install
+
+A second install does not replace the first: you get two copies, and whichever
+folder comes first on your PATH wins. The install script and winget both append
+their folder to the user PATH, so the one you ran *first* keeps winning — run the install
+script and later `winget install`, and a plain `skrog` still runs the script's
+copy, at whatever version that was. Remove one —
+`winget uninstall wslkit.skrog`, or delete `%LOCALAPPDATA%\Programs\skrog` and
+its PATH entry — and check with `Get-Command skrog -All`.
 
 ### Or by hand
 
@@ -138,9 +164,10 @@ and `README.md`. Keep them together.
 > An **MSI** waits on the same answer, because an installer that asks for
 > elevation unsigned is a worse experience than a zip, not a better one. A
 > **winget** package does not — winget's `portable` type unpacks per-user and
-> needs no elevation or signature — and one is on the way; until it lands it is
-> download-and-unpack, which is exactly why the checksum step above is written
-> out in full rather than waved at.
+> needs no elevation or signature — and [it is published](#or-with-winget).
+> winget checks the zip against the hash in its manifest before unpacking; by
+> hand, that check is yours, which is why the step above is written out in full
+> rather than waved at.
 >
 > What every release *does* carry today is **SLSA build provenance** and a
 > **cosign-signed `SHA256SUMS`** — two things an Authenticode signature does not
@@ -269,7 +296,9 @@ never costs you a cold start.
 skrog upgrade --apply
 ```
 
-That replaces `skrog.exe` itself. The engine is a separate, pinned thing:
+That replaces `skrog.exe` itself — unless winget or scoop installed it, in
+which case `winget upgrade wslkit.skrog` or `scoop update skrog` does, and
+`--apply` refuses and says so. The engine is a separate, pinned thing:
 `skrog engine list`, `skrog engine upgrade`, `skrog engine rollback`. See
 [upgrading.md](upgrading.md) and [engine-upgrade.md](engine-upgrade.md).
 
@@ -281,7 +310,8 @@ skrog uninstall
 
 Removes the distro, the supervisor registration and the docker context. It asks
 before deleting engine data — images and volumes — because that is not
-recoverable. Then delete the folder from step 1.
+recoverable. Then remove `skrog.exe` the way it arrived: delete the folder from
+step 1, or `winget uninstall wslkit.skrog`, or `scoop uninstall skrog`.
 
 ## If something goes wrong
 

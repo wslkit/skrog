@@ -59,12 +59,21 @@ fetches the upstream tools — see [docs/docker-cli.md](docs/docker-cli.md).
 irm https://wslkit.github.io/skrog/install.ps1 | iex
 ```
 
+Or with winget:
+
+```powershell
+winget install wslkit.skrog
+```
+
 Or with [scoop](https://github.com/wslkit/scoop-skrog):
 
 ```powershell
 scoop bucket add skrog https://github.com/wslkit/scoop-skrog
 scoop install skrog
 ```
+
+Use one of the three, not several — see
+[pick one way to install](docs/install.md#pick-one-way-to-install).
 
 The one-liner downloads the newest release, **verifies it against the release's `SHA256SUMS`**,
 unpacks it to `%LOCALAPPDATA%\Programs\skrog` and adds it to your PATH. It stops there
@@ -89,8 +98,8 @@ Binaries are **not Authenticode-signed**, so SmartScreen warns on first run. The
 for projects with an established user base — and invited a reapplication as visibility
 grows; paying for a certificate is the other route and needs nobody's approval. Which
 one, and when, is [#358](https://github.com/wslkit/skrog/issues/358). An MSI waits on the
-same answer, since an unsigned installer asking for elevation is worse than a zip; a
-winget package does not, and one is on the way. The
+same answer, since an unsigned installer asking for elevation is worse than a zip; the
+winget package did not, and is published. The
 [code signing policy](docs/code-signing.md) says who could produce
 a signed binary and how. What every release **does** carry today is SLSA build
 provenance and a cosign-signed `SHA256SUMS` — two checks an Authenticode signature does
@@ -298,7 +307,7 @@ docker context. Nothing else on the system is touched.
 
 ## What's ahead
 
-A winget package, and signed installers beyond it — tracked in the
+Signed binaries, and an MSI once they are — tracked in the
 [issue tracker](https://github.com/wslkit/skrog/issues). Data-dir relocation
 shipped: see [`skrog relocate`](docs/housekeeping.md).
 
