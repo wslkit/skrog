@@ -62,6 +62,10 @@ useful than saying where the real one is.
   `skrog install` and `skrog target create`. Behaviour is unchanged.
 - The verified rootfs download is cached in the base state directory when installing a
   named engine, so a second engine does not download it again.
+- **The bundled docker CLI is 29.9.1**, from 29.8.2. amd64 is Docker's own zip, checksum
+  computed from the official download as before; the arm64 `docker.exe` is built from
+  docker/cli at commit `dfc520d`, pinned, with Go 1.26.9 to match the engine. Compose,
+  buildx and the credential helper are unchanged. The engine is still 29.9.0.
 
 ## [0.10.0] — 2026-10-12
 
