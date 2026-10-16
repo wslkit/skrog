@@ -71,6 +71,49 @@ and 155.
 | read 1000 files | 2.49 s | 1.52 s | 1.6× |
 | delete 1000 files | 1.52 s | 0.92 s | 1.7× |
 
+**These are the WSL 2.9.11 numbers, and the ratios are the page's claim.** WSL 3.0
+changed virtiofs internals, so none of them has been confirmed on a stable WSL yet.
+
+#### What exists for WSL 3.0.1 so far
+
+One side only. On WSL 3.0.1 (the first stable virtiofs), through a Skrog container's
+bind mount with virtiofs on, 3 rounds with the first write of each discarded
+([#523](https://github.com/wslkit/skrog/issues/523)):
+
+| virtiofs, WSL 3.0.1 | median (range) |
+|---|---|
+| write 256 MB (`conv=fsync`) | 841 MB/s (371–876) |
+| read 256 MB (warm) | 1.4 GB/s (0.63–1.5) |
+| create 1000 files | ~0.67–0.77 s |
+| `ls -l` 1000 files | ~0.35–0.67 s |
+| read 1000 files | ~1.2–1.7 s |
+| delete 1000 files | ~0.31–0.60 s |
+
+Against the 2.9.11 virtiofs column that is much higher writes and reads, faster create
+and delete, about the same read-1000, and an `ls -l` that is **not** faster (0.35–0.67 s
+against 0.22 s). **There is no 9p baseline on the same machine and build, so there is no
+ratio, and no claim above about 4.0× or 3.1× can be confirmed or retired from this.**
+Absolute numbers from a different build say nothing about the gain over 9p.
+
+#### Taking the measurement yourself
+
+The ratios need both transports on one machine and one WSL build, and switching needs
+`wsl --shutdown`, so the script measures whichever transport you are on, refuses to
+record the wrong one, and never shuts WSL down:
+
+```powershell
+pwsh -File scripts/measure-mounts.ps1 -Expect virtiofs -Out virtiofs.json
+# skrog config set wsl.virtiofs false ; skrog wsl-config apply ; wsl --shutdown
+pwsh -File scripts/measure-mounts.ps1 -Expect 9p -Out 9p.json
+pwsh -File scripts/measure-mounts.ps1 -Compare 9p.json,virtiofs.json   # the table above, with ratios
+```
+
+It follows the method above: a Windows folder bind-mounted into a container, timed inside
+it, the cold first write discarded, medians with their range, and the machine and WSL
+build recorded. `-Expect` is a guard, not a setting: it fails when `/proc/mounts`
+disagrees, because setting `wsl.virtiofs` without the shutdown leaves you on 9p and looks
+like success.
+
 Reads and directory listings are where it pays, which is the shape of `npm
 install`, a gradle build, or a large `docker build` context. Writes are a
 modest gain with enough variance that it is fair to call them a wash.
