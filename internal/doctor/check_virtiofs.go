@@ -50,7 +50,7 @@ func checkVirtiofs() Check {
 			"  Every bind mount of a Windows folder goes through this -- `docker run`",
 			"  with -v ${PWD}, a build context, a dev container's workspace.",
 			"",
-			"  Measured on WSL 2.9.11 (docs/vm-sizing.md):",
+			"  Measured on WSL 2.9.11, not yet re-confirmed on 3.0 (docs/vm-sizing.md):",
 			"    read 256 MB        205 MB/s -> 811 MB/s   4.0x",
 			"    ls -l 1000 files       0.68 s -> 0.22 s   3.1x",
 			"    delete 1000 files      1.52 s -> 0.92 s   1.7x",
