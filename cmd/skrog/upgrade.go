@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -128,7 +129,7 @@ flags:
 	if reportOnly {
 		if *dryRun && len(plan) > 0 {
 			fmt.Println("\nwould run:")
-			printUpgradePlan(plan)
+			printUpgradePlan(os.Stdout, plan)
 			fmt.Println("\nnothing was changed (--dry-run)")
 		}
 		// Exit 3 for "there is something to install", matching
@@ -139,50 +140,126 @@ flags:
 		return exitOK
 	}
 
-	appBehind := rep.AppStream().Status == upgrade.StatusAvailable
+	return upgradeSteps{
+		apply:     *apply,
+		yes:       *yes,
+		force:     *force,
+		out:       os.Stdout,
+		ownerOf:   runningBinaryOwner,
+		confirm:   confirm,
+		applyPlan: func(p []upgrade.Action) int { return applyUpgradePlan(p, *stateDir) },
+		applyApp:  func(v string) int { return applyApp(v, opts.StateDir) },
+	}.run(rep)
+}
 
-	if len(plan) == 0 && !(appBehind && *apply) {
+// upgradeSteps is what `skrog upgrade` does once the report is printed. The
+// parts that touch the machine are fields, so a test can drive the real
+// order of decisions without upgrading anything.
+type upgradeSteps struct {
+	apply, yes, force bool
+	out               io.Writer
+
+	ownerOf   func() (upgrade.Owner, bool)
+	confirm   func(prompt string) bool
+	applyPlan func([]upgrade.Action) int
+	applyApp  func(version string) int
+}
+
+func (u upgradeSteps) run(rep upgrade.Report) int {
+	plan := rep.Plan()
+	appBehind := rep.AppStream().Status == upgrade.StatusAvailable
+	latest := rep.AppStream().Latest
+	wantApp := appBehind && u.apply
+
+	// Who owns the install is decided BEFORE the plan is shown (#545). Asked
+	// only after the engine and CLI had been upgraded, the refusal (#370)
+	// turned a run that did everything it could into a non-zero exit, after
+	// the user had confirmed an app step that was never going to happen.
+	var manager *upgrade.Owner
+	if wantApp && !u.force {
+		if owner, owned := u.ownerOf(); owned {
+			manager = &owner
+			wantApp = false
+		}
+	}
+	managedLine := func() {
+		fmt.Fprintf(u.out, "  %-22s %s -> %s  managed by %s — run: %s\n",
+			"app", buildVersion, latest, manager.Name, manager.Command)
+	}
+
+	if len(plan) == 0 && !wantApp {
+		if manager != nil {
+			fmt.Fprintf(u.out, "\nthe app is the only thing behind, and %s manages it:\n", manager.Name)
+			managedLine()
+			return exitOK
+		}
 		// The app being behind is not something this command can act on
 		// without --apply, and saying "nothing to do" without that
 		// qualification would read as "you are current".
 		if rep.Available() {
-			fmt.Println("\nnothing here is Skrog's to apply — see above")
+			fmt.Fprintln(u.out, "\nnothing here is Skrog's to apply — see above")
 			if appBehind {
-				fmt.Println("`skrog upgrade --apply` will replace skrog.exe itself")
+				fmt.Fprintln(u.out, "`skrog upgrade --apply` will replace skrog.exe itself")
 			}
 		}
 		return exitOK
 	}
 
-	if !*yes {
-		fmt.Println("\nwill run:")
-		printUpgradePlan(plan)
-		if appBehind && *apply {
-			fmt.Printf("  %-16s %s -> %s  (replaces skrog.exe; the supervisor restarts)\n",
-				"app", buildVersion, rep.AppStream().Latest)
+	if !u.yes {
+		fmt.Fprintln(u.out, "\nwill run:")
+		printUpgradePlan(u.out, plan)
+		if wantApp {
+			fmt.Fprintf(u.out, "  %-22s %s -> %s  (replaces skrog.exe; the supervisor restarts)\n",
+				"app", buildVersion, latest)
 		}
-		if !confirm("\nproceed?") {
-			fmt.Println("nothing was changed")
+		if manager != nil {
+			fmt.Fprintln(u.out, "\nwill not run:")
+			managedLine()
+		}
+		if !u.confirm("\nproceed?") {
+			fmt.Fprintln(u.out, "nothing was changed")
 			return exitOK
 		}
 	}
-	if code := applyUpgradePlan(plan, *stateDir); code != exitOK {
+	if code := u.applyPlan(plan); code != exitOK {
 		return code
 	}
 	// The app last: it is the only step that restarts the supervisor, so a
 	// failure in the engine or CLI half leaves the running binary the one that
 	// produced the log the user is about to read.
-	if appBehind && *apply {
-		return applyApp(rep.AppStream().Latest, opts.StateDir, *force)
+	if wantApp {
+		return u.applyApp(latest)
+	}
+	// Exit 0: everything this command said it would do is done. The app step
+	// was shown as the manager's to run, not as something that failed.
+	if manager != nil {
+		fmt.Fprintf(u.out, "\nthe app is managed by %s; upgrade it with:  %s\n"+
+			"(`skrog upgrade --apply --force` replaces the binary anyway)\n",
+			manager.Name, manager.Command)
 	}
 	return exitOK
 }
 
+// runningBinaryOwner reports the package manager that owns the running
+// skrog.exe, if any (#370).
+//
+// The check needs the RESOLVED path, because a winget install is reached
+// through an alias symlink and only the target is inside the package
+// directory (#360). applyApp's swap deliberately uses the UNRESOLVED one:
+// they are different questions, and conflating them is what #360 was.
+func runningBinaryOwner() (upgrade.Owner, bool) {
+	resolved, err := selfexe.Path()
+	if err != nil {
+		return upgrade.Owner{}, false
+	}
+	return upgrade.OwnedBy(resolved)
+}
+
 // printUpgradePlan shows the commands, not a summary of them: the reader can
 // then run any of them by hand, and can see that nothing else is happening.
-func printUpgradePlan(plan []upgrade.Action) {
+func printUpgradePlan(w io.Writer, plan []upgrade.Action) {
 	for _, a := range plan {
-		fmt.Printf("  skrog %-16s %s -> %s\n", joinArgs(a.Args), orUnset(a.From), a.To)
+		fmt.Fprintf(w, "  skrog %-16s %s -> %s\n", joinArgs(a.Args), orUnset(a.From), a.To)
 	}
 }
 
@@ -359,27 +436,15 @@ func installedCLIVersion(opts provision.Options) string {
 // touch the install directory. Nothing here can leave a half-upgraded install
 // -- SwapBinaries rolls back if any file cannot be replaced, and a download
 // that fails verification never reaches the swap at all.
-func applyApp(version, stateDir string, force bool) int {
+//
+// Whether a package manager owns the install is decided before the plan is
+// shown (upgradeSteps.run), so by the time this runs the answer is "nobody"
+// or --force.
+func applyApp(version, stateDir string) int {
 	exe, err := os.Executable()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "skrog: locating the running binary: %v\n", err)
 		return exitError
-	}
-
-	// Refuse to fight a package manager (#370).
-	//
-	// The check needs the RESOLVED path, because a winget install is reached
-	// through an alias symlink and only the target is inside the package
-	// directory (#360). The swap below deliberately uses the UNRESOLVED one:
-	// they are different questions, and conflating them is what #360 was.
-	if resolved, rerr := selfexe.Path(); rerr == nil {
-		if owner, owned := upgrade.OwnedBy(resolved); owned && !force {
-			fmt.Fprintf(os.Stderr, "skrog: this install is managed by %s, so `skrog upgrade --apply` "+
-				"would overwrite files it owns and leave it reporting a version you no longer have.\n\n"+
-				"  upgrade with:  %s\n\n"+
-				"Pass --force to replace the binary anyway.\n", owner.Name, owner.Command)
-			return exitError
-		}
 	}
 
 	// Deliberately NOT resolved through symlinks (#360). Everywhere else that

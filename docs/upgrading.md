@@ -54,17 +54,32 @@ Same verb at two scopes:
 
 ### If a package manager installed Skrog, let it do the upgrade
 
-`--apply` refuses when the binary lives inside a package manager's directory:
+`--apply` leaves the app alone when the binary lives inside a package manager's
+directory. It decides that before showing the plan, so the plan you confirm is
+the one that runs: the engine and CLI are applied as usual, and the app step
+is shown as the manager's to run.
 
 ```
 $ skrog upgrade --apply
-skrog: this install is managed by winget, so `skrog upgrade --apply` would
-overwrite files it owns and leave it reporting a version you no longer have.
+...
+will run:
+  skrog cli install      29.8.2 -> 29.9.1
+  skrog engine upgrade   29.8.1-3 -> 29.9.0-2
 
-  upgrade with:  winget upgrade wslkit.skrog
+will not run:
+  app                    0.8.0 -> 0.10.0  managed by winget — run: winget upgrade wslkit.skrog
 
-Pass --force to replace the binary anyway.
+proceed? [y/N]
 ```
+
+It exits 0: everything it said it would do is done. When the app is the only
+thing behind, it prints the manager's command and exits without asking.
+`--force` replaces the binary anyway.
+
+Up to 0.10.0 the ownership check came last
+([#545](https://github.com/wslkit/skrog/issues/545)): the plan listed the app,
+the engine and CLI were upgraded, and only then was the app refused, with
+exit 1.
 
 Replacing the files behind the manager's back leaves it believing something
 untrue: `winget list` keeps reporting the version it installed, a later

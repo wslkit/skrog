@@ -109,8 +109,8 @@ scoop install skrog
 Then `scoop update skrog` keeps it current.
 
 Skrog notices when winget or scoop manages it — `skrog upgrade --apply`
-refuses inside a package-manager directory and names the manager's own upgrade
-command, rather than fighting it for the same files. Neither package is
+still upgrades the engine and CLI, but leaves the app to the manager and names
+its upgrade command, rather than fighting it for the same files. Neither package is
 blocked on code signing, which this project believed for longer than it should
 have; only the MSI is.
 
