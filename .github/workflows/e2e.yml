@@ -151,7 +151,11 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: e2e-log
-          path: test/e2e/e2e.log
+          # state-logs/ is the supervisor's own logs, copied out of the suite's
+          # state dir before teardown removes it (#556).
+          path: |
+            test/e2e/e2e.log
+            test/e2e/state-logs/
           if-no-files-found: warn
 
       - name: leftovers
