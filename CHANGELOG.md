@@ -22,6 +22,12 @@ useful than saying where the real one is.
   moved by the next `apply` — the diff shows the move before anything is written. `skrog
   wsl-config` and `skrog top` no longer report the ignored line as in effect.
   `wsl-config --json` pending changes gain `section`, and `moved_from` for a move.
+- **`skrog upgrade --apply` under winget or scoop does what its plan says** ([#545](https://github.com/wslkit/skrog/issues/545)).
+  It listed the app step, upgraded the engine and CLI, and only then refused the app
+  because a package manager owns it, exiting 1 after doing everything else. Ownership is
+  now decided before the plan is shown: the app step appears under "will not run" with the
+  manager's command, the rest is applied, and the exit is 0. With only the app behind it
+  prints the command without asking. `--force` still replaces the binary.
 
 ### Added
 
