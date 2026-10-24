@@ -600,10 +600,16 @@ The WSL2 VM''s sizing, from the global `~/.wslconfig` (#148):
   "exists": true,
   "effective": { "memory": "4GB", "processors": "2", "autoMemoryReclaim": "gradual" },
   "desired":   { "memory": "4GB", "processors": "2", "autoMemoryReclaim": "gradual" },
-  "pending": [ { "key": "memory", "old": "8GB", "new": "4GB", "added": false } ],
+  "pending": [ { "key": "memory", "old": "8GB", "new": "4GB", "added": false, "section": "wsl2" } ],
   "applied": false
 }
 ```
+
+- `effective` reads each key from the section WSL reads it from:
+  `autoMemoryReclaim` from `[experimental]`, the rest from `[wsl2]` (#550).
+- Each `pending` change names its `section`. `moved_from` is present when a
+  copy WSL ignores is being removed from another section — an
+  `autoMemoryReclaim` an earlier release wrote under `[wsl2]`.
 
 - `effective` is what the file says now; `desired` is what Skrog's own
   settings ask for; `pending` is the difference — so a converge script can tell

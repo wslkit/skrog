@@ -342,6 +342,10 @@ type wslConfigChangeJSON struct {
 	Old   string `json:"old,omitempty"`
 	New   string `json:"new"`
 	Added bool   `json:"added"`
+	// Section is where the key is written: wsl2, or experimental (#550).
+	Section string `json:"section"`
+	// MovedFrom names the section a dead copy is removed from; absent otherwise.
+	MovedFrom string `json:"moved_from,omitempty"`
 }
 
 // statsJSON is the `stats` object `skrog status --stats --json` adds (#179).

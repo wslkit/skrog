@@ -339,7 +339,124 @@ func TestVirtiofsKeySpelling(t *testing.T) {
 	if wslconfig.KeyVirtiofs != "virtiofs" {
 		t.Errorf("wslconfig.KeyVirtiofs = %q; WSL reads wsl2.virtiofs", wslconfig.KeyVirtiofs)
 	}
-	if wslconfig.Section != "wsl2" {
-		t.Errorf("wslconfig.Section = %q; virtiofs lives under [wsl2]", wslconfig.Section)
+	if s := wslconfig.SectionOf(wslconfig.KeyVirtiofs); s != "wsl2" {
+		t.Errorf("SectionOf(virtiofs) = %q; virtiofs lives under [wsl2]", s)
+	}
+}
+
+// keySection returns the section a key's live line sits in, "" when absent,
+// and how many uncommented lines set it anywhere. Reads the file as WSL does:
+// the section is whatever [header] last preceded the line.
+func keySection(t *testing.T, path, key string) (string, int) {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	section, found, n := "", "", 0
+	for _, line := range strings.Split(strings.ReplaceAll(string(b), "\r\n", "\n"), "\n") {
+		l := strings.TrimSpace(line)
+		if strings.HasPrefix(l, "[") && strings.HasSuffix(l, "]") {
+			section = strings.ToLower(strings.Trim(l, "[]"))
+			continue
+		}
+		if k, _, ok := strings.Cut(l, "="); ok && strings.EqualFold(strings.TrimSpace(k), key) {
+			found = section
+			n++
+		}
+	}
+	return found, n
+}
+
+// #550: WSL reads autoMemoryReclaim only as experimental.autoMemoryReclaim.
+// Under [wsl2] it prints "Unknown key 'wsl2.autoMemoryReclaim'" and ignores
+// it -- reproduced on WSL 3.0.3 -- which is where every release before the fix
+// wrote it.
+func TestAutoMemoryReclaimIsWrittenUnderExperimental(t *testing.T) {
+	p := write(t, "[wsl2]\nmemory=8GB\n")
+	f := load(t, p)
+	if err := f.Apply(f.Plan(map[string]string{"memory": "4GB", "autoMemoryReclaim": "gradual"})); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	if s, n := keySection(t, p, "autoMemoryReclaim"); s != "experimental" || n != 1 {
+		t.Errorf("autoMemoryReclaim is under [%s] (%d lines); WSL only reads it under [experimental]", s, n)
+	}
+	if s, _ := keySection(t, p, "memory"); s != "wsl2" {
+		t.Errorf("memory moved to [%s]; it belongs under [wsl2]", s)
+	}
+}
+
+func TestAutoMemoryReclaimUnderWsl2IsNotEffective(t *testing.T) {
+	// `wsl-config show` and doctor report Get/All as what WSL applies. A line
+	// WSL ignores must not be reported as in effect.
+	f := load(t, write(t, "[wsl2]\nautoMemoryReclaim=gradual\n"))
+	if v, ok := f.Get("autoMemoryReclaim"); ok {
+		t.Errorf("Get(autoMemoryReclaim) = %q from [wsl2]; WSL ignores it there", v)
+	}
+	if _, ok := f.All()["autoMemoryReclaim"]; ok {
+		t.Error("All() reports autoMemoryReclaim from [wsl2] as effective")
+	}
+}
+
+func TestStaleWsl2AutoMemoryReclaimIsMoved(t *testing.T) {
+	// The file an earlier Skrog left behind: same value, wrong section. The
+	// plan must not be empty (that would leave the setting dead forever), and
+	// the diff must say why a line with an unchanged value moves.
+	p := write(t, "[wsl2]\nmemory=4GB\nautoMemoryReclaim=gradual\n")
+	desired := map[string]string{"memory": "4GB", "autoMemoryReclaim": "gradual"}
+	f := load(t, p)
+	plan := f.Plan(desired)
+	if len(plan) != 1 || plan[0].Key != "autoMemoryReclaim" || plan[0].StaleSection != "wsl2" {
+		t.Fatalf("plan = %+v, want one move of autoMemoryReclaim out of [wsl2]", plan)
+	}
+	if s := plan[0].String(); !strings.Contains(s, "where WSL ignores it") || !strings.Contains(s, "[experimental]") {
+		t.Errorf("diff does not explain the move:\n%s", s)
+	}
+	if err := f.Apply(plan); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	if s, n := keySection(t, p, "autoMemoryReclaim"); s != "experimental" || n != 1 {
+		t.Errorf("after apply autoMemoryReclaim is under [%s] (%d lines), want one line under [experimental]", s, n)
+	}
+	if again := load(t, p).Plan(desired); len(again) != 0 {
+		t.Errorf("second plan = %v, want empty", again)
+	}
+}
+
+func TestStaleCopyRemovedWhenTheLiveOneIsAlreadyRight(t *testing.T) {
+	p := write(t, "[wsl2]\nautoMemoryReclaim=dropcache\n\n[experimental]\nautoMemoryReclaim=gradual\n")
+	f := load(t, p)
+	plan := f.Plan(map[string]string{"autoMemoryReclaim": "gradual"})
+	if len(plan) != 1 {
+		t.Fatalf("plan = %+v, want only the removal of the [wsl2] copy", plan)
+	}
+	if s := plan[0].String(); strings.Contains(s, "+ ") {
+		t.Errorf("diff adds a line that is already there:\n%s", s)
+	}
+	if err := f.Apply(plan); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	if s, n := keySection(t, p, "autoMemoryReclaim"); s != "experimental" || n != 1 {
+		t.Errorf("autoMemoryReclaim under [%s], %d lines; want exactly one, under [experimental]", s, n)
+	}
+}
+
+func TestStaleCopyLeftAloneWhenSkrogHasNoOpinion(t *testing.T) {
+	// Unset in Skrog's config means not ours, even for a line we can tell is
+	// dead: someone may have written it themselves.
+	f := load(t, write(t, "[wsl2]\nautoMemoryReclaim=gradual\n"))
+	if plan := f.Plan(map[string]string{"autoMemoryReclaim": ""}); len(plan) != 0 {
+		t.Errorf("plan = %v, want empty", plan)
+	}
+}
+
+func TestSectionOf(t *testing.T) {
+	for key, want := range map[string]string{
+		"memory": "wsl2", "processors": "wsl2", "swap": "wsl2", "virtiofs": "wsl2",
+		"autoMemoryReclaim": "experimental",
+	} {
+		if got := wslconfig.SectionOf(key); got != want {
+			t.Errorf("SectionOf(%q) = %q, want %q", key, got, want)
+		}
 	}
 }

@@ -29,8 +29,34 @@ import (
 	"strings"
 )
 
-// Section is the only section this package writes into.
+// Section is where a managed key lives unless SectionOf says otherwise.
 const Section = "wsl2"
+
+// SectionExperimental holds the keys WSL has not promoted to [wsl2].
+const SectionExperimental = "experimental"
+
+// SectionOf is the section WSL reads a managed key from.
+//
+// autoMemoryReclaim is `experimental.autoMemoryReclaim` in WSL's own config
+// table, with no `wsl2.` alias (networkingMode has both). Written under [wsl2]
+// it is an "Unknown key" WSL ignores, which is what every Skrog release before
+// #550 did.
+func SectionOf(key string) string {
+	if strings.EqualFold(key, KeyAutoMemoryReclaim) {
+		return SectionExperimental
+	}
+	return Section
+}
+
+// staleSection is where an earlier Skrog wrote a key WSL does not read there,
+// or "" when the key was always written to the right place. Plan moves such a
+// line rather than leaving a dead one behind.
+func staleSection(key string) string {
+	if strings.EqualFold(key, KeyAutoMemoryReclaim) {
+		return Section
+	}
+	return ""
+}
 
 // Keys are the settings Skrog manages, in the order a diff shows them.
 const (
@@ -99,7 +125,9 @@ func Load(path string) (*File, error) {
 // Existed reports whether the file was there before.
 func (f *File) Existed() bool { return f.existed }
 
-// Get returns a key's current value in [wsl2] and whether it was set.
+// Get returns a key's current value in the section WSL reads it from, and
+// whether it was set there. A copy in any other section is not reported: WSL
+// ignores it, so it is not the effective value.
 func (f *File) Get(key string) (string, bool) {
 	i := f.find(key)
 	if i < 0 {
@@ -121,14 +149,19 @@ func (f *File) All() map[string]string {
 	return out
 }
 
-// find locates a key inside the [wsl2] section, or -1. Comparison is
-// case-insensitive on both the section and the key, because WSL is.
+// find locates a key inside the section WSL reads it from, or -1.
 func (f *File) find(key string) int {
+	return f.findIn(SectionOf(key), key)
+}
+
+// findIn locates a key inside the named section, or -1. Comparison is
+// case-insensitive on both the section and the key, because WSL is.
+func (f *File) findIn(section, key string) int {
 	inSection := false
 	for i, line := range f.lines {
 		t := strings.TrimSpace(line)
 		if strings.HasPrefix(t, "[") && strings.HasSuffix(t, "]") {
-			inSection = strings.EqualFold(strings.Trim(t, "[]"), Section)
+			inSection = strings.EqualFold(strings.Trim(t, "[]"), section)
 			continue
 		}
 		if !inSection || t == "" || strings.HasPrefix(t, "#") || strings.HasPrefix(t, ";") {
@@ -157,14 +190,35 @@ type Change struct {
 	New string
 	// Added is true when the key is not in the file yet.
 	Added bool
+	// StaleSection names the section a dead copy of the key is removed from
+	// (an earlier Skrog wrote it where WSL does not read it); empty otherwise.
+	StaleSection string
+	// Stale is the value on that dead line.
+	Stale string
 }
 
 // String renders a change as a diff line, which is what consent is given to.
+// A key outside [wsl2] names its section, and a moved line says why, because
+// "- x / + x" with the same value would otherwise read as a no-op.
 func (c Change) String() string {
-	if c.Added {
-		return fmt.Sprintf("+ %s=%s", c.Key, c.New)
+	where := ""
+	if s := SectionOf(c.Key); s != Section {
+		where = "  (under [" + s + "])"
 	}
-	return fmt.Sprintf("- %s=%s\n+ %s=%s", c.Key, c.Old, c.Key, c.New)
+	var b strings.Builder
+	if c.StaleSection != "" {
+		fmt.Fprintf(&b, "- %s=%s  (under [%s], where WSL ignores it)\n", c.Key, c.Stale, c.StaleSection)
+	}
+	if c.Added {
+		fmt.Fprintf(&b, "+ %s=%s%s", c.Key, c.New, where)
+		return b.String()
+	}
+	if strings.EqualFold(c.Old, c.New) {
+		// Only the dead copy goes; the live line is already right.
+		return strings.TrimSuffix(b.String(), "\n")
+	}
+	fmt.Fprintf(&b, "- %s=%s%s\n+ %s=%s%s", c.Key, c.Old, where, c.Key, c.New, where)
+	return b.String()
 }
 
 // Plan returns the changes needed to make the managed keys in the file match
@@ -178,12 +232,17 @@ func (f *File) Plan(desired map[string]string) []Change {
 			continue // unset in Skrog's config: not ours to touch
 		}
 		cur, present := f.Get(k)
-		switch {
-		case !present:
-			out = append(out, Change{Key: k, New: want, Added: true})
-		case !strings.EqualFold(cur, want):
-			out = append(out, Change{Key: k, Old: cur, New: want})
+		c := Change{Key: k, Old: cur, New: want, Added: !present}
+		if s := staleSection(k); s != "" {
+			if i := f.findIn(s, k); i >= 0 {
+				c.StaleSection = s
+				_, c.Stale = splitKV(f.lines[i])
+			}
 		}
+		if present && strings.EqualFold(cur, want) && c.StaleSection == "" {
+			continue
+		}
+		out = append(out, c)
 	}
 	return out
 }
@@ -196,12 +255,17 @@ func (f *File) Apply(changes []Change) error {
 		return nil
 	}
 	for _, c := range changes {
+		if c.StaleSection != "" {
+			if i := f.findIn(c.StaleSection, c.Key); i >= 0 {
+				f.lines = append(f.lines[:i], f.lines[i+1:]...)
+			}
+		}
 		if i := f.find(c.Key); i >= 0 {
 			// Keep any inline comment: someone wrote it for a reason.
 			f.lines[i] = c.Key + "=" + c.New + inlineComment(f.lines[i])
 			continue
 		}
-		f.insertIntoSection(c.Key + "=" + c.New)
+		f.insertIntoSection(SectionOf(c.Key), c.Key+"="+c.New)
 	}
 	return f.write()
 }
@@ -214,10 +278,10 @@ func inlineComment(line string) string {
 	return ""
 }
 
-// insertIntoSection appends a line at the end of [wsl2], creating the section
-// when the file has none. Appending rather than sorting keeps the user's own
-// ordering intact.
-func (f *File) insertIntoSection(line string) {
+// insertIntoSection appends a line at the end of the named section, creating
+// the section when the file has none. Appending rather than sorting keeps the
+// user's own ordering intact.
+func (f *File) insertIntoSection(section, line string) {
 	start := -1
 	end := len(f.lines)
 	for i, l := range f.lines {
@@ -225,7 +289,7 @@ func (f *File) insertIntoSection(line string) {
 		if !strings.HasPrefix(t, "[") || !strings.HasSuffix(t, "]") {
 			continue
 		}
-		if strings.EqualFold(strings.Trim(t, "[]"), Section) {
+		if strings.EqualFold(strings.Trim(t, "[]"), section) {
 			start = i
 			end = len(f.lines)
 			continue
@@ -236,11 +300,11 @@ func (f *File) insertIntoSection(line string) {
 		}
 	}
 	if start < 0 {
-		// No [wsl2] at all: add one, separated from whatever precedes it.
+		// No such section at all: add one, separated from whatever precedes it.
 		if len(f.lines) > 0 && strings.TrimSpace(f.lines[len(f.lines)-1]) != "" {
 			f.lines = append(f.lines, "")
 		}
-		f.lines = append(f.lines, "["+Section+"]", line)
+		f.lines = append(f.lines, "["+section+"]", line)
 		return
 	}
 	// Insert after the section's last non-blank line, so a trailing blank line

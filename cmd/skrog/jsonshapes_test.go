@@ -269,7 +269,7 @@ func TestWSLConfigShape(t *testing.T) {
 		t.Error("pending should be omitted when there is nothing to do")
 	}
 	c := roundTrip(t, wslConfigChangeJSON{Key: "memory", New: "4GB", Added: true})
-	requireKeys(t, c, "key", "new", "added")
+	requireKeys(t, c, "key", "new", "added", "section")
 	if _, ok := c["old"]; ok {
 		t.Error("old should be omitted when the key is being added")
 	}
