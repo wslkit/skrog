@@ -19,7 +19,9 @@ package e2e
 
 import (
 	"archive/zip"
+	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -27,6 +29,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -170,23 +173,7 @@ func run(t *testing.T, timeout time.Duration, name string, args ...string) (stri
 	// bypasses that package by design: it drives the real binaries the way a
 	// user does.
 	cmd.Env = append(os.Environ(), "WSL_UTF8=1")
-	done := make(chan struct{})
-	var out []byte
-	var err error
-	go func() {
-		out, err = cmd.CombinedOutput()
-		close(done)
-	}()
-	select {
-	case <-done:
-		return strings.TrimSpace(string(out)), err
-	case <-time.After(timeout):
-		if cmd.Process != nil {
-			cmd.Process.Kill()
-		}
-		<-done
-		return strings.TrimSpace(string(out)), fmt.Errorf("%s timed out after %s", name, timeout)
-	}
+	return runBounded(cmd, timeout, name)
 }
 
 // runEnv is run() with an explicit environment, for subprocesses that shell
@@ -197,19 +184,52 @@ func runEnv(t *testing.T, env []string, timeout time.Duration, name string, args
 	t.Helper()
 	cmd := exec.Command(name, args...)
 	cmd.Env = env
-	done := make(chan struct{})
-	var out []byte
-	var err error
-	go func() { out, err = cmd.CombinedOutput(); close(done) }()
+	return runBounded(cmd, timeout, name)
+}
+
+// errTimedOut marks a runBounded timeout, for callers that add a hint to it.
+var errTimedOut = errors.New("timed out")
+
+// killGrace is how long runBounded still waits for output after killing a
+// timed-out command's process tree.
+const killGrace = 5 * time.Second
+
+// runBounded runs cmd and returns its trimmed combined output, giving up after
+// timeout with "<what> timed out after <timeout>". Every command the suite
+// runs with a timeout goes through here.
+//
+// On timeout it kills the whole process tree, not only cmd's own process.
+// Killing only the direct child is not enough (#554): a grandchild that
+// inherited the output pipe keeps it open, and the wait for output then lasts
+// until that grandchild exits on its own -- a 2s timeout took 29s. A process
+// whose parent has already exited is outside the tree taskkill walks, so if
+// the pipe is still held killGrace after the kill, it stops waiting and
+// returns without the output.
+func runBounded(cmd *exec.Cmd, timeout time.Duration, what string) (string, error) {
+	var buf bytes.Buffer
+	cmd.Stdout = &buf
+	cmd.Stderr = &buf
+	if err := cmd.Start(); err != nil {
+		return "", err
+	}
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	select {
+	case err := <-done:
+		return strings.TrimSpace(buf.String()), err
+	case <-time.After(timeout):
+	}
+	// taskkill /T needs the process alive to find its descendants, so it goes
+	// first; Kill covers taskkill itself failing.
+	exec.Command("taskkill", "/T", "/F", "/PID", strconv.Itoa(cmd.Process.Pid)).Run()
+	cmd.Process.Kill()
 	select {
 	case <-done:
-		return strings.TrimSpace(string(out)), err
-	case <-time.After(timeout):
-		if cmd.Process != nil {
-			cmd.Process.Kill()
-		}
-		<-done
-		return strings.TrimSpace(string(out)), fmt.Errorf("%s timed out after %s", name, timeout)
+		return strings.TrimSpace(buf.String()), fmt.Errorf("%s %w after %s", what, errTimedOut, timeout)
+	case <-time.After(killGrace):
+		// Wait is still copying into buf, so it cannot be read here.
+		return "", fmt.Errorf("%s %w after %s; output lost: something outside its process tree still held the pipe %s after the kill",
+			what, errTimedOut, timeout, killGrace)
 	}
 }
 
@@ -226,24 +246,7 @@ func dockerE(t *testing.T, s *state, timeout time.Duration, args ...string) (str
 	t.Helper()
 	cmd := exec.Command(s.docker, args...)
 	cmd.Env = s.dockerEnv()
-	done := make(chan struct{})
-	var out []byte
-	var err error
-	go func() {
-		out, err = cmd.CombinedOutput()
-		close(done)
-	}()
-	select {
-	case <-done:
-		return strings.TrimSpace(string(out)), err
-	case <-time.After(timeout):
-		if cmd.Process != nil {
-			cmd.Process.Kill()
-		}
-		<-done
-		return strings.TrimSpace(string(out)), fmt.Errorf("docker %s timed out after %s",
-			strings.Join(args, " "), timeout)
-	}
+	return runBounded(cmd, timeout, "docker "+strings.Join(args, " "))
 }
 
 func wslProcCount(t *testing.T) int {
@@ -1630,21 +1633,11 @@ func dockerStdin(t *testing.T, s *state, stdin string, timeout time.Duration, ar
 	cmd := exec.Command(s.docker, args...)
 	cmd.Env = s.dockerEnv()
 	cmd.Stdin = strings.NewReader(stdin)
-	done := make(chan struct{})
-	var out []byte
-	var err error
-	go func() { out, err = cmd.CombinedOutput(); close(done) }()
-	select {
-	case <-done:
-		return strings.TrimSpace(string(out)), err
-	case <-time.After(timeout):
-		if cmd.Process != nil {
-			cmd.Process.Kill()
-		}
-		<-done
-		return strings.TrimSpace(string(out)), fmt.Errorf("docker %s timed out after %s (stdin EOF likely not propagating)",
-			strings.Join(args, " "), timeout)
+	out, err := runBounded(cmd, timeout, "docker "+strings.Join(args, " "))
+	if errors.Is(err, errTimedOut) {
+		err = fmt.Errorf("%w (stdin EOF likely not propagating)", err)
 	}
+	return out, err
 }
 
 func stageLogsFollow(t *testing.T, s *state) {
@@ -1729,20 +1722,7 @@ services:
 		cmd := exec.Command(s.docker, append([]string{"compose"}, args...)...)
 		cmd.Dir = dir
 		cmd.Env = s.dockerEnv()
-		done := make(chan struct{})
-		var out []byte
-		var err error
-		go func() { out, err = cmd.CombinedOutput(); close(done) }()
-		select {
-		case <-done:
-			return strings.TrimSpace(string(out)), err
-		case <-time.After(timeout):
-			if cmd.Process != nil {
-				cmd.Process.Kill()
-			}
-			<-done
-			return strings.TrimSpace(string(out)), fmt.Errorf("compose timed out after %s", timeout)
-		}
+		return runBounded(cmd, timeout, "compose")
 	}
 
 	defer composeCmd(3*time.Minute, "down", "--timeout", "5")
@@ -2192,20 +2172,7 @@ func (s *state) runDocker(t *testing.T, timeout time.Duration, args ...string) (
 	t.Helper()
 	cmd := exec.Command(s.docker, args...)
 	cmd.Env = s.hostEnv()
-	done := make(chan struct{})
-	var out []byte
-	var err error
-	go func() { out, err = cmd.CombinedOutput(); close(done) }()
-	select {
-	case <-done:
-		return strings.TrimSpace(string(out)), err
-	case <-time.After(timeout):
-		if cmd.Process != nil {
-			cmd.Process.Kill()
-		}
-		<-done
-		return strings.TrimSpace(string(out)), fmt.Errorf("docker timed out after %s", timeout)
-	}
+	return runBounded(cmd, timeout, "docker")
 }
 
 // stageAuditToggle is the regression test for #202: the audit setting has to
