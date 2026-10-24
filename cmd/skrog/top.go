@@ -309,8 +309,9 @@ func renderTop(w io.Writer, s vmtop.Snapshot, reclaim string) {
 	}
 	if advised {
 		if reclaim == "" {
-			fmt.Fprintln(w, "~/.wslconfig does not set autoMemoryReclaim; `skrog config set wsl.auto-memory-reclaim gradual`\n"+
-				"asks WSL to hand idle memory back. See docs/vm-sizing.md.")
+			fmt.Fprintln(w, "~/.wslconfig does not set [experimental] autoMemoryReclaim; `skrog config set\n"+
+				"wsl.auto-memory-reclaim gradual` then `skrog wsl-config apply` asks WSL to hand idle\n"+
+				"memory back. See docs/vm-sizing.md.")
 		} else {
 			fmt.Fprintf(w, "~/.wslconfig sets autoMemoryReclaim=%s. See docs/vm-sizing.md.\n", reclaim)
 		}

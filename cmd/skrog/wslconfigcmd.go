@@ -105,6 +105,7 @@ func runWSLConfigShow(args []string) int {
 		for _, c := range plan {
 			out.Pending = append(out.Pending, wslConfigChangeJSON{
 				Key: c.Key, Old: c.Old, New: c.New, Added: c.Added,
+				Section: wslconfig.SectionOf(c.Key), MovedFrom: c.StaleSection,
 			})
 		}
 		return emitJSON(out)
@@ -198,6 +199,7 @@ func runWSLConfigApply(args []string) int {
 		for _, c := range plan {
 			out.Pending = append(out.Pending, wslConfigChangeJSON{
 				Key: c.Key, Old: c.Old, New: c.New, Added: c.Added,
+				Section: wslconfig.SectionOf(c.Key), MovedFrom: c.StaleSection,
 			})
 		}
 		return emitJSON(out)

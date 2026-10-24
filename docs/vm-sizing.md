@@ -21,8 +21,20 @@ skrog wsl-config apply          # shows the diff, asks, then writes
 | `wsl.memory` | `memory` | cap on the VM's RAM (`4GB`, `512MB`) |
 | `wsl.processors` | `processors` | how many CPUs the VM sees |
 | `wsl.swap` | `swap` | swap file size; `0` disables it |
-| `wsl.auto-memory-reclaim` | `autoMemoryReclaim` | `gradual`, `dropcache` or `disabled` — hands idle memory back to Windows |
+| `wsl.auto-memory-reclaim` | `autoMemoryReclaim`, under **`[experimental]`** | `gradual`, `dropcache` or `disabled` — hands idle memory back to Windows |
 | `wsl.virtiofs` | `virtiofs` | `true` mounts Windows drives over virtiofs instead of 9p — see below |
+
+Every key goes under `[wsl2]` except `autoMemoryReclaim`, which WSL reads only
+as `experimental.autoMemoryReclaim`. Under `[wsl2]` it is ignored, and WSL
+prints `Unknown key 'wsl2.autoMemoryReclaim'` the next time the VM starts —
+which is where Skrog wrote it before
+[#550](https://github.com/wslkit/skrog/issues/550). If an earlier release left
+it there, `skrog wsl-config` shows the move and `apply` makes it:
+
+```
+  - autoMemoryReclaim=gradual  (under [wsl2], where WSL ignores it)
+  + autoMemoryReclaim=gradual  (under [experimental])
+```
 
 Values are validated when you set them, in the way WSL reads them, so a typo
 fails at `skrog config set` rather than silently sizing the VM as something
@@ -108,7 +120,7 @@ C:\Users\me\.wslconfig is shared by every WSL2 distro on this machine.
 Skrog would change:
   + memory=4GB
   + processors=2
-  + autoMemoryReclaim=gradual
+  + autoMemoryReclaim=gradual  (under [experimental])
 
 apply these changes? [y/N]
 ```

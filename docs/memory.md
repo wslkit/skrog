@@ -171,8 +171,9 @@ held on the host:
 ```
 Windows holds 288.3 MiB more for the VM than the VM is using: memory freed inside
 the VM that has not been handed back yet.
-~/.wslconfig does not set autoMemoryReclaim; `skrog config set wsl.auto-memory-reclaim gradual`
-asks WSL to hand idle memory back. See docs/vm-sizing.md.
+~/.wslconfig does not set [experimental] autoMemoryReclaim; `skrog config set
+wsl.auto-memory-reclaim gradual` then `skrog wsl-config apply` asks WSL to hand idle
+memory back. See docs/vm-sizing.md.
 ```
 
 The two figures are different measures (Windows' private working set, the
@@ -190,8 +191,9 @@ holds — `top` says so:
 ```
 3.0 GiB of the VM's memory is page cache: file data Linux will drop when it needs
 the room, but which Windows counts as Vmmem until it is reclaimed.
-~/.wslconfig does not set autoMemoryReclaim; `skrog config set wsl.auto-memory-reclaim gradual`
-asks WSL to hand idle memory back. See docs/vm-sizing.md.
+~/.wslconfig does not set [experimental] autoMemoryReclaim; `skrog config set
+wsl.auto-memory-reclaim gradual` then `skrog wsl-config apply` asks WSL to hand idle
+memory back. See docs/vm-sizing.md.
 ```
 
 That cache is not a leak and nothing needs killing: Linux gives it up the

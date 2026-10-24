@@ -12,6 +12,17 @@ useful than saying where the real one is.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`wsl.auto-memory-reclaim` now takes effect** ([#550](https://github.com/wslkit/skrog/issues/550)).
+  `skrog wsl-config apply` wrote `autoMemoryReclaim` under `[wsl2]`, but WSL reads it only
+  as `experimental.autoMemoryReclaim`: it ignored the line and printed `Unknown key
+  'wsl2.autoMemoryReclaim'` when the VM started, so the setting never worked. It is now
+  written under `[experimental]`, and a line an earlier release left under `[wsl2]` is
+  moved by the next `apply` — the diff shows the move before anything is written. `skrog
+  wsl-config` and `skrog top` no longer report the ignored line as in effect.
+  `wsl-config --json` pending changes gain `section`, and `moved_from` for a move.
+
 ### Added
 
 - **An engine per project** ([#539](https://github.com/wslkit/skrog/issues/539)).
