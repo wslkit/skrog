@@ -72,6 +72,8 @@ func TestAcceptance(t *testing.T) {
 		t.Skip("acceptance runs on Windows with WSL2")
 	}
 	s := &state{workDir: t.TempDir()}
+	// A previous run's kept logs would read as this run's.
+	os.RemoveAll(keptLogsDir)
 
 	// Resolved up front so a missing CLI skips the suite rather than failing a
 	// later stage: a skip inside a sub-stage does not stop the sequence.
@@ -1999,6 +2001,7 @@ func stageUninstall(t *testing.T, s *state) {
 	if s.proxyLog != nil {
 		s.proxyLog.Close()
 	}
+	keepLogs(s)
 
 	out, err := run(t, 5*time.Minute, s.skrog, "uninstall", "--state-dir", s.stateDir, "--yes")
 	must(t, out, err, "skrog uninstall")
@@ -2092,6 +2095,42 @@ func stageDesktopIntact(t *testing.T, s *state) {
 	}
 }
 
+// keptLogsDir is where keepLogs copies the state dir's logs, relative to the
+// package directory `go test` runs in. The e2e workflow uploads it.
+const keptLogsDir = "state-logs"
+
+// keepLogs copies the logs in the suite's state dir -- supervisor.log and its
+// rotations, audit.log, watchdog.log, proxy-e2e.log -- to keptLogsDir before
+// uninstall removes the state dir and the test removes its TempDir. Without
+// them a failed nightly has only the suite's own output to go on: the three
+// "engine did not come up" failures fixed by #530 had nothing else (#556).
+//
+// Both the Uninstall stage and forceCleanup call it, after stopping the
+// supervisor so the files are complete. The second call, after a passing
+// run, finds the state dir already gone and keeps the first call's copies.
+func keepLogs(s *state) {
+	if s.stateDir == "" {
+		return
+	}
+	logs, _ := filepath.Glob(filepath.Join(s.stateDir, "*.log*"))
+	if len(logs) == 0 {
+		return
+	}
+	if err := os.MkdirAll(keptLogsDir, 0o755); err != nil {
+		fmt.Fprintf(os.Stderr, "keeping logs: %v\n", err)
+		return
+	}
+	for _, src := range logs {
+		b, err := os.ReadFile(src)
+		if err == nil {
+			err = os.WriteFile(filepath.Join(keptLogsDir, filepath.Base(src)), b, 0o644)
+		}
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "keeping %s: %v\n", filepath.Base(src), err)
+		}
+	}
+}
+
 // forceCleanup removes whatever a failed run left, using the binary itself so
 // the cleanup path is also the product's own.
 func forceCleanup(s *state) {
@@ -2102,6 +2141,7 @@ func forceCleanup(s *state) {
 	if s.proxyLog != nil {
 		s.proxyLog.Close()
 	}
+	keepLogs(s)
 	if s.skrog != "" && s.stateDir != "" {
 		exec.Command(s.skrog, "uninstall", "--state-dir", s.stateDir, "--yes").Run()
 	}
