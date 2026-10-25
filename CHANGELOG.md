@@ -12,6 +12,20 @@ useful than saying where the real one is.
 
 ## [Unreleased]
 
+### Security
+
+- **The default engine is 29.9.2, built with Go 1.26.10, with containerd 2.3.7.**
+  Go 1.26.10 is the whole of moby 29.9.2: it rejects TLS chains through eight eMudhra
+  intermediates whose keys were compromised (CVE-2026-111943), so a pull from a registry
+  that still chains through one now fails verification instead of succeeding. containerd
+  moves from 2.3.6 to 2.3.7, the patch on the same line, for CVE-2026-95839 and
+  GHSA-8647-2jxj-p2rc (a crafted image manifest, or a registry's `Content-Length`, could
+  crash containerd) and GHSA-5p7c-hggf-c748 (a CRI-plugin mount leak). moby 29.9.1 took
+  containerd 2.4.2 for the first two; staying on 2.3 gets them without a minor-version
+  move. runc and BuildKit are unchanged. Existing installs
+  move with `skrog engine upgrade`; 29.9.0 stays in the manifest, so `skrog engine
+  rollback` returns to it.
+
 ### Fixed
 
 - **`skrog compact` works on WSL 3.0** ([#560](https://github.com/wslkit/skrog/issues/560)).
@@ -99,10 +113,10 @@ useful than saying where the real one is.
   `skrog install` and `skrog target create`. Behaviour is unchanged.
 - The verified rootfs download is cached in the base state directory when installing a
   named engine, so a second engine does not download it again.
-- **The bundled docker CLI is 29.9.1**, from 29.8.2. amd64 is Docker's own zip, checksum
+- **The bundled docker CLI is 29.9.2**, from 29.8.2. amd64 is Docker's own zip, checksum
   computed from the official download as before; the arm64 `docker.exe` is built from
-  docker/cli at commit `dfc520d`, pinned, with Go 1.26.9 to match the engine. Compose,
-  buildx and the credential helper are unchanged. The engine is still 29.9.0.
+  docker/cli at commit `a82e528`, pinned, with Go 1.26.10 to match the engine. Compose,
+  buildx and the credential helper are unchanged.
 
 ## [0.10.0] — 2026-10-12
 
