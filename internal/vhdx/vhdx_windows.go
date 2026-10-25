@@ -163,6 +163,35 @@ func SizeOnDisk(path string) (uint64, error) {
 
 const invalidFileSize = 0xFFFFFFFF
 
+// Refusal names what about the file makes Windows refuse to compact it, or
+// nil. CompactVirtualDisk will not touch a sparse, compressed or encrypted
+// file ("Virtual hard disk files must be uncompressed and unencrypted and must
+// not be sparse"), and since WSL 3.0.2 `wsl --manage --set-sparse true` makes
+// a sparse one without any unsafe flag (#565). Checked up front so the engine
+// is not stopped for a compaction that cannot happen. An unreadable attribute
+// is not a refusal: the compaction will say what is wrong.
+func Refusal(path string) []string {
+	p, err := windows.UTF16PtrFromString(path)
+	if err != nil {
+		return nil
+	}
+	attrs, err := windows.GetFileAttributes(p)
+	if err != nil {
+		return nil
+	}
+	var why []string
+	if attrs&windows.FILE_ATTRIBUTE_SPARSE_FILE != 0 {
+		why = append(why, "sparse")
+	}
+	if attrs&windows.FILE_ATTRIBUTE_COMPRESSED != 0 {
+		why = append(why, "compressed")
+	}
+	if attrs&windows.FILE_ATTRIBUTE_ENCRYPTED != 0 {
+		why = append(why, "encrypted")
+	}
+	return why
+}
+
 var procGetCompressedFileSizeW = windows.NewLazySystemDLL("kernel32.dll").NewProc("GetCompressedFileSizeW")
 
 func getCompressedFileSize(name *uint16, high *uint32) (uint32, error) {

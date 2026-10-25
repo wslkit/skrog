@@ -48,6 +48,7 @@ type fakeDisk struct {
 	freeAfter int
 	compacted int
 	err       error
+	refusal   []string
 }
 
 // Free answers the way opening the disk does on WSL 3.0: yes, even while the
@@ -67,6 +68,8 @@ func (d *fakeDisk) Compact(path string) (vhdx.Result, error) {
 }
 
 func (d *fakeDisk) SizeOnDisk(string) (uint64, error) { return d.size, nil }
+
+func (d *fakeDisk) Refusal(string) []string { return d.refusal }
 
 func opts() compact.Options {
 	return compact.Options{
@@ -288,6 +291,32 @@ func TestParsesFstrimlessOutput(t *testing.T) {
 	}
 	if !rep.Trimmed {
 		t.Error("Trimmed should still be true: fstrim ran and succeeded")
+	}
+}
+
+// Windows will not compact a sparse disk, and WSL 3.0.2+ makes one without any
+// unsafe flag. That has to be known before the engine is stopped for a
+// compaction that cannot happen (#565) -- and a dry run owes the same answer.
+func TestASparseDiskIsRefusedBeforeAnything(t *testing.T) {
+	for _, dry := range []bool{false, true} {
+		w := &fakeWSL{distros: []wsl.Distro{{Name: "skrog-engine", State: "Running"}}}
+		d := &fakeDisk{size: 3 << 30, refusal: []string{"sparse"}}
+		var stopped bool
+		r := &compact.Runner{WSL: w, Disk: d, Stop: func(context.Context) error { stopped = true; return nil }}
+		o := opts()
+		o.DryRun = dry
+
+		_, err := r.Run(context.Background(), o)
+		var nc *compact.ErrNotCompactable
+		if !errors.As(err, &nc) {
+			t.Fatalf("dry=%v: err = %v, want *ErrNotCompactable", dry, err)
+		}
+		if !strings.Contains(err.Error(), "sparse") {
+			t.Errorf("dry=%v: the error does not say why: %v", dry, err)
+		}
+		if stopped || len(w.calls) != 0 || d.probes != 0 {
+			t.Errorf("dry=%v: acted before refusing: stopped=%v calls=%v attempts=%d", dry, stopped, w.calls, d.probes)
+		}
 	}
 }
 

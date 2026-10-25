@@ -9,3 +9,6 @@ func Compact(path string) (Result, error) { return Result{}, ErrUnsupported }
 
 // SizeOnDisk is likewise Windows-only.
 func SizeOnDisk(path string) (uint64, error) { return 0, ErrUnsupported }
+
+// Refusal is Windows-only; off Windows Compact refuses everything anyway.
+func Refusal(path string) []string { return nil }
