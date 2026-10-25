@@ -47,6 +47,15 @@ func (e *ErrStillHeld) Error() string {
 		"a minute after the last distro stops", e.Waited.Round(time.Second))
 }
 
+// ErrNotCompactable reports that Windows will not compact the disk file at
+// all, because it is sparse, compressed or encrypted (#565). Why lists which.
+type ErrNotCompactable struct{ Why []string }
+
+func (e *ErrNotCompactable) Error() string {
+	return "the disk is " + strings.Join(e.Why, " and ") +
+		", and Windows will not compact a sparse, compressed or encrypted disk"
+}
+
 // Distros is the slice of wsl.WSL this package needs.
 type Distros interface {
 	Exec(ctx context.Context, distro, user string, args ...string) (string, error)
@@ -61,6 +70,8 @@ type Disk interface {
 	Compact(path string) (vhdx.Result, error)
 	// SizeOnDisk is the file's footprint on the volume.
 	SizeOnDisk(path string) (uint64, error)
+	// Refusal names what makes the file uncompactable, or nil.
+	Refusal(path string) []string
 }
 
 // RealDisk is the production Disk, backed by internal/vhdx.
@@ -68,6 +79,7 @@ type RealDisk struct{}
 
 func (RealDisk) Compact(path string) (vhdx.Result, error) { return vhdx.Compact(path) }
 func (RealDisk) SizeOnDisk(path string) (uint64, error)   { return vhdx.SizeOnDisk(path) }
+func (RealDisk) Refusal(path string) []string             { return vhdx.Refusal(path) }
 
 // Options is one compaction request.
 type Options struct {
@@ -157,6 +169,12 @@ func (r *Runner) Run(ctx context.Context, opts Options) (Report, error) {
 		return rep, err
 	}
 	rep.BeforeBytes = before
+
+	// Before anything is trimmed or stopped, dry run included: the answer to
+	// "what would happen" is that Windows would refuse (#565).
+	if why := r.Disk.Refusal(opts.DiskPath); len(why) > 0 {
+		return rep, &ErrNotCompactable{Why: why}
+	}
 
 	holders, err := otherRunning(ctx, r.WSL, opts.Distro)
 	if err != nil {

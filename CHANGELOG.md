@@ -22,6 +22,12 @@ useful than saying where the real one is.
   process". It now retries the compaction itself until the disk is released (about a
   minute) or `--wait` runs out. `compact` also no longer boots an engine that was already
   stopped just to stop it, which with `--no-trim` saves that minute.
+- **`skrog compact` says up front when Windows cannot compact the disk** ([#565](https://github.com/wslkit/skrog/issues/565)).
+  Windows will not compact a sparse, compressed or encrypted `.vhdx`, and WSL 3.0.2+ makes
+  a disk sparse (`wsl --manage --set-sparse true`) without any unsafe flag. `compact`
+  trimmed and stopped the engine, then failed with Windows' raw "virtual disk system
+  limitation" error. It now checks before anything is stopped, `--dry-run` included, names
+  the cause, and gives the remedy (for sparse: `--set-sparse false` with WSL idle).
 - **`--distro` no longer acts on a different engine** ([#561](https://github.com/wslkit/skrog/issues/561)).
   Wherever an install exists, its manifest decided the distro and the flag was silently
   ignored: `skrog compact --distro X` compacted the installed engine instead. `compact`,

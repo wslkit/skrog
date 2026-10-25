@@ -187,7 +187,25 @@ func reportCompactError(err error, rep compact.Report, asJSON, leftDown bool) in
 	}
 	var held *compact.ErrHeldByOthers
 	var still *compact.ErrStillHeld
+	var notCompactable *compact.ErrNotCompactable
 	switch {
+	case errors.As(err, &notCompactable):
+		if !asJSON {
+			fmt.Fprintf(os.Stderr, "skrog: %s: %v\n", rep.Path, notCompactable)
+			for _, why := range notCompactable.Why {
+				switch why {
+				case "sparse":
+					fmt.Fprintln(os.Stderr, "  To undo sparse mode: `skrog stop`, wait about a minute for WSL to go idle, then")
+					fmt.Fprintf(os.Stderr, "    wsl --manage %s --set-sparse false\n", rep.Distro)
+				case "compressed":
+					fmt.Fprintf(os.Stderr, "  Turn off NTFS compression on %s.\n", filepath.Dir(rep.Path))
+				case "encrypted":
+					fmt.Fprintf(os.Stderr, "  Turn off EFS encryption on %s.\n", filepath.Dir(rep.Path))
+				}
+			}
+			fmt.Fprintln(os.Stderr, "  Nothing was stopped or changed.")
+		}
+		return exitError
 	case errors.As(err, &held):
 		if !asJSON {
 			fmt.Fprintf(os.Stderr, "skrog: %s is still open in %s\n", filepath.Base(rep.Path), joinList(held.Holders))
