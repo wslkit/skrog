@@ -58,7 +58,8 @@ type compactVirtualDiskParameters struct {
 // Compact shrinks the .vhdx at path, returning its size on disk before and
 // after. The disk must not be attached: WSL holds every distro's disk open
 // while any distro is running, and the caller is expected to have stopped
-// things and waited (see WaitUntilFree).
+// things. A disk that is still held fails with ErrInUse and is left unchanged,
+// so the caller can retry until WSL lets go of it.
 //
 // No elevation is required. That is the property the whole feature rests on --
 // Optimize-VHD needs the Hyper-V module, which Windows Home does not have.
@@ -83,7 +84,13 @@ func Compact(path string) (Result, error) {
 		0, // no OVERLAPPED
 	)
 	if r != 0 {
-		return Result{}, fmt.Errorf("vhdx: CompactVirtualDisk(%s): %w", path, syscallErr(r, e))
+		err := syscallErr(r, e)
+		// On WSL 3.0 the open succeeds while the utility VM still holds the
+		// disk, and the sharing violation arrives here instead (#560).
+		if errno, ok := err.(windows.Errno); ok && errno == windows.ERROR_SHARING_VIOLATION {
+			return Result{}, fmt.Errorf("%w: %s", ErrInUse, path)
+		}
+		return Result{}, fmt.Errorf("vhdx: CompactVirtualDisk(%s): %w", path, err)
 	}
 
 	after, err := SizeOnDisk(path)
@@ -93,9 +100,10 @@ func Compact(path string) (Result, error) {
 	return Result{Before: before, After: after}, nil
 }
 
-// open opens the disk with the V2 parameters and VIRTUAL_DISK_ACCESS_NONE, the
-// only combination that fails at the open rather than at the compaction when
-// the disk cannot be had.
+// open opens the disk with the V2 parameters and VIRTUAL_DISK_ACCESS_NONE.
+// Against WSL 2.7 this was the combination that failed at the open rather than
+// at the compaction when the disk could not be had; against WSL 3.0.3 the open
+// succeeds while the disk is held (#560), so Compact checks both.
 func open(path string) (windows.Handle, error) {
 	p, err := windows.UTF16PtrFromString(path)
 	if err != nil {
@@ -166,17 +174,4 @@ func getCompressedFileSize(name *uint16, high *uint32) (uint32, error) {
 		return invalidFileSize, e
 	}
 	return uint32(r), nil
-}
-
-// Free reports whether the disk can be opened for compaction right now, i.e.
-// whether the utility VM has let go of it. It opens and closes, which is the
-// only reliable probe: file-locking APIs cannot see a handle held by a VM
-// worker process.
-func Free(path string) bool {
-	h, err := open(path)
-	if err != nil {
-		return false
-	}
-	windows.CloseHandle(h)
-	return true
 }
