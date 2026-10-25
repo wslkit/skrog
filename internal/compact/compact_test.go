@@ -23,6 +23,11 @@ type fakeWSL struct {
 
 func (f *fakeWSL) Exec(_ context.Context, distro, user string, args ...string) (string, error) {
 	f.calls = append(f.calls, "exec:"+distro+":"+strings.Join(args, " "))
+	// WSL 3.0's relay does not search /sbin for `wsl --exec`, though /sbin is
+	// on the PATH the process gets (#560).
+	if args[0] == "fstrim" {
+		return "execvpe(fstrim) failed: No such file or directory", errors.New("exit status 1")
+	}
 	return f.fstrimOut, f.fstrimErr
 }
 
@@ -94,7 +99,7 @@ func TestHappyPathOrdersTrimStopTerminateCompact(t *testing.T) {
 	if !started {
 		t.Error("--restart did not start the engine again")
 	}
-	if got := strings.Join(w.calls, "|"); !strings.Contains(got, "exec:skrog-engine:fstrim -v /") ||
+	if got := strings.Join(w.calls, "|"); !strings.Contains(got, "exec:skrog-engine:/sbin/fstrim -v /") ||
 		!strings.Contains(got, "terminate:skrog-engine") {
 		t.Errorf("calls = %s", got)
 	}

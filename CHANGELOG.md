@@ -14,6 +14,10 @@ useful than saying where the real one is.
 
 ### Fixed
 
+- **`skrog compact` no longer fails at `fstrim` on WSL 3.0** ([#560](https://github.com/wslkit/skrog/issues/560)).
+  WSL 3.0's `wsl --exec` does not find tools in `/sbin` by name, so the first step failed
+  with `execvpe(fstrim) failed`. It now runs `/sbin/fstrim`. On WSL 3.0.3 compaction still
+  fails at the next step, because the disk is not released; #560 tracks that.
 - **`wsl.auto-memory-reclaim` now takes effect** ([#550](https://github.com/wslkit/skrog/issues/550)).
   `skrog wsl-config apply` wrote `autoMemoryReclaim` under `[wsl2]`, but WSL reads it only
   as `experimental.autoMemoryReclaim`: it ignored the line and printed `Unknown key
