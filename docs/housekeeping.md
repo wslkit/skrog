@@ -183,16 +183,31 @@ rather than anything that sounds like a result.
 
 WSL can mark a disk sparse (`wsl --manage <distro> --set-sparse true`) so it
 hands space back on its own, which sounds like it makes compaction
-unnecessary. Skrog does **not** turn it on, for two reasons:
+unnecessary. Skrog does **not** turn it on:
 
-- Microsoft put automatic sparse mode behind `--allow-unsafe` in WSL 2.5.6
-  after reports of data corruption
-  ([WSL#12103](https://github.com/microsoft/WSL/issues/12103)).
-- It does nothing for a disk that has already grown, which is the disk you
-  actually want to shrink.
+- **It is still experimental.** WSL 2.5.6 put it behind `--allow-unsafe` after
+  reports of data corruption
+  ([WSL#12103](https://github.com/microsoft/WSL/issues/12103)). WSL 3.0.2
+  dropped that flag, but on 3.0.3 setting it still prints *"Sparse VHDs are
+  currently experimental"*. A sparse disk corrupted when the host drive filled
+  up ([WSL#41837](https://github.com/microsoft/WSL/issues/41837)) was open when
+  this was written.
+- **It does nothing for a disk that has already grown**, which is the disk you
+  actually want to shrink. Marking a grown disk sparse left it the same size.
+- **In one test on WSL 3.0.3 it gave nothing back at all.** The disk was set
+  sparse while stopped, then 2 GiB was written and deleted. The size on disk
+  did not change, even after the VM had gone idle.
+- **It stops compaction working.** Windows will not compact a sparse disk:
+  `skrog compact` and `wsl --manage <distro> --compact` both fail with
+  *"Virtual hard disk files must be uncompressed and unencrypted and must not
+  be sparse"*. By that wording, a disk that is NTFS-compressed or
+  EFS-encrypted is refused too (not tested).
 
 If you want it anyway, that is a deliberate choice to make yourself, with the
-engine stopped.
+engine stopped. To undo it, stop the engine, wait for WSL to go idle (about a
+minute with no distro running), and run
+`wsl --manage skrog-engine --set-sparse false`. `skrog compact` works again
+after that.
 
 *The mechanics above — unelevated compaction, the utility VM's release timing,
 and `fstrim`'s misleading figure — come from the research in
