@@ -72,6 +72,9 @@ flags:
 
 	opts := optsWithResolvedStateDir(provision.Options{StateDir: *stateDir, Distro: *distro})
 	p := &provision.Provisioner{Logger: cliLogger(false)}
+	if refuseDistroConflict(p, opts) {
+		return exitUsage
+	}
 	target, ok := requireDistroInstall(p, opts)
 	if !ok {
 		return exitNotFound

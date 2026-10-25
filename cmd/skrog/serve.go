@@ -72,6 +72,10 @@ flags:
 
 	opts := optsWithResolvedStateDir(provision.Options{StateDir: *stateDir, Distro: *distro})
 	log := cliLogger(false)
+	p := &provision.Provisioner{Logger: log}
+	if refuseDistroConflict(p, opts) {
+		return exitUsage
+	}
 
 	cfg, err := serverTLSConfig(tlsDir(opts.StateDir))
 	if err != nil {
@@ -79,7 +83,6 @@ flags:
 		return exitNotFound
 	}
 
-	p := &provision.Provisioner{Logger: log}
 	targetDistro, ok := resolveDistro(p, opts)
 	if !ok {
 		fmt.Fprintln(os.Stderr, "skrog: no install found. Run `skrog install` first.")

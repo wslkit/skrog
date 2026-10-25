@@ -67,6 +67,9 @@ flags:
 	// The manifest knows which distro this machine actually has, which matters
 	// when it was installed under a custom name.
 	p := &provision.Provisioner{Logger: log}
+	if refuseDistroConflict(p, opts) {
+		return exitUsage
+	}
 	targetDistro := opts.Distro
 	if m, err := p.ReadManifest(opts); err == nil && m.Distro != "" {
 		targetDistro = m.Distro

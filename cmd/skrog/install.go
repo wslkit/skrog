@@ -326,6 +326,9 @@ flags:
 	opts := provision.Options{Distro: *distro, StateDir: *stateDir}
 	log := cliLogger(false)
 	p := &provision.Provisioner{Logger: log}
+	if refuseDistroConflict(p, opts) {
+		return exitUsage
+	}
 
 	// A named engine is removed with `skrog target remove`; uninstalling one as
 	// if it were an install would leave its context and logon entry behind.
