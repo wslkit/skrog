@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/wslkit/skrog/internal/provision"
 	"github.com/wslkit/skrog/internal/selfexe"
@@ -46,6 +47,39 @@ const legacyBackendMessage = "skrog: this install uses the WSL container session
 	"  Containers and images in the old session are NOT carried over -- they\n" +
 	"  belong to the other engine. Save anything you need with `wslc` before\n" +
 	"  uninstalling.\n"
+
+// distroConflict is what to say when --distro names a different distro from
+// the one the install manifest records, or "" when there is no conflict.
+//
+// The manifest wins everywhere a distro is resolved, so `compact --distro X`
+// on a machine whose engine is Y used to compact Y (#561). Honouring the flag
+// instead would pair X with Y's state -- its disk path, its secret, its
+// supervisor -- so a conflict is refused. Another install is reached by its
+// --state-dir, which carries its own manifest.
+func distroConflict(p *provision.Provisioner, opts provision.Options) string {
+	if opts.Distro == "" {
+		return ""
+	}
+	opts = optsWithResolvedStateDir(opts)
+	m, err := p.ReadManifest(opts)
+	if err != nil || m.Distro == "" || strings.EqualFold(m.Distro, opts.Distro) {
+		return ""
+	}
+	return fmt.Sprintf("skrog: --distro %s does not match this install's engine, %s (recorded in %s).\n"+
+		"  --distro only chooses a distro where there is no install; to act on another\n"+
+		"  install, pass its --state-dir.\n", opts.Distro, m.Distro, opts.StateDir)
+}
+
+// refuseDistroConflict prints distroConflict's message, reporting whether
+// there was one.
+func refuseDistroConflict(p *provision.Provisioner, opts provision.Options) bool {
+	msg := distroConflict(p, opts)
+	if msg == "" {
+		return false
+	}
+	fmt.Fprint(os.Stderr, msg)
+	return true
+}
 
 // requireDistroInstall resolves the engine distro for a command that needs
 // one, and explains itself when there is not one.

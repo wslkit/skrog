@@ -180,6 +180,11 @@ flags:
 	opts := provision.Options{Distro: *distro, StateDir: *stateDir}
 	opts = optsWithResolvedStateDir(opts)
 
+	// A refused command must not take the lock or clear the endpoint record.
+	if refuseDistroConflict(&provision.Provisioner{}, opts) {
+		return exitUsage
+	}
+
 	// Single instance before anything else: two supervisors would fight over
 	// the pipe and the engine.
 	lock, err := supervise.Acquire(opts.StateDir)

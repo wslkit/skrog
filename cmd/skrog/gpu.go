@@ -74,6 +74,9 @@ flags:
 	opts := optsWithResolvedStateDir(provision.Options{StateDir: *stateDir, Distro: *distro, GPUVendor: string(v)})
 	log := cliLogger(false)
 	p := &provision.Provisioner{Logger: log}
+	if refuseDistroConflict(p, opts) {
+		return exitUsage
+	}
 
 	targetDistro, ok := requireDistroInstall(p, opts)
 	if !ok {

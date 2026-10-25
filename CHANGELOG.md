@@ -22,6 +22,12 @@ useful than saying where the real one is.
   process". It now retries the compaction itself until the disk is released (about a
   minute) or `--wait` runs out. `compact` also no longer boots an engine that was already
   stopped just to stop it, which with `--no-trim` saves that minute.
+- **`--distro` no longer acts on a different engine** ([#561](https://github.com/wslkit/skrog/issues/561)).
+  Wherever an install exists, its manifest decided the distro and the flag was silently
+  ignored: `skrog compact --distro X` compacted the installed engine instead. `compact`,
+  `enable-gpu`, `relocate`, `serve`, `proxy`, `supervise` and `uninstall` now refuse a
+  `--distro` that differs from the installed one (exit 2) and point at `--state-dir`, which
+  is how another install is reached. The installed name itself, in any case, is accepted.
 - **`wsl.auto-memory-reclaim` now takes effect** ([#550](https://github.com/wslkit/skrog/issues/550)).
   `skrog wsl-config apply` wrote `autoMemoryReclaim` under `[wsl2]`, but WSL reads it only
   as `experimental.autoMemoryReclaim`: it ignored the line and printed `Unknown key
