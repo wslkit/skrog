@@ -195,7 +195,9 @@ func (r *Runner) Run(ctx context.Context, opts Options) (Report, error) {
 	// 1. Trim: the guest tells the disk what it no longer uses. Without this,
 	//    compaction has nothing to reclaim.
 	if !opts.NoTrim {
-		out, err := r.WSL.Exec(ctx, opts.Distro, "root", "fstrim", "-v", "/")
+		// By path: WSL 3.0's `wsl --exec` does not find /sbin tools by name
+		// (#560). The rootfs is ours, so the path is fixed.
+		out, err := r.WSL.Exec(ctx, opts.Distro, "root", "/sbin/fstrim", "-v", "/")
 		if err != nil {
 			return rep, fmt.Errorf("compact: fstrim in %s: %w: %s", opts.Distro, err, strings.TrimSpace(out))
 		}
