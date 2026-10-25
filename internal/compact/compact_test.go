@@ -3,6 +3,7 @@ package compact_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -38,8 +39,8 @@ func (f *fakeWSL) Terminate(_ context.Context, distro string) error {
 
 func (f *fakeWSL) List(_ context.Context) ([]wsl.Distro, error) { return f.distros, nil }
 
-// fakeDisk becomes free after freeAfter probes, so the wait loop is exercised
-// without real time passing.
+// fakeDisk is held for the first freeAfter compaction attempts, so the wait
+// loop is exercised without real time passing.
 type fakeDisk struct {
 	size      uint64
 	after     uint64
@@ -49,12 +50,15 @@ type fakeDisk struct {
 	err       error
 }
 
-func (d *fakeDisk) Free(string) bool {
-	d.probes++
-	return d.probes > d.freeAfter
-}
+// Free answers the way opening the disk does on WSL 3.0: yes, even while the
+// utility VM holds it (#560). Nothing should rely on it.
+func (d *fakeDisk) Free(string) bool { return true }
 
-func (d *fakeDisk) Compact(string) (vhdx.Result, error) {
+func (d *fakeDisk) Compact(path string) (vhdx.Result, error) {
+	d.probes++
+	if d.probes <= d.freeAfter {
+		return vhdx.Result{}, fmt.Errorf("%w: %s", vhdx.ErrInUse, path)
+	}
 	d.compacted++
 	if d.err != nil {
 		return vhdx.Result{}, d.err

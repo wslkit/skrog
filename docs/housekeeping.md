@@ -164,8 +164,11 @@ advance whether it would refuse, and who is holding the disk.
 
 With nothing else running, the utility VM releases the disk on its idle timer,
 about a minute after the last distro stops (measured at ~66 s against WSL
-2.7.8.0, whose `vmIdleTimeout` defaults to 60 s). `compact` waits 90 s for
-that; raise it with `--wait 3m` on a slow machine.
+2.7.8.0 and 60 s against 3.0.3, whose `vmIdleTimeout` defaults to 60 s).
+`compact` waits 90 s for that; raise it with `--wait 3m` on a slow machine.
+It tells by trying the compaction itself, because on WSL 3.0 opening the disk
+succeeds while the VM still holds it
+([#560](https://github.com/wslkit/skrog/issues/560)).
 
 ### What the numbers mean
 

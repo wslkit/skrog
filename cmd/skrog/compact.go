@@ -113,6 +113,13 @@ flags:
 			}
 			pinned = true
 			supervise.WriteEngineState(opts.StateDir, supervise.EngineActive)
+			// An engine that is already down has nothing to stop, and stopping
+			// it anyway boots it: StopEngine removes the emulation handlers from
+			// inside the distro first (#462), which wakes the utility VM and
+			// holds the disk for another minute (#560).
+			if running, err := p.DistroRunning(ctx, opts); err == nil && !running {
+				return nil
+			}
 			return p.StopEngine(ctx, opts)
 		},
 		Start: func(ctx context.Context) error {

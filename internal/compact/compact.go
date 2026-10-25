@@ -57,9 +57,7 @@ type Distros interface {
 // Disk is the virtual-disk half, injected so the flow is testable without a
 // real .vhdx.
 type Disk interface {
-	// Free reports whether the disk can be opened for compaction now.
-	Free(path string) bool
-	// Compact shrinks it.
+	// Compact shrinks it, failing with vhdx.ErrInUse while WSL still holds it.
 	Compact(path string) (vhdx.Result, error)
 	// SizeOnDisk is the file's footprint on the volume.
 	SizeOnDisk(path string) (uint64, error)
@@ -68,7 +66,6 @@ type Disk interface {
 // RealDisk is the production Disk, backed by internal/vhdx.
 type RealDisk struct{}
 
-func (RealDisk) Free(path string) bool                    { return vhdx.Free(path) }
 func (RealDisk) Compact(path string) (vhdx.Result, error) { return vhdx.Compact(path) }
 func (RealDisk) SizeOnDisk(path string) (uint64, error)   { return vhdx.SizeOnDisk(path) }
 
@@ -218,10 +215,10 @@ func (r *Runner) Run(ctx context.Context, opts Options) (Report, error) {
 	}
 	rep.Steps = append(rep.Steps, "stopped the engine and terminated the distro")
 
-	// 3. Wait for the utility VM to let go.
-	waited, ok := r.waitForRelease(ctx, opts)
+	// 3. Wait for the utility VM to let go, and 4. compact.
+	res, waited, err := r.compactWhenReleased(ctx, opts)
 	rep.WaitedSeconds = waited.Seconds()
-	if !ok {
+	if errors.Is(err, vhdx.ErrInUse) {
 		// Re-check who is running: something may have started while we waited,
 		// which is a different (and fixable) situation from a slow wind-down.
 		// Cancellation is not a diagnosis. Ctrl-C during the wait used to
@@ -235,13 +232,10 @@ func (r *Runner) Run(ctx context.Context, opts Options) (Report, error) {
 		}
 		return rep, &ErrStillHeld{Waited: waited}
 	}
-	rep.Steps = append(rep.Steps, fmt.Sprintf("WSL released the disk after %s", waited.Round(time.Second)))
-
-	// 4. Compact.
-	res, err := r.Disk.Compact(opts.DiskPath)
 	if err != nil {
 		return rep, err
 	}
+	rep.Steps = append(rep.Steps, fmt.Sprintf("WSL released the disk after %s", waited.Round(time.Second)))
 	rep.BeforeBytes, rep.AfterBytes = res.Before, res.After
 	rep.ReclaimedBytes = res.Reclaimed()
 	rep.Steps = append(rep.Steps, "compacted the disk")
@@ -261,23 +255,30 @@ func (r *Runner) Run(ctx context.Context, opts Options) (Report, error) {
 	return rep, nil
 }
 
-// waitForRelease polls until the disk can be opened, returning how long it took.
-func (r *Runner) waitForRelease(ctx context.Context, opts Options) (time.Duration, bool) {
+// compactWhenReleased retries the compaction until WSL lets go of the disk,
+// returning how long the release took.
+//
+// The attempt is the probe. Opening the disk used to be, but on WSL 3.0 the
+// open succeeds while the utility VM still holds the disk, so a wait built on
+// it ended at once and the compaction failed (#560). An attempt on a held disk
+// changes nothing.
+//
+// A vhdx.ErrInUse return means the wait ran out or ctx was cancelled; the
+// caller tells them apart, because reporting "the utility VM still had the
+// disk after 11s" to someone who pressed Ctrl-C diagnoses a problem that did
+// not happen (#243).
+func (r *Runner) compactWhenReleased(ctx context.Context, opts Options) (vhdx.Result, time.Duration, error) {
 	start := time.Now()
 	deadline := start.Add(opts.wait())
 	for {
-		if r.Disk.Free(opts.DiskPath) {
-			return time.Since(start), true
-		}
-		if time.Now().After(deadline) {
-			return time.Since(start), false
+		attempt := time.Now()
+		res, err := r.Disk.Compact(opts.DiskPath)
+		if !errors.Is(err, vhdx.ErrInUse) || time.Now().After(deadline) {
+			return res, attempt.Sub(start), err
 		}
 		select {
 		case <-ctx.Done():
-			// Distinguished from the deadline by the caller: reporting "the
-			// utility VM still had the disk after 11s" to someone who pressed
-			// Ctrl-C diagnoses a problem that did not happen (#243).
-			return time.Since(start), false
+			return res, time.Since(start), err
 		case <-time.After(opts.poll()):
 		}
 	}

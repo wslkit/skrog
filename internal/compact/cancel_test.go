@@ -12,7 +12,7 @@ import (
 
 // Ctrl-C during the wait must be reported as an interruption, not a timeout.
 //
-// waitForRelease returns the same "not ok" for a cancelled context and an
+// The wait used to return the same "not ok" for a cancelled context and an
 // expired deadline, so an interrupted run produced ErrStillHeld — telling the
 // user "the WSL utility VM still had the disk after 11s; it releases it about a
 // minute after the last distro stops" and advising a re-run or a longer
