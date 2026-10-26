@@ -38,8 +38,30 @@
   ],
   "engines": [
     {
-      "version": "29.9.0",
+      "version": "29.9.2",
       "default": true,
+      "rootfs": {
+        "amd64": {
+          "url": "https://github.com/wslkit/skrog/releases/download/rootfs-v29.9.2-1/skrog-rootfs-29.9.2-1-amd64.tar.gz",
+          "sha256": "8be21d15f1debce03f2e707c0eb6258a85a70bdd92c7f83275864f3c4a427b31"
+        },
+        "arm64": {
+          "url": "https://github.com/wslkit/skrog/releases/download/rootfs-v29.9.2-1/skrog-rootfs-29.9.2-1-arm64.tar.gz",
+          "sha256": "bf9d7d3c5f3dbee42dd6c9a9fcde1f90db600ed0fee6a97cf6400151e46690aa"
+        }
+      },
+      "components": {
+        "dockerd": "29.9.2",
+        "containerd": "2.3.7",
+        "runc": "1.5.2",
+        "buildkit": "0.33.1",
+        "alpine": "3.24.1",
+        "nvidia-cdi-hook": "1.20.0"
+      }
+    },
+    {
+      "version": "29.9.0",
+      "default": false,
       "rootfs": {
         "amd64": {
           "url": "https://github.com/wslkit/skrog/releases/download/rootfs-v29.9.0-2/skrog-rootfs-29.9.0-2-amd64.tar.gz",
