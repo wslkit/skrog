@@ -12,6 +12,13 @@ useful than saying where the real one is.
 
 ## [Unreleased]
 
+## [0.11.0] — 2026-10-25
+
+Each project can have its own engine: `skrog target create` installs a second,
+fully isolated one, and `skrog use` switches docker between them. The default
+engine moves to 29.9.2, with Go and containerd security fixes. `skrog compact`
+works again on WSL 3.0, and `--distro` can no longer act on the wrong engine.
+
 ### Security
 
 - **The default engine is 29.9.2, built with Go 1.26.10, with containerd 2.3.7.**
@@ -102,6 +109,11 @@ useful than saying where the real one is.
   state shared by every WSL2 distro. Stopping or removing any engine deregisters them
   for all, so with several engines running an idle-stop of one can take foreign
   architecture support away from another until an engine next starts.
+- **On engine 29.9.0, `docker run` output was sometimes lost right after a start**
+  ([#569](https://github.com/wslkit/skrog/issues/569)): exit 0, empty stdout, in 4 of 23
+  runs measured immediately after a start, against 0 of 53 on 29.9.2. Not introduced by
+  this release, and the cause is not yet known. It matters here because `skrog engine
+  rollback` from 29.9.2 returns to 29.9.0.
 
 ### Changed
 
@@ -1485,7 +1497,8 @@ Below are not ours, but you will hit them.
   both preserved. If you use the wslc backend with non-root containers, this
   is a reason to update WSL. The distro backend was never affected.
 
-[Unreleased]: https://github.com/wslkit/skrog/compare/v0.10.0...HEAD
+[Unreleased]: https://github.com/wslkit/skrog/compare/v0.11.0...HEAD
+[0.11.0]: https://github.com/wslkit/skrog/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/wslkit/skrog/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/wslkit/skrog/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/wslkit/skrog/compare/v0.7.1...v0.8.0
