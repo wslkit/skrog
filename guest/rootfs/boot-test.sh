@@ -68,7 +68,20 @@ docker exec "$name" /usr/local/bin/docker-proxy --help >/dev/null 2>&1 || true
 docker exec "$name" sh -c '
     set -eu
     # A dead engine answers nothing; this is the check that actually matters.
-    /usr/local/bin/ctr --address /var/run/docker/containerd/containerd.sock version >/dev/null
+    # Retried: docker.sock coming up does not mean dockerd'"'"'s managed
+    # containerd has created its socket yet. On 29.10.0 the API socket won that
+    # race once, and a single attempt failed the rootfs-v29.10.0-1 release build
+    # on an engine that was fine.
+    sock=/var/run/docker/containerd/containerd.sock
+    i=0
+    until /usr/local/bin/ctr --address "$sock" version >/dev/null 2>&1; do
+        i=$((i + 1))
+        if [ "$i" -ge 30 ]; then
+            /usr/local/bin/ctr --address "$sock" version >/dev/null # show why
+            exit 1
+        fi
+        sleep 1
+    done
     echo "  containerd responds"
 '
 

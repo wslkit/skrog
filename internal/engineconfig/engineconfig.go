@@ -47,7 +47,7 @@ type Key struct {
 // change, not user-supplied JSON.
 var keys = []Key{
 	{"registry-mirrors", KindStringList, "pull-through mirror URLs, tried before Docker Hub"},
-	{"insecure-registries", KindStringList, "registries reachable over HTTP or with an untrusted cert (host[:port] or CIDR)"},
+	{"insecure-registries", KindStringList, "registries reachable over HTTP or with an untrusted cert (host[:port] or CIDR); loopback stays insecure too"},
 	{"dns", KindStringList, "DNS servers for containers"},
 	{"dns-search", KindStringList, "DNS search domains for containers"},
 	{"log-driver", KindString, "default container logging driver, e.g. json-file or local"},
@@ -72,6 +72,63 @@ var keys = []Key{
 // configuration Skrog has to be correct in.
 var Defaults = map[string]string{
 	"userland-proxy": "false",
+}
+
+// LoopbackRegistries are the addresses dockerd treated as insecure on its own,
+// whatever insecure-registries said, until engine 29.10.0. From 29.10.0 it adds
+// them only when insecure-registries is absent (moby/moby#53868), so setting
+// the key for one corporate registry silently made every plain-HTTP registry
+// on loopback secure -- including `skrog cache`, which dockerd reaches at
+// http://127.0.0.1:5000. Skrog keeps them in any list it writes, so the key
+// means what it meant before the engine upgrade: "these, as well".
+var LoopbackRegistries = []string{"127.0.0.0/8", "::1/128"}
+
+// keepLoopbackInsecure appends LoopbackRegistries to a non-empty
+// insecure-registries list that lacks them, and reports whether cfg changed.
+// An absent or empty key is left alone: dockerd applies the loopback default
+// itself then, and writing the list would turn that default into a choice.
+// The value is []string when it came from parseValue and []any when it was
+// decoded from daemon.json; both are handled.
+func keepLoopbackInsecure(cfg map[string]any) bool {
+	const name = "insecure-registries"
+	var list []string
+	switch v := cfg[name].(type) {
+	case []string:
+		list = append(list, v...)
+	case []any:
+		for _, e := range v {
+			s, ok := e.(string)
+			if !ok {
+				return false // not a shape Skrog wrote; leave it for dockerd to judge
+			}
+			list = append(list, s)
+		}
+	default:
+		return false
+	}
+	if len(list) == 0 {
+		return false
+	}
+	changed := false
+	for _, lb := range LoopbackRegistries {
+		if !containsString(list, lb) {
+			list = append(list, lb)
+			changed = true
+		}
+	}
+	if changed {
+		cfg[name] = list
+	}
+	return changed
+}
+
+func containsString(list []string, s string) bool {
+	for _, e := range list {
+		if strings.TrimSpace(e) == s {
+			return true
+		}
+	}
+	return false
 }
 
 func keyByName(name string) (Key, bool) {

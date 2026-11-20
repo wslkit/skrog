@@ -130,6 +130,7 @@ func (m *Manager) Set(ctx context.Context, name, raw string) (SetResult, error) 
 	} else {
 		cfg[name] = value
 	}
+	keepLoopbackInsecure(cfg)
 
 	res, err := m.commit(ctx, cfg)
 	if err != nil {
@@ -164,6 +165,7 @@ func (m *Manager) SetMany(ctx context.Context, kv map[string]string) (SetResult,
 			cfg[name] = value
 		}
 	}
+	keepLoopbackInsecure(cfg)
 	return m.commit(ctx, cfg)
 }
 
@@ -192,6 +194,12 @@ func (m *Manager) ApplyDefaults(ctx context.Context) ([]string, error) {
 		}
 		cfg[name] = value
 		added = append(added, name)
+	}
+	// Not a default, but it lands the same way and for the same reason: an
+	// install whose insecure-registries predates engine 29.10.0 must not lose
+	// loopback (and with it `skrog cache`) on upgrade. See LoopbackRegistries.
+	if keepLoopbackInsecure(cfg) {
+		added = append(added, "insecure-registries")
 	}
 	if len(added) == 0 {
 		return nil, nil

@@ -39,6 +39,13 @@ dockerd reaches it on **loopback** (`http://127.0.0.1:5000`), which Docker
 treats as insecure-by-default. Nothing is exposed to the network, and no
 `insecure-registries` entry is needed.
 
+That default has one catch. From engine 29.10.0, dockerd treats loopback as
+insecure only while `insecure-registries` is **unset** (moby/moby#53868), so
+setting it for a corporate registry would cut the cache off. Skrog therefore
+keeps `127.0.0.0/8` and `::1/128` in any `engine.insecure-registries` list it
+writes, and adds them before the engine starts to a list that predates the
+upgrade. `skrog config get engine.insecure-registries` shows them.
+
 ## Status
 
 ```
