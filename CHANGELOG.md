@@ -12,6 +12,30 @@ useful than saying where the real one is.
 
 ## [Unreleased]
 
+### Security
+
+- **The default engine is 29.10.0, built with Go 1.27.4, with runc 1.5.3.** Go 1.27.4 is
+  the toolchain moby 29.10.0 itself ships with, and the first move of the rootfs onto the
+  1.27 line. runc moves from 1.5.2 to 1.5.3, as in moby's own static binaries, for
+  CVE-2026-119101 (a crafted image could make `runc restore` bind-mount a host directory
+  into a restored container). containerd stays at 2.3.7 and BuildKit at 0.33.1: moby
+  29.10.0 vendors newer ones, but neither has a security fix that ours lacks. Existing
+  installs move with `skrog engine upgrade`; 29.9.2 stays in the manifest, so `skrog engine
+  rollback` returns to it.
+
+### Changed
+
+- **The bundled docker CLI is 29.10.0**, from 29.9.2, built with Go 1.27.4. amd64 is
+  Docker's own zip, checksum computed from the download; arm64 is built here
+  (`dockercli-v29.10.0`).
+- **`engine.insecure-registries` keeps loopback insecure.** From engine 29.10.0 dockerd
+  treats loopback as insecure only while `insecure-registries` is unset (moby/moby#53868),
+  so setting it for one corporate registry would have cut off `skrog cache` (which dockerd
+  reaches at `http://127.0.0.1:5000`) and any plain-HTTP registry on `localhost`. Skrog now
+  adds `127.0.0.0/8` and `::1/128` to any list it writes, and before the engine starts to a
+  list already in `daemon.json`, so the key means what it did before the upgrade. Unset,
+  nothing is written and dockerd's own default applies.
+
 ## [0.11.0] — 2026-10-25
 
 Each project can have its own engine: `skrog target create` installs a second,

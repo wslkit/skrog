@@ -39,20 +39,20 @@
   "components": [
     {
       "name": "docker",
-      "version": "29.9.2",
+      "version": "29.10.0",
       "role": "cli",
       "target": "docker.exe",
       "license": "Apache-2.0",
       "licenseURL": "https://raw.githubusercontent.com/docker/cli/master/LICENSE",
       "arch": {
         "amd64": {
-          "url": "https://download.docker.com/win/static/stable/x86_64/docker-29.9.2.zip",
-          "sha256": "b2be959bfed1281ddaf665c0972cba9a62ce30c542b6bcce82f055bf8886bc7d",
+          "url": "https://download.docker.com/win/static/stable/x86_64/docker-29.10.0.zip",
+          "sha256": "bb894f67d85155e635ce71980fb2cf587e71dad8c41cc145c42a0de5160b6561",
           "zipEntry": "docker/docker.exe"
         },
         "arm64": {
-          "url": "https://github.com/wslkit/skrog/releases/download/dockercli-v29.9.2/docker-29.9.2-windows-arm64.exe",
-          "sha256": "9954955562a61a18ec2cc1f102a12e95987e71883617fb28af15cd565c461b01"
+          "url": "",
+          "sha256": ""
         }
       }
     },
