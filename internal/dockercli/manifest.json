@@ -51,8 +51,8 @@
           "zipEntry": "docker/docker.exe"
         },
         "arm64": {
-          "url": "",
-          "sha256": ""
+          "url": "https://github.com/wslkit/skrog/releases/download/dockercli-v29.10.0/docker-29.10.0-windows-arm64.exe",
+          "sha256": "5c1e4313e84e19da6e2d749ed0e2fc7db6c551ff0540af4ebba6a06f01ca063c"
         }
       }
     },
