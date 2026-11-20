@@ -449,7 +449,11 @@ func (p *Provisioner) applyEngineDefaults(ctx context.Context, opts Options) {
 		return
 	}
 	for _, k := range added {
-		p.logger().Info("engine default applied", "key", "engine."+k, "value", engineconfig.Defaults[k])
+		v, ok := engineconfig.Defaults[k]
+		if !ok { // insecure-registries: loopback kept, not a default value
+			v = "+" + strings.Join(engineconfig.LoopbackRegistries, ",")
+		}
+		p.logger().Info("engine default applied", "key", "engine."+k, "value", v)
 	}
 }
 

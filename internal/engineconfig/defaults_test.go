@@ -98,3 +98,94 @@ func TestBoolKeyRoundTrip(t *testing.T) {
 		t.Error("Set of a non-boolean succeeded")
 	}
 }
+
+// Engine 29.10.0 stopped treating loopback as insecure once insecure-registries
+// is set (moby/moby#53868), which would have cut `skrog cache` off for anyone
+// with a corporate registry configured. Setting the key keeps loopback in it.
+func TestSetInsecureRegistriesKeepsLoopback(t *testing.T) {
+	f := newFakeDistro()
+	m := &Manager{WSL: f, Distro: "d"}
+
+	res, err := m.Set(context.Background(), "insecure-registries", "registry.internal:5000")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "registry.internal:5000,127.0.0.0/8,::1/128"; res.Applied != want {
+		t.Fatalf("Applied = %q, want %q", res.Applied, want)
+	}
+
+	// Already listed: not duplicated.
+	res, err = m.Set(context.Background(), "insecure-registries", "::1/128,127.0.0.0/8,r:5000")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "::1/128,127.0.0.0/8,r:5000"; res.Applied != want {
+		t.Fatalf("Applied = %q, want %q", res.Applied, want)
+	}
+
+	// Cleared: the key goes away, and dockerd's own loopback default applies.
+	if _, err := m.Set(context.Background(), "insecure-registries", ""); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(f.files[DefaultDaemonPath], "insecure-registries") {
+		t.Errorf("cleared key written back: %s", f.files[DefaultDaemonPath])
+	}
+}
+
+func TestSetManyInsecureRegistriesKeepsLoopback(t *testing.T) {
+	f := newFakeDistro()
+	m := &Manager{WSL: f, Distro: "d"}
+	if _, err := m.SetMany(context.Background(), map[string]string{"insecure-registries": "r:5000"}); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := m.Get(context.Background(), "insecure-registries")
+	if got != "r:5000,127.0.0.0/8,::1/128" {
+		t.Fatalf("insecure-registries = %q", got)
+	}
+}
+
+// An install upgraded to 29.10.0 with insecure-registries already in
+// daemon.json gets loopback added before dockerd starts.
+func TestApplyDefaultsKeepsLoopbackInExistingInsecureRegistries(t *testing.T) {
+	f := newFakeDistro()
+	f.files[DefaultDaemonPath] = `{"userland-proxy": false, "insecure-registries": ["r:5000"]}`
+	m := &Manager{WSL: f, Distro: "d"}
+
+	added, err := m.ApplyDefaults(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(added) != 1 || added[0] != "insecure-registries" {
+		t.Fatalf("added = %v, want [insecure-registries]", added)
+	}
+	got, _ := m.Get(context.Background(), "insecure-registries")
+	if got != "r:5000,127.0.0.0/8,::1/128" {
+		t.Fatalf("insecure-registries = %q", got)
+	}
+
+	// Second start: nothing left to do, nothing written.
+	f.ops = nil
+	if added, err := m.ApplyDefaults(context.Background()); err != nil || len(added) != 0 {
+		t.Fatalf("second ApplyDefaults = %v, %v", added, err)
+	}
+}
+
+// Absent or empty: dockerd's default covers loopback, and writing the list
+// would turn that default into a choice the user did not make.
+func TestApplyDefaultsLeavesUnsetInsecureRegistriesAlone(t *testing.T) {
+	for _, daemon := range []string{
+		`{"userland-proxy": false}`,
+		`{"userland-proxy": false, "insecure-registries": []}`,
+	} {
+		f := newFakeDistro()
+		f.files[DefaultDaemonPath] = daemon
+		m := &Manager{WSL: f, Distro: "d"}
+		added, err := m.ApplyDefaults(context.Background())
+		if err != nil || len(added) != 0 {
+			t.Fatalf("%s: added = %v, %v", daemon, added, err)
+		}
+		if f.files[DefaultDaemonPath] != daemon {
+			t.Errorf("%s rewritten: %s", daemon, f.files[DefaultDaemonPath])
+		}
+	}
+}

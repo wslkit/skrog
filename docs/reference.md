@@ -322,7 +322,7 @@ empty value to clear a key. Lists are comma-separated; maps are k=v,k=v.
 
   engine.dns                      DNS servers for containers
   engine.dns-search               DNS search domains for containers
-  engine.insecure-registries      registries reachable over HTTP or with an untrusted cert (host[:port] or CIDR)
+  engine.insecure-registries      registries reachable over HTTP or with an untrusted cert (host[:port] or CIDR); loopback stays insecure too
   engine.log-driver               default container logging driver, e.g. json-file or local
   engine.log-opts                 logging driver options, e.g. max-size=10m,max-file=3
   engine.max-concurrent-downloads parallel layer pulls per image
