@@ -24,7 +24,24 @@ const (
 	virtualDiskAccessNone   = 0
 	compactVirtualDiskV1    = 1
 	openVirtualDiskFlagNone = 0
+	// OPEN_VIRTUAL_DISK_FLAG_SUPPORT_ENCRYPTED_FILES: without it Windows
+	// refuses to compact an EFS-encrypted disk (ERROR_FILE_ENCRYPTED). See
+	// encryptedSupported for why it is not always passed.
+	openVirtualDiskFlagSupportEncryptedFiles = 0x00000800
 )
+
+// minBuildEncryptedVHD is the first Windows build (11 23H2) that accepts
+// openVirtualDiskFlagSupportEncryptedFiles. Windows 10 22H2 and Server 2022
+// reject the flag with ERROR_INVALID_PARAMETER even for an unencrypted disk, so
+// passing it unconditionally would break compaction there for everyone. WSL
+// learned this the same way (microsoft/WSL#42008, then #42041).
+const minBuildEncryptedVHD = 22631
+
+// encryptedSupported reports whether this Windows can open, and so compact, an
+// EFS-encrypted disk.
+func encryptedSupported() bool {
+	return windows.RtlGetVersion().BuildNumber >= minBuildEncryptedVHD
+}
 
 // MSFT vendor GUID, which identifies VHD/VHDX images.
 var msftVendorGUID = windows.GUID{
@@ -111,13 +128,17 @@ func open(path string) (windows.Handle, error) {
 	}
 	st := virtualStorageType{DeviceID: virtualStorageTypeDeviceVHDX, VendorID: msftVendorGUID}
 	params := openVirtualDiskParameters{Version: openVirtualDiskVersion2}
+	flags := uintptr(openVirtualDiskFlagNone)
+	if encryptedSupported() {
+		flags = openVirtualDiskFlagSupportEncryptedFiles
+	}
 
 	var handle windows.Handle
 	r, _, e := procOpenVirtualDisk.Call(
 		uintptr(unsafe.Pointer(&st)),
 		uintptr(unsafe.Pointer(p)),
 		uintptr(virtualDiskAccessNone),
-		uintptr(openVirtualDiskFlagNone),
+		flags,
 		uintptr(unsafe.Pointer(&params)),
 		uintptr(unsafe.Pointer(&handle)),
 	)
@@ -170,6 +191,9 @@ const invalidFileSize = 0xFFFFFFFF
 // a sparse one without any unsafe flag (#565). Checked up front so the engine
 // is not stopped for a compaction that cannot happen. An unreadable attribute
 // is not a refusal: the compaction will say what is wrong.
+//
+// Encrypted is a refusal only before build 22631: from there open passes the
+// flag that lets Windows compact an EFS-encrypted disk.
 func Refusal(path string) []string {
 	p, err := windows.UTF16PtrFromString(path)
 	if err != nil {
@@ -186,7 +210,7 @@ func Refusal(path string) []string {
 	if attrs&windows.FILE_ATTRIBUTE_COMPRESSED != 0 {
 		why = append(why, "compressed")
 	}
-	if attrs&windows.FILE_ATTRIBUTE_ENCRYPTED != 0 {
+	if attrs&windows.FILE_ATTRIBUTE_ENCRYPTED != 0 && !encryptedSupported() {
 		why = append(why, "encrypted")
 	}
 	return why

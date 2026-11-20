@@ -36,6 +36,16 @@ useful than saying where the real one is.
   list already in `daemon.json`, so the key means what it did before the upgrade. Unset,
   nothing is written and dockerd's own default applies.
 
+### Fixed
+
+- **`skrog compact` works on an EFS-encrypted disk** on Windows 11 23H2 (build 22631) and
+  later. It refused one up front (#565), because Windows will not open an encrypted
+  `.vhdx` for compaction unless asked to with `OPEN_VIRTUAL_DISK_FLAG_SUPPORT_ENCRYPTED_FILES`.
+  `compact` now passes that flag, as WSL 3.0.5 does for its own compact
+  (microsoft/WSL#42008). Older builds reject the flag even for an unencrypted disk
+  (microsoft/WSL#42041), so there nothing changes: no flag, and the encrypted disk is
+  still refused before anything is stopped. Tested against a real encrypted disk.
+
 ## [0.11.0] — 2026-10-25
 
 Each project can have its own engine: `skrog target create` installs a second,
