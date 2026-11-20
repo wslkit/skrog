@@ -12,6 +12,13 @@ useful than saying where the real one is.
 
 ## [Unreleased]
 
+## [0.12.0] — 2026-11-20
+
+The default engine moves to 29.10.0, built with Go 1.27.4, with runc 1.5.3 for a
+container-escape fix on restore, and the bundled docker CLI moves with it. A corporate
+`engine.insecure-registries` entry no longer cuts `skrog cache` off on the new engine, and
+`skrog compact` now handles EFS-encrypted disks on Windows 11 23H2 and later.
+
 ### Security
 
 - **The default engine is 29.10.0, built with Go 1.27.4, with runc 1.5.3.** Go 1.27.4 is
@@ -1531,7 +1538,8 @@ Below are not ours, but you will hit them.
   both preserved. If you use the wslc backend with non-root containers, this
   is a reason to update WSL. The distro backend was never affected.
 
-[Unreleased]: https://github.com/wslkit/skrog/compare/v0.11.0...HEAD
+[Unreleased]: https://github.com/wslkit/skrog/compare/v0.12.0...HEAD
+[0.12.0]: https://github.com/wslkit/skrog/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/wslkit/skrog/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/wslkit/skrog/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/wslkit/skrog/compare/v0.8.0...v0.9.0
