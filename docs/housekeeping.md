@@ -200,8 +200,11 @@ unnecessary. Skrog does **not** turn it on:
 - **It stops compaction working.** Windows will not compact a sparse disk:
   `skrog compact` and `wsl --manage <distro> --compact` both fail with
   *"Virtual hard disk files must be uncompressed and unencrypted and must not
-  be sparse"*. By that wording, a disk that is NTFS-compressed or
-  EFS-encrypted is refused too (not tested).
+  be sparse"*. By that wording, a disk that is NTFS-compressed is refused
+  too (not tested). An **EFS-encrypted** disk is the exception on Windows 11
+  23H2 (build 22631) and later: `skrog compact` opens it with the flag that
+  allows it, as WSL 3.0.5 does for its own compact. Older builds reject that
+  flag outright, so there it is still refused up front.
 
 If you want it anyway, that is a deliberate choice to make yourself, with the
 engine stopped. To undo it, stop the engine, wait for WSL to go idle (about a
